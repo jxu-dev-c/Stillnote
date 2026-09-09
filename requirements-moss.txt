@@ -1,0 +1,9 @@
+# MOSS custom code requires Transformers 5; VibeVoice requires Transformers 4.
+torch>=2.6,<3
+transformers>=5,<6
+av>=14,<17
+numpy>=1.26,<3
+librosa>=0.11,<1
+
+# Native Apple GPU runtime; same verified MOSS checkpoint, no alternate model download.
+mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@17001a6950956302f15b53d86b601324efe716ba ; sys_platform == "darwin" and platform_machine == "arm64"
