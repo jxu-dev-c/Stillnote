@@ -259,3 +259,86 @@ private func scratchDirectory() throws -> URL {
         }
     }
 }
+
+@Suite struct VideoMuxerTests {
+    /// Finishing a recording copies the captured H.264 frames and interleaves the mixed
+    /// meeting audio, so the saved movie plays with sound.
+    @Test func combinesCapturedVideoWithTheMixedAudio() async throws {
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let screen = directory.appendingPathComponent("screen.mp4")
+        try await writeSilentVideo(to: screen, seconds: 2)
+        let audio = directory.appendingPathComponent("mixed.wav")
+        try writeTone(to: audio, seconds: 2)
+
+        let destination = directory.appendingPathComponent("meeting.mp4")
+        try await VideoMuxer.mux(screen: screen, audio: audio, to: destination)
+
+        let asset = AVURLAsset(url: destination)
+        let video = try await asset.loadTracks(withMediaType: .video)
+        let sound = try await asset.loadTracks(withMediaType: .audio)
+        #expect(video.count == 1)
+        #expect(sound.count == 1)
+        let duration = try await asset.load(.duration).seconds
+        #expect(duration > 1.5 && duration < 3.0)
+        // The video is copied, not re-encoded, so it keeps its original dimensions.
+        let size = try await video[0].load(.naturalSize)
+        #expect(size == CGSize(width: 320, height: 240))
+    }
+
+    @Test func refusesAScreenFileWithoutVideo() async throws {
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let audio = directory.appendingPathComponent("mixed.wav")
+        try writeTone(to: audio, seconds: 1)
+        await #expect(throws: Error.self) {
+            try await VideoMuxer.mux(
+                screen: audio, audio: audio, to: directory.appendingPathComponent("out.mp4")
+            )
+        }
+    }
+
+    private func writeSilentVideo(to url: URL, seconds: Int) async throws {
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: 320,
+            AVVideoHeightKey: 240,
+        ])
+        input.expectsMediaDataInRealTime = false
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input,
+            sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        )
+        writer.add(input)
+        #expect(writer.startWriting())
+        writer.startSession(atSourceTime: .zero)
+        for frame in 0..<(seconds * 15) {
+            var buffer: CVPixelBuffer?
+            CVPixelBufferCreate(kCFAllocatorDefault, 320, 240, kCVPixelFormatType_32BGRA, nil, &buffer)
+            guard let buffer else { continue }
+            CVPixelBufferLockBaseAddress(buffer, [])
+            memset(CVPixelBufferGetBaseAddress(buffer), Int32(frame % 255), CVPixelBufferGetDataSize(buffer))
+            CVPixelBufferUnlockBaseAddress(buffer, [])
+            while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(5)) }
+            adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: 15))
+        }
+        input.markAsFinished()
+        await writer.finishWriting()
+    }
+
+    private func writeTone(to url: URL, seconds: Int) throws {
+        let writer = try PCMWriter(url: url)
+        let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32, sampleRate: Double(captureRate), channels: 1, interleaved: false
+        )!
+        let frames = AVAudioFrameCount(captureRate * seconds)
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
+        buffer.frameLength = frames
+        for index in 0..<Int(frames) {
+            buffer.floatChannelData![0][index] = sin(Float(index) * 0.05) * 0.4
+        }
+        _ = try writer.append(buffer, at: 0)
+        try writer.close()
+    }
+}

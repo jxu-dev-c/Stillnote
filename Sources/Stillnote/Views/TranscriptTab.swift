@@ -42,6 +42,8 @@ struct TranscriptTab: View {
             TextField("Search transcript", text: $search)
                 .textFieldStyle(.roundedBorder)
 
+            speakerChips
+
             if filtered.isEmpty {
                 ContentUnavailableView.search(text: search)
                     .frame(maxWidth: .infinity)
@@ -50,10 +52,6 @@ struct TranscriptTab: View {
                     row(segment)
                 }
             }
-        }
-        .inspector(isPresented: .constant(true)) {
-            speakerPanel
-                .inspectorColumnWidth(min: 180, ideal: 220, max: 300)
         }
         .sheet(item: $editing) { segment in
             SegmentEditor(meeting: meeting, segment: segment)
@@ -105,23 +103,34 @@ struct TranscriptTab: View {
                     in: .rect(cornerRadius: 6))
     }
 
-    private var speakerPanel: some View {
-        List {
-            Section("Speakers") {
-                ForEach(meeting.orderedSpeakerIDs(), id: \.self) { id in
-                    HStack(spacing: 8) {
-                        SpeakerAvatar(
-                            name: meeting.speakerName(id),
-                            color: SpeakerTint.color(for: id, in: meeting), size: 22
-                        )
-                        Text(meeting.speakerName(id)).lineLimit(1)
-                        Spacer()
-                        Button { beginRename(id) } label: { Image(systemName: "pencil") }
-                            .buttonStyle(.borderless)
-                            .disabled(meeting.status.isBusy)
-                    }
+    /// Speakers sit above the transcript as renameable chips: a panel would have to be
+    /// the window's inspector, which belongs to the whole meeting, not this one tab.
+    private var speakerChips: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { chips }
+            VStack(alignment: .leading, spacing: 6) { chips }
+        }
+    }
+
+    @ViewBuilder
+    private var chips: some View {
+        ForEach(meeting.orderedSpeakerIDs(), id: \.self) { id in
+            Button { beginRename(id) } label: {
+                HStack(spacing: 6) {
+                    SpeakerAvatar(
+                        name: meeting.speakerName(id),
+                        color: SpeakerTint.color(for: id, in: meeting), size: 20
+                    )
+                    Text(meeting.speakerName(id)).lineLimit(1)
+                    Image(systemName: "pencil").font(.caption2).foregroundStyle(.secondary)
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.quaternary.opacity(0.4), in: .capsule)
             }
+            .buttonStyle(.plain)
+            .help("Rename speaker")
+            .disabled(meeting.status.isBusy)
         }
     }
 

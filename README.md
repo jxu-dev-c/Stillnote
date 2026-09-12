@@ -175,8 +175,8 @@ uv pip install --python "$HOME/Library/Application Support/Stillnote/venv-moss/b
 ```
 
 `swift test` covers storage and legacy-document migration, capture timing and PCM
-conversion, audio mixing and decoding, MOSS transcript parsing, transcript validation,
-summary chunking/parsing/merging, exports, link titles, and the headless agent
+conversion, audio mixing, decoding, and video muxing, MOSS transcript parsing, transcript
+validation, summary chunking/parsing/merging, exports, link titles, and the headless agent
 adapters — including that a timed-out CLI's whole process group is killed.
 
 Transcription against the real model is opt-in, because it needs the downloaded

@@ -3,6 +3,20 @@ import Foundation
 
 /// Copies the captured H.264 screen frames and interleaves the mixed meeting audio as
 /// AAC, without re-encoding video and without buffering the movie in memory.
+/// One-shot gate: `close` returns true exactly once, for the caller that closed it.
+private final class Latch: @unchecked Sendable {
+    private var closed = false
+    private let lock = NSLock()
+
+    func close() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if closed { return false }
+        closed = true
+        return true
+    }
+}
+
 public enum VideoMuxer {
     public static func mux(screen: URL, audio: URL, to destination: URL) async throws {
         try? FileManager.default.removeItem(at: destination)
@@ -76,17 +90,18 @@ public enum VideoMuxer {
         _ input: AVAssetWriterInput, from output: AVAssetReaderTrackOutput, label: String
     ) async throws {
         let queue = DispatchQueue(label: label)
+        // The ready-for-data block can be re-entered before markAsFinished takes effect,
+        // and AVFoundation keeps it alive past this call, so finishing is latched by an
+        // object the block owns: resuming a continuation twice would trap.
+        let latch = Latch()
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             input.requestMediaDataWhenReady(on: queue) {
                 while input.isReadyForMoreMediaData {
-                    guard let sample = output.copyNextSampleBuffer() else {
-                        input.markAsFinished()
-                        continuation.resume()
-                        return
-                    }
-                    if !input.append(sample) {
-                        input.markAsFinished()
-                        continuation.resume()
+                    guard let sample = output.copyNextSampleBuffer(), input.append(sample) else {
+                        if latch.close() {
+                            input.markAsFinished()
+                            continuation.resume()
+                        }
                         return
                     }
                 }
