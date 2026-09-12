@@ -1,63 +1,128 @@
-# Meeting Notes implementation contract
+# Stillnote implementation contract
 
-Local-only web application: React + TypeScript + Vite frontend on /, FastAPI backend 127.0.0.1:8765. Production static assets served by FastAPI. Python >=3.11. SQLite/files under data/. Models under models/. No recording or transcription leaves the computer. No browser SpeechRecognition APIs. Explicit model download/setup is allowed but never sends audio. Optional summaries can send transcript text to a provider only after per-request consent.
+A native macOS 15+ app for Apple silicon: SwiftUI interface, SwiftPM package, no external
+Swift dependencies. Capture, storage, decoding, summaries, and exports are Swift and run
+in process. MOSS 0.9B inference runs in a short-lived Python worker because the
+`mlx-audio` runtime that loads this checkpoint has no Swift equivalent. Nothing listens on
+a network port. No recording or transcription leaves the computer. Summaries can send
+transcript text to a provider only after per-request consent.
 
-## API contracts
-- GET /api/health -> {status:'ok', speech: object}
-- GET /api/settings -> {transcription: {model:string, language:string, speaker_count:number|null}, summary:{provider:'codex'|'claude-code', model:string, reasoning_effort:'low'|'medium'|'high'}, agents:Record<string,{installed:boolean,command:string}>, speech: object}
-- PUT /api/settings body {transcription?:{model?,language?,speaker_count?},summary?:{provider?,model?,reasoning_effort?}} -> same public settings
-- GET /api/meetings -> Meeting[] most recent first
-- POST /api/meetings multipart file, title, language='auto', speaker_count optional -> Meeting (audio saved, status='ready'; transcription separate explicit request)
-- GET /api/meetings/{id} -> Meeting
-- PATCH /api/meetings/{id} body {title?, notes?, context_links?:ContextLink[], speakers?:Record<string,string>, segments?:Segment[]} -> Meeting
-- POST /api/context/link-title body {url:string} -> {title:string}; best-effort public page title, empty on failure. The client requests this only when saving a link without a label and persists the returned title with the link.
-- DELETE /api/meetings/{id} -> 204
-- GET /api/meetings/{id}/audio -> stored audio
-- GET /api/meetings/{id}/video -> optional MP4 screen recording with mixed audio
-- GET /api/recordings/capabilities -> native availability, microphone IDs/names, display IDs/names
-- GET /api/recordings/current -> current native session or null
-- POST /api/recordings body {title?,language?,speaker_count?,microphone_id?,display_id?,system_audio?:true,screen_video?:false} -> native session
-- POST /api/recordings/{id}/pause|resume -> native session; state changes are confirmed through polling
-- POST /api/recordings/{id}/stop -> saved Meeting; repeated successful calls return the same meeting
-- DELETE /api/recordings/{id} -> 204; stops capture and discards unsaved session files
-- POST /api/meetings/{id}/transcribe body {speaker_count?:number|null, language?:string} -> Meeting status='transcribing', background worker updates progress
-- POST /api/meetings/{id}/summary body {allow_remote:boolean=false} -> Meeting status='summarizing', worker updates
-- GET /api/meetings/{id}/export?format=md|json|txt|srt -> download
-- POST /api/models/install body {model:string='moss-0.9b'} -> {status:'installing'}; model setup is explicit UI action
-- GET /api/models/status -> speech status object
+## Layout
 
-Meeting = {id,title,created_at,updated_at,duration:number,status:'ready'|'transcribing'|'transcribed'|'summarizing'|'complete'|'error',progress:number,stage:string,error:string|null,audio_name:string,audio_url:string,video_url:string|null,language:string,speaker_count:number|null,speakers:Record<string,string>,segments:Segment[],summary:Summary|null,notes:string,context_links:ContextLink[]}
-ContextLink = {url:string,title:string} // HTTP(S) only, no embedded credentials; optional title defaults to "".
-Segment = {id:string,start:number,end:number,speaker:string,text:string}
-Summary = {overview:string,key_points:string[],decisions:string[],action_items:{text:string,owner:string|null,due:string|null}[],provider:string,model:string,generated_at:string}
-
-## Runtime modules
+```
+Stillnote.app
+├── StillnoteCore   library target, no SwiftUI, fully unit-tested
+└── Stillnote       executable target: SwiftUI views + AppModel
+sidecar/moss_worker  the only Python, run from .venv-moss
+```
 
 | Module | Responsibility |
 | --- | --- |
-| `backend/meeting_app/main.py` | Loopback API, request validation, background job orchestration, exports, and static interface hosting. |
-| `backend/meeting_app/storage.py` | SQLite meeting/settings persistence, local audio paths, and interrupted-job recovery. |
-| `backend/meeting_app/schemas.py` | Validated request models. |
-| `backend/meeting_app/speech.py` | Explicit model installation, local model readiness, restricted media decoding, MOSS inference and native speaker attribution, and isolated inference orchestration. |
-| `backend/meeting_app/speech_worker.py` | Child-process entry point for native CPU inference and progress events. |
-| `backend/meeting_app/summarization.py` | Transcript normalization, chunking, summary validation, and local merging with explicit remote consent. |
-| `backend/meeting_app/agents.py` | Headless Codex/Claude Code subprocess adapters, structured output, timeouts, cleanup, and CLI availability. |
-| `frontend/src/` | React meeting library, recording, editing, playback, settings, and provider consent UI. |
+| `Sources/StillnoteCore/Models/` | `Meeting`, `Segment`, `MeetingSummary`, `ContextLink`, `AppSettings`, input bounds, formatting. |
+| `Sources/StillnoteCore/Store/` | `Paths` (Application Support layout, checkout adoption) and the `Store` actor over SQLite. |
+| `Sources/StillnoteCore/Capture/` | ScreenCaptureKit session, device and permission discovery, session persistence and recovery. |
+| `Sources/StillnoteCore/Audio/` | Decoding to 16 kHz mono, bounded-memory mixing, MP4 muxing, extension resolution for stored media. |
+| `Sources/StillnoteCore/Speech/` | Model manifest, verified download, readiness, MOSS worker driver, transcript parsing. |
+| `Sources/StillnoteCore/Summary/` | Headless Codex/Claude Code adapters over `posix_spawn`, chunking, validation, local merging. |
+| `Sources/StillnoteCore/Export/` | Markdown, plain text, SRT, and JSON exports. |
+| `Sources/Stillnote/` | `AppModel` (observable state, job orchestration) and the SwiftUI screens. |
 
-A single background worker serializes processing to bound memory usage. Original audio is saved before transcription begins. Transcription runs in a separate process so native failures are recoverable. Successful transcript or speaker edits invalidate the previous summary; failed retranscription preserves existing corrections. Agent credentials are managed by the installed CLIs. Summary settings default to Codex/gpt-5.6-luna/high; Claude Code defaults to claude-sonnet-5/high. Retired provider settings migrate without changing saved meetings or summaries.
+## Data
 
-The speech setup endpoint downloads public model assets. Inference requires complete local files, uses offline mode, and forbids external media references. Remote summarization accepts transcript text and speaker labels, plus an optional local screen-video path when the meeting's `summary_include_video_path` preference is true. This patchable boolean defaults to false for new and legacy meetings. The API resolves the path from its own video store and rejects an enabled option when the file is missing; clients cannot provide arbitrary paths. Each section receives the path as JSON-encoded text metadata. File-reading tools remain disabled and no video content is sent. Changing the preference affects future summaries and preserves any existing summary. The browser bundles all assets locally and makes same-origin API requests.
+`~/Library/Application Support/Stillnote/data/stillnote.sqlite3` keeps the schema the
+previous localhost version wrote, so an existing database opens unchanged:
 
-## MOSS on Apple Silicon
+```sql
+CREATE TABLE meetings (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL);  -- single row id=1
+```
 
-MOSS 0.9B is the only supported speech model. Settings and model-install requests reject retired model IDs; saved Whisper/VibeVoice selections migrate to MOSS. The old VibeVoice adapter and its tests remain commented out in `speech.py` and `test_speech.py`, and its app-runtime dependencies are commented out in `pyproject.toml`. Audio decoding stays in the app environment; inference dependencies remain in `.venv-moss`.
+Each meeting is one JSON document. Fields added after a record was written default on
+read. Audio is `data/audio/<meeting-id>` and optional screen video is
+`data/video/<meeting-id>`, both without an extension; `MediaFile` resolves them through
+symlinks in `data/media/` because AVFoundation selects its demuxer from the path
+extension. Retired speech models migrate to MOSS and retired summary providers to Codex or
+Claude Code, dropping obsolete API credentials, without touching saved meetings.
 
-`moss_mlx.py` adapts pinned MLX Audio code to the existing verified MOSS checkpoint. It runs 8-bit decoder inference on Metal, batches only independent encoder windows, preserves one full decoder context, and uses bounded prefill steps/cache allocation. `speech.py` selects MLX on macOS arm64 and keeps PyTorch elsewhere. The isolated worker always runs with Hugging Face offline flags; MLX additionally disables Transformers' PyTorch import.
+```
+Meeting = {id,title,created_at,updated_at,duration,status:'ready'|'transcribing'|'transcribed'|'summarizing'|'complete'|'error',
+  progress,stage,error,audio_name,audio_url,video_url,summary_include_video_path,language,speaker_count,
+  speakers:Record<string,string>,segments:Segment[],summary:Summary|null,notes,context_links:ContextLink[]}
+Segment = {id,start,end,speaker,text}
+Summary = {overview,key_points[],decisions[],action_items:[{text,owner,due}],provider,model,generated_at}
+ContextLink = {url,title}
+```
 
-`POST /api/meetings/{id}/transcribe/cancel` signals the job's cancellation event. Queued futures cancel immediately; active workers terminate via a polling watcher, escalating to kill after two seconds. The API keeps the meeting busy until the worker exits and restores its previous transcript/summary state. Job completion and cancellation share a lock so late progress/results cannot overwrite cancellation.
+## Concurrency
 
-Headless agents receive only speaker-labeled transcript text through stdin, in a private temporary working directory. Codex runs read-only with shell/web disabled and user config ignored; Claude Code disables tools, MCP servers, slash commands and hooks. Both use ephemeral sessions and schema-constrained JSON, with independent output validation. A five-minute per-section deadline kills the CLI process group on POSIX. Raw CLI logs never become API error messages.
+`AppModel` is `@MainActor @Observable` and is the only source of truth for the interface;
+there is no polling. `Store` is an actor, and every mutation is a read-modify-write inside
+it, so a background job's progress write cannot clobber a concurrent user edit. `JobQueue`
+serializes transcription, summaries, and model downloads so they never compete for memory
+or the GPU; a job cancelled while still queued observes cancellation and returns. Jobs left
+running when the app quits are marked retryable on the next launch.
 
-## Native capture
+## Capture
 
-`backend/meeting_app/recording.py` owns one macOS helper subprocess, session recovery, bounded-memory PCM mixing, and optional MP4 muxing. `native/macos/` uses ScreenCaptureKit on macOS 15+ for microphone/system audio and opt-in screen video. The web interface polls session state and input levels; the helper writes recoverable WAVs while capturing. Saved screen video contains the same mixed audio used for transcription, and is stored separately from the WAV. Both use the same pause-adjusted host-clock timeline. Capture permissions are requested only on an explicit recording start. Browser recording remains the fallback. See `native/README.md` for build, lifecycle, and platform limitations.
+`CaptureSession` uses ScreenCaptureKit for the selected microphone, optional system audio,
+and opt-in screen video, all on one serial callback queue. Both audio sources are
+normalized to mono 48 kHz PCM and written to seekable WAVs whose headers are rewritten
+after every buffer, so audio survives a crash. A pause-adjusted host clock places every
+sample, so removed pauses stay aligned across sources and sparse gaps read as silence.
+Levels are reported every 200 ms. Capture stops if microphone callbacks cease for eight
+seconds or after 90 minutes of recorded time.
+
+Screen video is fragmented H.264 MP4 at up to 1920 pixels wide and 15 fps with frame
+reordering disabled, so pause/resume timestamps remain safe to finalize. Audio-only
+sessions attach no screen output and write no images. Finishing mixes the sources in
+one-second blocks at equal gain — never loading a meeting into memory — then copies the
+compressed video and interleaves the mixed audio as AAC. Speech inference reads only the
+mixed WAV; video is never supplied to transcription or summaries. Unsaved sessions live in
+`data/recordings/<id>/` and are offered for save or discard after an interrupted run.
+Capture permissions are requested only when a recording is started.
+
+## Speech
+
+The app decodes the recording to 16 kHz mono float32 with external media references
+forbidden, then runs `.venv-moss/bin/python -m moss_worker <pcm> <model-dir> <language>
+<speaker-count>` with Hugging Face offline flags set. The worker emits
+`STILLNOTE_EVENT {json}` lines for progress, the raw transcript, or an actionable error;
+anything else on the pipe is ignored and never becomes meeting content. Cancellation
+terminates the process and escalates to `SIGKILL` after two seconds, then restores the
+meeting's previous transcript and summary.
+
+Parsing lives in Swift so the transcript format is defined in one place: MOSS's
+`[start][S01]text[end]` output becomes stable `speaker_n` ids with display names, with
+timestamps clamped to the recording. Output that does not fully match the grammar is a
+truncated generation and is rejected rather than saved. Transcript or speaker edits
+invalidate the previous summary; a failed retranscription preserves existing corrections.
+
+Model setup is an explicit action that downloads public files only, verifying each file's
+size and SHA-256 before an atomic rename, and recording the publisher revision in
+`.verified`. Inference requires complete local files.
+
+## Summaries
+
+Agents receive only speaker-labeled transcript text on stdin, in their own session and a
+private temporary directory, with a five-minute deadline that kills the whole process
+group. Codex runs read-only with shell and web search disabled and user config ignored;
+Claude Code disables tools, MCP servers, slash commands, and hooks. Both use ephemeral
+sessions and schema-constrained JSON with independent output validation. Long transcripts
+are summarized in sections and merged locally, so decisions late in a long meeting survive
+without extra requests. Consent is a precondition checked before any process starts.
+
+A meeting's `summary_include_video_path` preference adds its local screen-video path to
+each section as JSON-encoded text metadata. It defaults to false for new and legacy
+meetings, the path is resolved from the app's own video store, and file-reading tools stay
+disabled, so no video content is sent. Changing it affects future summaries and preserves
+any existing one.
+
+## Interface
+
+The interface is built from stock SwiftUI and AppKit controls with system semantic colors
+and SF Symbols, so it follows the viewer's appearance, accent color, and contrast settings
+rather than carrying its own palette. `NavigationSplitView` hosts the sidebar and either
+the meeting `Table` or a meeting's detail view; playback uses AVKit's `VideoPlayer` for
+recordings with screen video and a compact transport otherwise. Settings live in the
+standard Settings scene. Notes autosave after a 700 ms pause, with an unsaved draft kept in
+`UserDefaults` until it matches what was saved.

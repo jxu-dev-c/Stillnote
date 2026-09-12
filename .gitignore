@@ -1,19 +1,20 @@
-.venv/
+.DS_Store
+.env
+*.log
+
+# Swift build products
+.build/
+build/
+*.xcodeproj
+.swiftpm/
+
+# MOSS inference runtime and local data
+.venv-moss/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
-frontend/node_modules/
-frontend/dist/
 data/*
 !data/.gitkeep
 models/*
 !models/.gitkeep
-.env
-.DS_Store
-*.log
-
-.venv-moss/
-*.tsbuildinfo
-/:memory:.ses
-native/build/
