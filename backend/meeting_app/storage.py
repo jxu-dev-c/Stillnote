@@ -125,7 +125,11 @@ class Store:
                 row = db.execute("SELECT data FROM settings WHERE id=1").fetchone()
             settings = json.loads(row[0]) if row else json.loads(json.dumps(DEFAULT_SETTINGS))
             original = json.dumps(settings)
-            if settings["transcription"]["model"] in {"tiny", "base", "small", "tiny.en", "base.en", "small.en"}:
+            # Retired speech selections migrate without changing meetings or other preferences.
+            if settings["transcription"]["model"] in {
+                "tiny", "base", "small", "tiny.en", "base.en", "small.en",
+                "vibevoice-1.5b", "vibevoice-7b",
+            }:
                 settings["transcription"]["model"] = "moss-0.9b"
             summary = settings.get("summary", {})
             provider = summary.get("provider", DEFAULT_PROVIDER)

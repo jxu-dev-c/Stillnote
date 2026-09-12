@@ -6,7 +6,7 @@ import { agentDefaults, api, json, languages, speechReady } from './types'
 import type { Settings } from './types'
 
 export default function SettingsPanel({ settings, onSave, onBack, onRefresh }: { settings: Settings | null; onSave: (settings: Settings) => void; onBack: () => void; onRefresh: () => Promise<void> }) {
-  const [model, setModel] = useState(settings?.transcription.model || 'moss-0.9b')
+  const model = 'moss-0.9b'
   const [language, setLanguage] = useState(settings?.transcription.language || 'auto')
   const [speakers, setSpeakers] = useState(settings?.transcription.speaker_count?.toString() || '')
   const [provider, setProvider] = useState<Settings['summary']['provider']>(settings?.summary.provider || 'codex')
@@ -17,8 +17,7 @@ export default function SettingsPanel({ settings, onSave, onBack, onRefresh }: {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const selectedModel = settings?.speech.models?.find(item => item.id === model)
-  const ready = model === settings?.transcription.model ? speechReady(settings?.speech) : Boolean(selectedModel?.installed && settings?.speech.dependencies_ready)
-  const modelDetail = model === settings?.transcription.model ? settings?.speech.detail : selectedModel?.installed ? 'Downloaded. Save to use this model.' : 'Download this model to transcribe offline.'
+  const ready = speechReady(settings?.speech)
   const setupBusy = installing || settings?.speech.installing
   async function save() {
     setError(null); setSuccess(null); setSaving(true)
@@ -46,13 +45,7 @@ export default function SettingsPanel({ settings, onSave, onBack, onRefresh }: {
     <Feedback error={error} success={success} />
     <section className="settings-section">
       <div className="section-intro"><h2>Transcription</h2></div>
-      <div className="form-grid settings-grid">
-        <label className="field">Speech model
-          <select value={model} onChange={event => setModel(event.target.value)} disabled={Boolean(setupBusy)}>
-            {settings?.speech.models?.map(item => <option key={item.id} value={item.id}>{item.name} · {item.tier}</option>)}
-          </select>
-          {selectedModel && <small>{(selectedModel.download_mb / 1000).toFixed(1)} GB · <a href={selectedModel.url} target="_blank" rel="noreferrer">Model details</a></small>}
-        </label>
+      <div className="form-grid">
         <label className="field">Language
           <select value={language} onChange={event => setLanguage(event.target.value)}>{languages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
         </label>
@@ -62,8 +55,9 @@ export default function SettingsPanel({ settings, onSave, onBack, onRefresh }: {
       </div>
       <div className={`model-state ${ready ? 'ready' : ''}`}>
         <div>
-          <strong>{setupBusy ? 'Downloading…' : ready ? model === settings?.transcription.model ? 'Ready · runs locally' : 'Downloaded · save to use' : 'Setup needed'}</strong>
-          {(!ready || setupBusy) && <p>{modelDetail || 'Download a speech model to transcribe offline.'}</p>}
+          <strong>{setupBusy ? 'Downloading…' : ready ? 'Ready · runs locally' : 'Setup needed'}</strong>
+          <p>MOSS 0.9B{selectedModel && <> · {(selectedModel.download_mb / 1000).toFixed(1)} GB · <a href={selectedModel.url} target="_blank" rel="noreferrer">Model details</a></>}</p>
+          {(!ready || setupBusy) && <p>{settings?.speech.detail || 'Download MOSS 0.9B to transcribe offline.'}</p>}
           {settings?.speech.error && <p className="inline-error">{settings.speech.error}</p>}
           {setupBusy && typeof settings?.speech.progress === 'number' && <progress max={100} value={settings.speech.progress} aria-label="Model setup progress" />}
         </div>

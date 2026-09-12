@@ -38,7 +38,7 @@ Summary = {overview:string,key_points:string[],decisions:string[],action_items:{
 | `backend/meeting_app/main.py` | Loopback API, request validation, background job orchestration, exports, and static interface hosting. |
 | `backend/meeting_app/storage.py` | SQLite meeting/settings persistence, local audio paths, and interrupted-job recovery. |
 | `backend/meeting_app/schemas.py` | Validated request models. |
-| `backend/meeting_app/speech.py` | Explicit model installation, local model readiness, restricted media decoding, MOSS/VibeVoice inference and native speaker attribution, and isolated inference orchestration. |
+| `backend/meeting_app/speech.py` | Explicit model installation, local model readiness, restricted media decoding, MOSS inference and native speaker attribution, and isolated inference orchestration. |
 | `backend/meeting_app/speech_worker.py` | Child-process entry point for native CPU inference and progress events. |
 | `backend/meeting_app/summarization.py` | Transcript normalization, chunking, summary validation, and local merging with explicit remote consent. |
 | `backend/meeting_app/agents.py` | Headless Codex/Claude Code subprocess adapters, structured output, timeouts, cleanup, and CLI availability. |
@@ -49,6 +49,8 @@ A single background worker serializes processing to bound memory usage. Original
 The speech setup endpoint downloads public model assets. Inference requires complete local files, uses offline mode, and forbids external media references. Remote summarization accepts transcript text and speaker labels, plus an optional local screen-video path when the meeting's `summary_include_video_path` preference is true. This patchable boolean defaults to false for new and legacy meetings. The API resolves the path from its own video store and rejects an enabled option when the file is missing; clients cannot provide arbitrary paths. Each section receives the path as JSON-encoded text metadata. File-reading tools remain disabled and no video content is sent. Changing the preference affects future summaries and preserves any existing summary. The browser bundles all assets locally and makes same-origin API requests.
 
 ## MOSS on Apple Silicon
+
+MOSS 0.9B is the only supported speech model. Settings and model-install requests reject retired model IDs; saved Whisper/VibeVoice selections migrate to MOSS. The old VibeVoice adapter and its tests remain commented out in `speech.py` and `test_speech.py`, and its app-runtime dependencies are commented out in `pyproject.toml`. Audio decoding stays in the app environment; inference dependencies remain in `.venv-moss`.
 
 `moss_mlx.py` adapts pinned MLX Audio code to the existing verified MOSS checkpoint. It runs 8-bit decoder inference on Metal, batches only independent encoder windows, preserves one full decoder context, and uses bounded prefill steps/cache allocation. `speech.py` selects MLX on macOS arm64 and keeps PyTorch elsewhere. The isolated worker always runs with Hugging Face offline flags; MLX additionally disables Transformers' PyTorch import.
 

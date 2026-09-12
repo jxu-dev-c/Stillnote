@@ -1,4 +1,4 @@
-# MOSS custom code requires Transformers 5; VibeVoice requires Transformers 4.
+# MOSS custom code requires Transformers 5 in the isolated inference runtime.
 torch>=2.6,<3
 transformers>=5,<6
 av>=14,<17

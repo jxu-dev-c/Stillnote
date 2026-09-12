@@ -40,14 +40,46 @@ def test_model_names_are_allowlisted(tmp_path, model):
         speech.speech_status(tmp_path, model)
 
 
-def test_catalog_order_and_sizes(tmp_path):
+def test_catalog_only_advertises_moss(tmp_path):
     models = speech.speech_status(tmp_path)["models"]
-    assert [m["name"] for m in models] == ["MOSS 0.9B", "VibeVoice 1.5B", "VibeVoice 7B"]
-    assert models[0]["download_mb"] < models[1]["download_mb"] < models[2]["download_mb"]
-    assert all("ASR-Streaming" in m["url"] for m in models[1:])
+    assert [m["id"] for m in models] == ["moss-0.9b"]
+    assert models[0]["name"] == "MOSS 0.9B"
+    assert 1800 < models[0]["download_mb"] < 1900
+    assert models[0]["url"] == "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize"
+    assert models[0]["timing"] == "Model timestamps"
 
 
-@pytest.mark.parametrize("legacy", ["tiny", "base", "small", "tiny.en", "base.en", "small.en"])
+@pytest.mark.parametrize("model", ["vibevoice-1.5b", "vibevoice-7b"])
+def test_retired_models_cannot_install_or_transcribe(tmp_path, monkeypatch, model):
+    def forbidden(*args, **kwargs):
+        pytest.fail("Retired models must be rejected before any download, decoding, or worker launch")
+
+    monkeypatch.setattr(speech, "_download", forbidden)
+    monkeypatch.setattr(speech, "_decode_audio", forbidden)
+    monkeypatch.setattr(speech.subprocess, "Popen", forbidden)
+    with pytest.raises(ValueError, match="Unsupported"):
+        speech.speech_status(tmp_path, model)
+    with pytest.raises(ValueError, match="Unsupported"):
+        speech.install_models(tmp_path, model, forbidden)
+    for transcribe in (speech.transcribe_audio, speech._transcribe_in_process):
+        with pytest.raises(ValueError, match="Unsupported"):
+            transcribe(tmp_path / "audio.wav", tmp_path, model, "auto", None, forbidden)
+
+
+def test_moss_ready_without_vibevoice_runtime_dependencies_in_app(tmp_path, monkeypatch):
+    create_model_files(tmp_path)
+    monkeypatch.setattr(speech, "_moss_runtime_ready", lambda: True)
+    monkeypatch.setattr(
+        speech.importlib.util, "find_spec", lambda name: object() if name in {"numpy", "av"} else None
+    )
+    status = speech.speech_status(tmp_path)
+    assert status["ready"]
+    assert status["missing_dependencies"] == []
+
+
+@pytest.mark.parametrize("legacy", [
+    "tiny", "base", "small", "tiny.en", "base.en", "small.en", "vibevoice-1.5b", "vibevoice-7b",
+])
 def test_migrate_saved_selection_preserves_other_preferences(tmp_path, legacy):
     store = Store(tmp_path)
     settings = store.settings()
@@ -58,6 +90,8 @@ def test_migrate_saved_selection_preserves_other_preferences(tmp_path, legacy):
     result = store.settings()
     assert result["transcription"] == dict(model="moss-0.9b", language="fr", speaker_count=3)
     assert result["summary"]["model"] == "preserve-me"
+    with store.db() as db:
+        assert json.loads(db.execute("SELECT data FROM settings WHERE id=1").fetchone()[0]) == result
 
 
 def test_moss_speakers_and_timestamps():
@@ -74,13 +108,14 @@ def test_moss_refuses_partial_output(text):
         speech._parse_moss(text)
 
 
-def test_vibevoice_speaker_changes_and_continuations():
-    rows, speaker = speech._parse_vibe_chunk("Speaker 0: Hello. Speaker 1: 你好", 0, 2, "unknown")
-    following, speaker = speech._parse_vibe_chunk("世界", 2, 4, speaker)
-    result = speech._normalize_segments(rows + following, 4)
-    assert [s["speaker"] for s in result["segments"]] == ["speaker_1", "speaker_2", "speaker_2"]
-    assert result["segments"][-1]["text"] == "世界"
-    assert speech._parse_vibe_chunk("", 4, 6, speaker) == ([], speaker)
+# Retired alongside the commented VibeVoice adapter in speech.py.
+# def test_vibevoice_speaker_changes_and_continuations():
+#     rows, speaker = speech._parse_vibe_chunk("Speaker 0: Hello. Speaker 1: 你好", 0, 2, "unknown")
+#     following, speaker = speech._parse_vibe_chunk("世界", 2, 4, speaker)
+#     result = speech._normalize_segments(rows + following, 4)
+#     assert [s["speaker"] for s in result["segments"]] == ["speaker_1", "speaker_2", "speaker_2"]
+#     assert result["segments"][-1]["text"] == "世界"
+#     assert speech._parse_vibe_chunk("", 4, 6, speaker) == ([], speaker)
 
 
 class DownloadResponse(io.BytesIO):
@@ -117,10 +152,17 @@ def test_local_inference_never_downloads_or_connects(tmp_path, monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", forbidden)
     monkeypatch.setattr(speech.urllib.request, "urlopen", forbidden)
     monkeypatch.setattr(speech, "speech_status", lambda *args: {"ready": True})
-    monkeypatch.setattr(speech, "_decode_audio", lambda *args: np.ones(32000, dtype=np.float32) * 0.1)
-    monkeypatch.setattr(
-        speech, "_run_moss", lambda *args: speech._parse_moss("[0][S01]Hello[1][1][S02]there.[2]")
-    )
+    def decode(path, rate):
+        assert rate == 16000
+        return np.ones(32000, dtype=np.float32) * 0.1
+
+    def run(path, audio, language, speaker_count, progress):
+        assert path == tmp_path / "speech" / "moss-0.9b"
+        assert language == "en" and speaker_count == 2
+        return speech._parse_moss("[0][S01]Hello[1][1][S02]there.[2]")
+
+    monkeypatch.setattr(speech, "_decode_audio", decode)
+    monkeypatch.setattr(speech, "_run_moss", run)
     source = tmp_path / "recording.webm"
     source.write_bytes(b"fake decoded audio")
     result = speech._transcribe_in_process(source, tmp_path, "moss-0.9b", "en", 2, lambda *args: None)
@@ -247,71 +289,72 @@ def test_incomplete_install_does_not_advertise_readiness(tmp_path, monkeypatch):
     assert speech.speech_status(tmp_path)["error"]
 
 
-@pytest.mark.parametrize("model_name", ["vibevoice-1.5b", "vibevoice-7b"])
-def test_vibevoice_adapter_uses_local_checkpoint_and_trained_chunk_geometry(
-    tmp_path, monkeypatch, model_name
-):
-    from contextlib import nullcontext
-    from types import SimpleNamespace
-
-    path = speech._model_path(tmp_path, model_name)
-    path.mkdir(parents=True)
-    (path / "preprocessor_config.json").write_text(
-        json.dumps(
-            {
-                "target_sample_rate": 24000,
-                "speech_tok_compress_ratio": 3200,
-                "chunk_frames": 15,
-                "lookahead_frames": 4,
-            }
-        )
-    )
-    tokenizer = object()
-
-    def processor_load(location, **kwargs):
-        assert location == str(path) and kwargs["local_files_only"]
-        return SimpleNamespace(tokenizer=tokenizer)
-
-    def stream(**kwargs):
-        assert kwargs["tokenizer"] is tokenizer
-        assert kwargs["sample_rate"] == 24000
-        assert kwargs["chunk_duration"] == 2
-        assert kwargs["text_audio_delay"] == pytest.approx(4 * 3200 / 24000)
-        yield 0, 2, "Speaker 0: Hello"
-        yield 1, 2, "Speaker 1: team."
-
-    model = SimpleNamespace(streaming_generate=stream)
-    model.to = lambda device: model
-    model.eval = lambda: model
-
-    def model_load(location, **kwargs):
-        assert location == str(path) and kwargs["local_files_only"]
-        return model
-
-    monkeypatch.setitem(
-        sys.modules,
-        "torch",
-        SimpleNamespace(
-            cuda=SimpleNamespace(is_available=lambda: False),
-            float32="float32",
-            set_num_threads=lambda count: None,
-            inference_mode=nullcontext,
-            from_numpy=lambda a: a,
-        ),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "vibevoice.modular.modeling_vibevoice_asr",
-        SimpleNamespace(VibeVoiceASRForConditionalGeneration=SimpleNamespace(from_pretrained=model_load)),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "vibevoice.processor.vibevoice_asr_processor",
-        SimpleNamespace(VibeVoiceASRProcessor=SimpleNamespace(from_pretrained=processor_load)),
-    )
-    rows = speech._run_vibevoice(path, [], "en", 2, lambda *args: None)
-    assert [row["text"] for row in speech._normalize_segments(rows, 4)["segments"]] == ["Hello", "team."]
-    assert rows[1]["start"] == 2
+# Retired alongside the commented VibeVoice adapter in speech.py.
+# @pytest.mark.parametrize("model_name", ["vibevoice-1.5b", "vibevoice-7b"])
+# def test_vibevoice_adapter_uses_local_checkpoint_and_trained_chunk_geometry(
+#     tmp_path, monkeypatch, model_name
+# ):
+#     from contextlib import nullcontext
+#     from types import SimpleNamespace
+#
+#     path = speech._model_path(tmp_path, model_name)
+#     path.mkdir(parents=True)
+#     (path / "preprocessor_config.json").write_text(
+#         json.dumps(
+#             {
+#                 "target_sample_rate": 24000,
+#                 "speech_tok_compress_ratio": 3200,
+#                 "chunk_frames": 15,
+#                 "lookahead_frames": 4,
+#             }
+#         )
+#     )
+#     tokenizer = object()
+#
+#     def processor_load(location, **kwargs):
+#         assert location == str(path) and kwargs["local_files_only"]
+#         return SimpleNamespace(tokenizer=tokenizer)
+#
+#     def stream(**kwargs):
+#         assert kwargs["tokenizer"] is tokenizer
+#         assert kwargs["sample_rate"] == 24000
+#         assert kwargs["chunk_duration"] == 2
+#         assert kwargs["text_audio_delay"] == pytest.approx(4 * 3200 / 24000)
+#         yield 0, 2, "Speaker 0: Hello"
+#         yield 1, 2, "Speaker 1: team."
+#
+#     model = SimpleNamespace(streaming_generate=stream)
+#     model.to = lambda device: model
+#     model.eval = lambda: model
+#
+#     def model_load(location, **kwargs):
+#         assert location == str(path) and kwargs["local_files_only"]
+#         return model
+#
+#     monkeypatch.setitem(
+#         sys.modules,
+#         "torch",
+#         SimpleNamespace(
+#             cuda=SimpleNamespace(is_available=lambda: False),
+#             float32="float32",
+#             set_num_threads=lambda count: None,
+#             inference_mode=nullcontext,
+#             from_numpy=lambda a: a,
+#         ),
+#     )
+#     monkeypatch.setitem(
+#         sys.modules,
+#         "vibevoice.modular.modeling_vibevoice_asr",
+#         SimpleNamespace(VibeVoiceASRForConditionalGeneration=SimpleNamespace(from_pretrained=model_load)),
+#     )
+#     monkeypatch.setitem(
+#         sys.modules,
+#         "vibevoice.processor.vibevoice_asr_processor",
+#         SimpleNamespace(VibeVoiceASRProcessor=SimpleNamespace(from_pretrained=processor_load)),
+#     )
+#     rows = speech._run_vibevoice(path, [], "en", 2, lambda *args: None)
+#     assert [row["text"] for row in speech._normalize_segments(rows, 4)["segments"]] == ["Hello", "team."]
+#     assert rows[1]["start"] == 2
 
 
 def test_moss_requires_its_own_runtime(tmp_path, monkeypatch):

@@ -1,3 +1,11 @@
+## MOSS-only speech model — September 12, 2026
+
+- Removed the speech-model selector and retired VibeVoice 1.5B/7B from the active catalog, settings API, install API, and inference entry points. Saved VibeVoice selections migrate to MOSS while preserving other preferences and meeting data. VibeVoice-specific parsing, streaming inference, dispatch, and app dependencies remain commented out for reference.
+- 167 Python tests pass in a freshly installed app environment with no Torch, Transformers, VibeVoice, or librosa. Coverage includes retired-model rejection before download/worker launch, persisted settings migration, post-migration transcription, default/explicit MOSS installation, recording recovery, worker cancellation, and existing data preservation. Ruff, TypeScript, production build, and locked dependency validation pass. The two existing Starlette/httpx/AnyIO deprecation warnings remain.
+- Real MLX inference through the unchanged `.venv-moss` worker passed import → transcription → audio readback → SRT export from that minimal app environment. A 3.213-second synthetic recording returned “Hello everyone. We will review the meeting notes tomorrow.” with one speaker and timestamps 0.04–2.98 seconds. No user meeting audio was used. This is a functional smoke test, not an accuracy benchmark.
+- Browser checks confirmed no speech-model dropdown, MOSS model details/readiness, language and speaker-count persistence after reload, and usable desktop/390-pixel layouts without horizontal overflow.
+- Restarted the idle local app on port 8765. Health reports only MOSS, ready on Apple GPU; all three existing meetings and transcription/summary preferences match the pre-restart API state. Temporary QA data and the QA server were removed. Physical recording and full PyTorch inference were not repeated for this change.
+
 ## Per-recording video path in summaries — September 12, 2026
 
 - Added a saved **Send video path to AI** toggle in each recording's Summary tab, defaulting to off for new and existing meetings. The sharing confirmation reflects the choice. Audio-only recordings show the control disabled.

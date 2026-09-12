@@ -368,17 +368,66 @@ def test_unsuccessful_retranscription_keeps_existing_corrections(client, monkeyp
     assert final["speakers"]["speaker_0"] == "Alex"
 
 
-@pytest.mark.parametrize("model", ["moss-0.9b", "vibevoice-1.5b", "vibevoice-7b"])
-def test_new_roster_settings_round_trip(client, model):
+def test_moss_settings_round_trip(client):
+    model = "moss-0.9b"
     response = client.put("/api/settings", json={"transcription": {"model": model}})
     assert response.status_code == 200
     assert client.get("/api/settings").json()["transcription"]["model"] == model
 
 
-@pytest.mark.parametrize("model", ["tiny", "base", "small", "tiny.en", "base.en", "small.en"])
-def test_old_roster_rejected_by_settings_and_install(client, model):
+@pytest.mark.parametrize("model", [
+    "tiny", "base", "small", "tiny.en", "base.en", "small.en", "vibevoice-1.5b", "vibevoice-7b",
+])
+def test_retired_models_rejected_by_settings_and_install(client, model):
     assert client.put("/api/settings", json={"transcription": {"model": model}}).status_code == 422
     assert client.post("/api/models/install", json={"model": model}).status_code == 422
+
+
+@pytest.mark.parametrize("model", ["vibevoice-1.5b", "vibevoice-7b"])
+def test_saved_vibevoice_selection_migrates_and_transcribes_with_moss(client, monkeypatch, model):
+    meeting = upload(client)
+    store = client.app.state.store
+    store.update(meeting["id"], notes="Keep notes", segments=transcript(), summary={"overview": "Keep summary"})
+    before = store.get(meeting["id"])
+    settings = store.settings()
+    settings["transcription"].update(model=model, language="fr", speaker_count=3)
+    with store.db() as db:
+        db.execute("INSERT OR REPLACE INTO settings VALUES (1, ?)", (json.dumps(settings),))
+
+    def ready(model_dir, model_name):
+        assert model_name == "moss-0.9b"
+        return {"ready": True}
+
+    def transcribe(audio_path, model_dir, model_name, language, speaker_count, progress, **kwargs):
+        assert model_name == "moss-0.9b"
+        return {"duration": 1, "language": "fr", "segments": transcript(), "speakers": {"speaker_0": "Alex"}}
+
+    monkeypatch.setattr(main.speech, "speech_status", ready)
+    monkeypatch.setattr(main.speech, "transcribe_audio", transcribe)
+    assert client.get("/api/health").status_code == 200
+    result = client.get("/api/settings").json()
+    assert result["transcription"] == {"model": "moss-0.9b", "language": "fr", "speaker_count": 3}
+    assert store.get(meeting["id"]) == before
+    assert client.get(meeting["audio_url"]).content == wav_bytes()
+    assert client.post(f"/api/meetings/{meeting['id']}/transcribe", json={}).status_code == 202
+    assert wait_done(client, meeting["id"])["status"] == "transcribed"
+
+
+@pytest.mark.parametrize("body", [{}, {"model": "moss-0.9b"}])
+def test_moss_install_request_works_with_explicit_or_default_model(client, monkeypatch, body):
+    import threading
+
+    installed = threading.Event()
+
+    def install(model_dir, model_name, progress):
+        assert model_name == "moss-0.9b"
+        progress(100, "Installed")
+        installed.set()
+
+    monkeypatch.setattr(main.speech, "install_models", install)
+    assert client.post("/api/models/install", json=body).status_code == 202
+    assert installed.wait(2)
+    assert client.get("/api/settings").json()["transcription"]["model"] == "moss-0.9b"
 
 
 def test_cancel_transcription_preserves_existing_work(client, monkeypatch):

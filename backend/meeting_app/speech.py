@@ -123,17 +123,20 @@ def _moss_runtime_ready() -> bool:
 def speech_status(model_dir: Path, model_name: str = DEFAULT_MODEL) -> dict:
     spec = _spec(model_name)
     installed = _installed(model_dir, model_name)
-    dependencies = ["torch", "transformers", "numpy", "av", "librosa"]
-    if model_name.startswith("vibevoice"):
-        dependencies.append("vibevoice")
+    # Retired VibeVoice dependencies were checked in the app runtime:
+    # dependencies = ["torch", "transformers", "numpy", "av", "librosa"]
+    # if model_name.startswith("vibevoice"):
+    #     dependencies.append("vibevoice")
+    # The app only decodes audio; model dependencies live in .venv-moss.
+    dependencies = ["numpy", "av"]
     missing = [name for name in dependencies if importlib.util.find_spec(name) is None]
-    if model_name == DEFAULT_MODEL and not _moss_runtime_ready():
+    if not _moss_runtime_ready():
         missing.append("MOSS runtime (.venv-moss)")
     with _STATE_LOCK:
         state = dict(_INSTALL_STATES.get(str(Path(model_dir).resolve()), {}))
     engine = (
         "MLX · Apple GPU · 8-bit decoder"
-        if model_name == DEFAULT_MODEL and _moss_backend() == "mlx"
+        if _moss_backend() == "mlx"
         else "PyTorch"
     )
     detail = f"{spec['name']} is ready for local transcription and speaker detection. {engine}."
@@ -164,12 +167,12 @@ def speech_status(model_dir: Path, model_name: str = DEFAULT_MODEL) -> dict:
                 "installed": _installed(model_dir, name),
                 "download_mb": round(sum(f["size"] for f in item["files"].values()) / 1_000_000),
                 "url": f"https://huggingface.co/{item['repo']}",
-                "languages": "50+ languages" if name == DEFAULT_MODEL else "10 languages",
-                "timing": "Model timestamps" if name == DEFAULT_MODEL else "Approximate chunk timestamps",
+                "languages": "50+ languages",
+                "timing": "Model timestamps",
             }
             for name, item in MODELS.items()
         ],
-        "diarization": "Built into the selected speech model",
+        "diarization": "Built into MOSS 0.9B",
     }
 
 
@@ -391,67 +394,68 @@ def _run_moss_torch(path: Path, audio, language: str, speaker_count: int | None,
     return _parse_moss(processor.tokenizer.decode(generated, skip_special_tokens=True))
 
 
-def _parse_vibe_chunk(text: str, start: float, end: float, previous_speaker: str):
-    """Streaming output uses speaker/content fields; timing is the audio chunk interval."""
-    if not text.strip():
-        return [], previous_speaker
-    pieces = re.split(r"Speaker\s+(\d+)\s*:", text)
-    rows = []
-    if pieces[0].strip():
-        rows.append(dict(start=start, end=end, speaker=previous_speaker, text=pieces[0]))
-    for index in range(1, len(pieces), 2):
-        previous_speaker = pieces[index]
-        if pieces[index + 1].strip():
-            rows.append(dict(start=start, end=end, speaker=previous_speaker, text=pieces[index + 1]))
-    return rows, previous_speaker
-
-
-def _run_vibevoice(path: Path, audio, language: str, speaker_count: int | None, progress: Progress):
-    import torch
-    from vibevoice.modular.modeling_vibevoice_asr import VibeVoiceASRForConditionalGeneration
-    from vibevoice.processor.vibevoice_asr_processor import VibeVoiceASRProcessor
-
-    config = json.loads((path / "preprocessor_config.json").read_text())
-    rate = config["target_sample_rate"]
-    frame = config["speech_tok_compress_ratio"] / rate
-    chunk_duration = config["chunk_frames"] * frame
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    if device == "cpu":
-        torch.set_num_threads(max(1, min(4, os.cpu_count() or 1)))
-    processor = VibeVoiceASRProcessor.from_pretrained(str(path), local_files_only=True)
-    model = (
-        VibeVoiceASRForConditionalGeneration.from_pretrained(
-            str(path),
-            local_files_only=True,
-            dtype=torch.bfloat16 if device == "cuda" else torch.float32,
-            attn_implementation="sdpa",
-        )
-        .to(device)
-        .eval()
-    )
-    hints = []
-    if language not in ("auto", "", None):
-        hints.append(f"Audio language: {language}")
-    if speaker_count:
-        hints.append(f"Expected speakers: {speaker_count}")
-    rows, speaker = [], "unknown"
-    with torch.inference_mode():
-        for index, total, text in model.streaming_generate(
-            audio_tensor=torch.from_numpy(audio),
-            tokenizer=processor.tokenizer,
-            chunk_duration=chunk_duration,
-            text_audio_delay=config["lookahead_frames"] * frame,
-            sample_rate=rate,
-            max_new_tokens_per_chunk=256,
-            temperature=0,
-            context_info=". ".join(hints) or None,
-        ):
-            chunk_rows, speaker = _parse_vibe_chunk(
-                text, index * chunk_duration, (index + 1) * chunk_duration, speaker
-            )
-            rows.extend(chunk_rows)
-            progress(20 + 75 * (index + 1) / max(total, 1), "Transcribing and identifying speakers locally")
-    return rows
+# Retired VibeVoice adapter: preserved as comments; MOSS is the only active model.
+# def _parse_vibe_chunk(text: str, start: float, end: float, previous_speaker: str):
+#     """Streaming output uses speaker/content fields; timing is the audio chunk interval."""
+#     if not text.strip():
+#         return [], previous_speaker
+#     pieces = re.split(r"Speaker\s+(\d+)\s*:", text)
+#     rows = []
+#     if pieces[0].strip():
+#         rows.append(dict(start=start, end=end, speaker=previous_speaker, text=pieces[0]))
+#     for index in range(1, len(pieces), 2):
+#         previous_speaker = pieces[index]
+#         if pieces[index + 1].strip():
+#             rows.append(dict(start=start, end=end, speaker=previous_speaker, text=pieces[index + 1]))
+#     return rows, previous_speaker
+#
+#
+# def _run_vibevoice(path: Path, audio, language: str, speaker_count: int | None, progress: Progress):
+#     import torch
+#     from vibevoice.modular.modeling_vibevoice_asr import VibeVoiceASRForConditionalGeneration
+#     from vibevoice.processor.vibevoice_asr_processor import VibeVoiceASRProcessor
+#
+#     config = json.loads((path / "preprocessor_config.json").read_text())
+#     rate = config["target_sample_rate"]
+#     frame = config["speech_tok_compress_ratio"] / rate
+#     chunk_duration = config["chunk_frames"] * frame
+#     device = "cuda" if torch.cuda.is_available() else "cpu"
+#     if device == "cpu":
+#         torch.set_num_threads(max(1, min(4, os.cpu_count() or 1)))
+#     processor = VibeVoiceASRProcessor.from_pretrained(str(path), local_files_only=True)
+#     model = (
+#         VibeVoiceASRForConditionalGeneration.from_pretrained(
+#             str(path),
+#             local_files_only=True,
+#             dtype=torch.bfloat16 if device == "cuda" else torch.float32,
+#             attn_implementation="sdpa",
+#         )
+#         .to(device)
+#         .eval()
+#     )
+#     hints = []
+#     if language not in ("auto", "", None):
+#         hints.append(f"Audio language: {language}")
+#     if speaker_count:
+#         hints.append(f"Expected speakers: {speaker_count}")
+#     rows, speaker = [], "unknown"
+#     with torch.inference_mode():
+#         for index, total, text in model.streaming_generate(
+#             audio_tensor=torch.from_numpy(audio),
+#             tokenizer=processor.tokenizer,
+#             chunk_duration=chunk_duration,
+#             text_audio_delay=config["lookahead_frames"] * frame,
+#             sample_rate=rate,
+#             max_new_tokens_per_chunk=256,
+#             temperature=0,
+#             context_info=". ".join(hints) or None,
+#         ):
+#             chunk_rows, speaker = _parse_vibe_chunk(
+#                 text, index * chunk_duration, (index + 1) * chunk_duration, speaker
+#             )
+#             rows.extend(chunk_rows)
+#             progress(20 + 75 * (index + 1) / max(total, 1), "Transcribing and identifying speakers locally")
+#     return rows
 
 
 def _transcribe_in_process(
@@ -473,11 +477,9 @@ def _transcribe_in_process(
     import numpy as np
 
     path = _model_path(model_dir, model_name)
-    rate = (
-        SAMPLE_RATE
-        if model_name == DEFAULT_MODEL
-        else json.loads((path / "preprocessor_config.json").read_text())["target_sample_rate"]
-    )
+    # Retired VibeVoice sample-rate override:
+    # rate = json.loads((path / "preprocessor_config.json").read_text())["target_sample_rate"]
+    rate = SAMPLE_RATE
     with _INFERENCE_LOCK:
         progress(2, "Decoding the local audio file")
         try:
@@ -487,13 +489,14 @@ def _transcribe_in_process(
         duration = len(audio) / rate
         if not duration or not np.isfinite(audio).all():
             raise ValueError("This recording contains no valid audio.")
-        if duration > 90 * 60 and model_name == DEFAULT_MODEL:
+        if duration > 90 * 60:
             raise ValueError("MOSS supports recordings up to 90 minutes. Import a shorter recording.")
         if duration < 0.1 or np.max(np.abs(audio)) < 1e-5:
             return {"duration": duration, "language": language or "auto", "speakers": {}, "segments": []}
         progress(8, f"Loading {spec['name']} locally")
-        runner = _run_moss if model_name == DEFAULT_MODEL else _run_vibevoice
-        rows = runner(path, audio, language, speaker_count, progress)
+        # Retired VibeVoice dispatch:
+        # runner = _run_moss if model_name == DEFAULT_MODEL else _run_vibevoice
+        rows = _run_moss(path, audio, language, speaker_count, progress)
         result = _normalize_segments(rows, duration)
         progress(100, "Local transcription complete")
         return {"duration": round(duration, 3), "language": language or "auto", **result}
@@ -539,10 +542,12 @@ def transcribe_audio(
             "TRANSFORMERS_OFFLINE": "1",
         }
     )
-    if model_name == DEFAULT_MODEL and _moss_backend() == "mlx":
+    if _moss_backend() == "mlx":
         environment["USE_TORCH"] = "0"
     command = [
-        str(_moss_python()) if model_name == DEFAULT_MODEL else sys.executable,
+        # VibeVoice used the app interpreter; keep MOSS worker isolation.
+        # str(_moss_python()) if model_name == DEFAULT_MODEL else sys.executable,
+        str(_moss_python()),
         "-m",
         "meeting_app.speech_worker",
         str(Path(audio_path).resolve()),
@@ -602,7 +607,7 @@ def transcribe_audio(
             if code != 0 or result is None:
                 raise RuntimeError(
                     "The local speech worker stopped unexpectedly. Your recording is saved. "
-                    "Try again, use a smaller model, or reinstall the speech models."
+                    "Try again, use a shorter recording, or reinstall MOSS 0.9B."
                 )
             return result
         finally:

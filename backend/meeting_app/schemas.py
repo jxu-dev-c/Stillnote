@@ -60,7 +60,7 @@ class MeetingPatch(Input):
 
 
 class TranscriptionSettings(Input):
-    model: Literal["moss-0.9b", "vibevoice-1.5b", "vibevoice-7b"] = "moss-0.9b"
+    model: Literal["moss-0.9b"] = "moss-0.9b"
     language: str = Field(default="auto", min_length=2, max_length=20, pattern=r"^[a-zA-Z-]+$")
     speaker_count: int | None = Field(default=None, ge=1, le=20)
 
@@ -93,7 +93,7 @@ class SummaryRequest(Input):
 
 
 class InstallRequest(Input):
-    model: Literal["moss-0.9b", "vibevoice-1.5b", "vibevoice-7b"] = "moss-0.9b"
+    model: Literal["moss-0.9b"] = "moss-0.9b"
 
 
 class RecordingRequest(Input):

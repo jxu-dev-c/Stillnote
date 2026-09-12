@@ -13,12 +13,13 @@ dependencies = [
   "python-multipart>=0.0.20,<1",
   "httpx>=0.28,<1",
   "av>=14,<17",
-  "torch>=2.6,<3",
-  "transformers>=4.57,<5",
-  "librosa>=0.11,<1",
-  "vibevoice @ git+https://github.com/microsoft/VibeVoice.git@1541f590c7099820f10ea012f48d2399282df69f",
+  # Retired VibeVoice app runtime. MOSS keeps its own requirements-moss.lock runtime.
+  # "torch>=2.6,<3",
+  # "transformers>=4.57,<5",
+  # "librosa>=0.11,<1",
+  # "vibevoice @ git+https://github.com/microsoft/VibeVoice.git@1541f590c7099820f10ea012f48d2399282df69f",
+  # "huggingface-hub>=0.24,<2",
   "numpy>=1.26,<3",
-  "huggingface-hub>=0.24,<2",
 ]
 
 [project.optional-dependencies]

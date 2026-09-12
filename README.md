@@ -48,23 +48,21 @@ On **macOS 15+**, build the native helper with `./scripts/build-capture.sh` (als
 
 For the browser fallback, enable **Include shared audio**, choose the meeting's browser tab, and check the browser's audio-sharing option. Browser and OS support varies; native capture for Windows and Linux is not yet implemented. Speakers are detected from the combined audio, not from participant names or meeting accounts.
 
-### Speech models
+### Speech model
 
-The roster runs from **Fast / light ←→ Quality**:
+Stillnote uses **MOSS 0.9B** for local transcription and speaker attribution:
 
 | Model | Hugging Face checkpoint | Download |
 | --- | --- | --- |
-| MOSS 0.9B (default) | [OpenMOSS-Team/MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize) | ~1.8 GB |
-| VibeVoice 1.5B | [microsoft/VibeVoice-ASR-Streaming-1.5B](https://huggingface.co/microsoft/VibeVoice-ASR-Streaming-1.5B) | ~5.6 GB |
-| VibeVoice 7B | [microsoft/VibeVoice-ASR-Streaming-7B](https://huggingface.co/microsoft/VibeVoice-ASR-Streaming-7B) | ~17.4 GB |
+| MOSS 0.9B | [OpenMOSS-Team/MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize) | ~1.8 GB |
 
-These are speech-to-text models with built-in speaker attribution. The VibeVoice names refer to their language backbone sizes; total checkpoint sizes include audio encoders. The ordering is a selection guide, not a measured accuracy guarantee. MOSS supports 50+ languages; VibeVoice supports Chinese, English, French, German, Italian, Japanese, Korean, Portuguese, Russian, and Spanish. Language and speaker-count selections are prompt hints, not enforced constraints; automatic mode preserves the original speech language without reporting a detected language code.
+MOSS supports 50+ languages. Language and speaker-count selections are prompt hints, not enforced constraints; automatic mode preserves the original speech language without reporting a detected language code.
 
-Setup creates `.venv` for the app and VibeVoice (Transformers 4), and `.venv-moss` for MOSS (Transformers 5), whose upstream requirements differ. Both runtimes are installed by `scripts/setup.sh`. On Apple Silicon, MOSS uses the pinned MLX Audio runtime on the Apple GPU, loading the same verified checkpoint and quantizing only the decoder to 8-bit in memory. The encoder and audio adaptor keep their original precision. Independent 30-second encoder windows run one at a time; the full recording retains one decoder context and speaker namespace. Prompt processing uses 512-token steps, with a 256 MiB reusable buffer cache and an MLX allocation budget of up to 6 GiB (or 70% of the device's recommended working set, whichever is smaller). This is an MLX allocation limit, not a whole-process RAM cap; the decoder's KV cache still grows with meeting length. A memory-limit error suggests a shorter recording instead of silently retrying on the CPU.
+Setup creates `.venv` for the app and `.venv-moss` for MOSS (Transformers 5). The separate worker keeps native inference failures and cancellation isolated from the app. Both runtimes are installed by `scripts/setup.sh`. On Apple Silicon, MOSS uses the pinned MLX Audio runtime on the Apple GPU, loading the same verified checkpoint and quantizing only the decoder to 8-bit in memory. The encoder and audio adaptor keep their original precision. Independent 30-second encoder windows run one at a time; the full recording retains one decoder context and speaker namespace. Prompt processing uses 512-token steps, with a 256 MiB reusable buffer cache and an MLX allocation budget of up to 6 GiB (or 70% of the device's recommended working set, whichever is smaller). This is an MLX allocation limit, not a whole-process RAM cap; the decoder's KV cache still grows with meeting length. A memory-limit error suggests a shorter recording instead of silently retrying on the CPU.
 
-Other platforms use PyTorch in an isolated worker: CUDA with bfloat16 when available, otherwise CPU with float32. VibeVoice retains its existing PyTorch backend. Set `STILLNOTE_MOSS_BACKEND=torch` before starting the server to opt back into the reference MOSS backend. CPU inference can be slow and requires substantially more RAM than the download size. MOSS supports recordings up to 90 minutes and returns model timestamps. VibeVoice uses approximate audio-chunk timestamps; speaker changes within a chunk share its interval. Transcription starts after recording stops. MOSS reports encoding, prompt processing, and decoded timestamp progress. Use **Stop** while transcribing to terminate the worker and release its memory; queued jobs can also be stopped. Stopping preserves the recording, notes, previous transcript, and summary.
+Other platforms use PyTorch in an isolated worker: CUDA with bfloat16 when available, otherwise CPU with float32. Set `STILLNOTE_MOSS_BACKEND=torch` before starting the server to opt back into the reference MOSS backend. CPU inference can be slow and requires substantially more RAM than the download size. MOSS supports recordings up to 90 minutes and returns model timestamps. Transcription starts after recording stops. MOSS reports encoding, prompt processing, and decoded timestamp progress. Use **Stop** while transcribing to terminate the worker and release its memory; queued jobs can also be stopped. Stopping preserves the recording, notes, previous transcript, and summary.
 
-Model files and the VibeVoice runtime are pinned to publisher revisions. Setup verifies checksums, and inference requires complete local files. MOSS loads its pinned custom Transformers code from disk. There is no cloud transcription fallback. Old saved Whisper selections migrate to MOSS; existing recordings, transcripts, preferences, and downloaded legacy files are retained.
+MOSS model files are pinned to a publisher revision. Setup verifies checksums, and inference requires complete local files. MOSS loads its pinned custom Transformers code from disk. There is no cloud transcription fallback. Old saved Whisper and VibeVoice selections migrate to MOSS; existing recordings, transcripts, preferences, and downloaded legacy files are retained.
 
 Speaker labels are estimates, not verified identities. Review text and attribution, especially for overlapping voices or poor audio.
 
@@ -136,14 +134,13 @@ Tests cover local persistence, audio upload/readback, transcript edits/exports, 
 - **Microphone denied**: allow microphone access for localhost in the browser and macOS privacy settings. Restart the browser after changing OS permissions.
 - **No system audio**: for native recording, enable system audio and grant Screen & System Audio Recording access to Stillnote Capture in macOS settings. Check both input meters. For browser recording, select a browser tab and enable audio sharing.
 - **Setup failed**: check your connection to the public Hugging Face and GitHub model hosts, then retry. Partial files are not accepted as installed models.
-- **No speech / wrong speakers**: use clearer audio, select the language, or supply the expected speaker count. Try VibeVoice 1.5B or 7B and compare recognition on your recordings.
+- **No speech / wrong speakers**: use clearer audio, select the language, or supply the expected speaker count.
 - **Agent failure**: check that `codex` or `claude` is installed, up to date, signed in, and has access to the selected model. Check account usage limits. Use the executable environment variables above if the CLI is not on the server’s PATH.
 - **App interrupted during processing**: restart and retry transcription or summary; saved audio remains intact.
 
 ## Model and library references
 
 - [MOSS Transcribe Diarize](https://github.com/OpenMOSS/MOSS-Transcribe-Diarize)
-- [VibeVoice ASR Streaming](https://github.com/microsoft/VibeVoice/blob/main/docs/vibevoice-asr-streaming.md)
 - [pyannote segmentation model](https://huggingface.co/pyannote/segmentation-3.0) and [NeMo TitaNet small](https://catalog.ngc.nvidia.com/orgs/nvidia/nemo/models/titanet_small/)
 - [FastAPI](https://fastapi.tiangolo.com/) and [Starlette's host protection](https://www.starlette.io/middleware/)
 
