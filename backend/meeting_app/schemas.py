@@ -39,6 +39,7 @@ class MeetingPatch(Input):
     title: str | None = Field(default=None, min_length=1, max_length=240)
     notes: str | None = Field(default=None, max_length=100_000)
     context_links: list[ContextLink] | None = Field(default=None, max_length=100)
+    summary_include_video_path: bool | None = None
     speakers: dict[str, str] | None = None
     segments: list[Segment] | None = Field(default=None, max_length=100_000)
 

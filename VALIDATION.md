@@ -1,3 +1,10 @@
+## Per-recording video path in summaries — September 12, 2026
+
+- Added a saved **Send video path to AI** toggle in each recording's Summary tab, defaulting to off for new and existing meetings. The sharing confirmation reflects the choice. Audio-only recordings show the control disabled.
+- 84 focused API, summarization, agent-adapter, and recording tests pass. Coverage includes per-meeting persistence, legacy defaults, opt-in and opt-out for both providers, JSON encoding, every transcript section, missing video, and consent before CLI launch. Ruff and the production frontend build pass.
+- Browser checks used an isolated store with synthetic recordings and a fake CLI. Verified default off, persistence after reload, conditional consent copy, and actual CLI stdin containing the absolute video path only when enabled. Desktop and 390-pixel layouts were visually checked with no horizontal overflow.
+- The running app was restarted while idle; its three existing meetings were preserved and all default to off. Only a path is sent as text; video analysis and file-reading tools remain disabled. No real meeting content was sent to a provider during validation.
+
 ## Native capture fixes — September 12, 2026
 
 - The 11:38 macOS crash report identifies a null-format crash in `AVAudioPCMBuffer.initWithPCMFormat:frameCapacity:` on the microphone callback. Synthetic PCM descriptions with missing multichannel or inconsistent mono/stereo layout metadata reproduce a nil result from the previous `AVAudioFormat(cmAudioFormatDescription:)` initializer. The replacement builds a checked format from the PCM stream description and handles both cases; unusable transitional buffers are skipped.

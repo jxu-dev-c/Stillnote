@@ -6,7 +6,7 @@ export type Meeting = {
   status: 'ready' | 'transcribing' | 'transcribed' | 'summarizing' | 'complete' | 'error';
   progress: number; stage: string; error: string | null; audio_name: string; audio_url: string; video_url: string | null;
   language: string; speaker_count: number | null; speakers: Record<string, string>; segments: Segment[];
-  summary: Summary | null; notes: string; context_links: ContextLink[];
+  summary: Summary | null; summary_include_video_path: boolean; notes: string; context_links: ContextLink[];
 }
 export type SpeechModel = { id: string; name: string; tier: string; installed: boolean; download_mb: number; url: string; languages: string; timing: string }
 export type SpeechStatus = { models?: SpeechModel[]; ready?: boolean; transcription_ready?: boolean; diarization_ready?: boolean; installing?: boolean; error?: string | null; detail?: string; progress?: number; stage?: string; [key: string]: unknown }

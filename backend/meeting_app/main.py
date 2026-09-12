@@ -338,6 +338,10 @@ def create_app(data_dir=None, model_dir=None):
             meeting = get_meeting(meeting_id)
             require_idle(meeting)
             changes = patch.model_dump(mode="json", exclude_none=True)
+            if patch.summary_include_video_path is True and (
+                not meeting.get("video_url") or not (store.video_dir / meeting_id).is_file()
+            ):
+                raise HTTPException(409, "This recording has no saved screen video to share a path for.")
             if patch.segments is not None:
                 segments = changes["segments"]
                 ids = [segment["id"] for segment in segments]
@@ -505,10 +509,10 @@ def create_app(data_dir=None, model_dir=None):
             )
             return result
 
-    def run_summary(meeting_id, meeting, settings, allow_remote):
+    def run_summary(meeting_id, meeting, settings, allow_remote, video_path):
         try:
             store.update(meeting_id, progress=30, stage="Preparing summary")
-            result = summarization.summarize(meeting, settings, allow_remote=allow_remote)
+            result = summarization.summarize(meeting, settings, allow_remote=allow_remote, video_path=video_path)
             store.update(
                 meeting_id, summary=result, status="complete", progress=100, stage="Summary ready", error=None
             )
@@ -530,12 +534,17 @@ def create_app(data_dir=None, model_dir=None):
             settings = store.settings()["summary"]
             if summarization.is_remote_provider(settings) and not body.allow_remote:
                 raise HTTPException(
-                    403, "Confirm sharing this transcript with your coding agent's model provider. Audio stays local."
+                    403, "Confirm sharing this transcript and any enabled video path with your coding agent's model provider."
                 )
+            video_path = None
+            if meeting.get("summary_include_video_path"):
+                video_path = (store.video_dir / meeting_id).resolve()
+                if not meeting.get("video_url") or not video_path.is_file():
+                    raise HTTPException(409, "The screen video is missing. Turn off Send video path to AI and retry.")
             result = store.update(
                 meeting_id, status="summarizing", progress=0, stage="Queued for summary", error=None
             )
-            executor.submit(run_summary, meeting_id, meeting, settings, body.allow_remote)
+            executor.submit(run_summary, meeting_id, meeting, settings, body.allow_remote, video_path)
             return result
 
     @app.get("/api/meetings/{meeting_id}/export")

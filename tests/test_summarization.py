@@ -15,6 +15,8 @@ def meeting():
         "audio_name": "PRIVATE AUDIO.wav",
         "audio_path": "/private/audio.wav",
         "audio": b"PRIVATE AUDIO",
+        "video_path": "/private/video.mp4",
+        "video_url": "/PRIVATE/video",
         "speakers": {"speaker_1": "Alex"},
         "segments": [{"speaker": "speaker_1", "text": "I'll send the revised proposal by Friday."}],
     }
@@ -54,6 +56,30 @@ def test_consent_required_before_cli_start(meeting, monkeypatch, settings):
     monkeypatch.setattr(summaries, "request_json", lambda *args: pytest.fail("CLI must not start"))
     with pytest.raises(summaries.SummaryError, match="consent"):
         summaries.summarize(meeting, settings)
+
+
+def test_opted_in_video_path_is_json_encoded_in_every_section(meeting, provider_summary, monkeypatch, tmp_path):
+    video_path = tmp_path / 'screen "demo" $(touch never).mp4'
+    video_path.write_bytes(b"PRIVATE VIDEO CONTENT")
+    meeting["summary_include_video_path"] = True
+    meeting["segments"][0]["text"] *= 400
+    prompts = []
+
+    def request(provider, model, effort, instructions, prompt, schema):
+        prompts.append(prompt)
+        return json.dumps(provider_summary)
+
+    monkeypatch.setattr(summaries, "request_json", request)
+    summaries.summarize(meeting, {}, True, video_path=video_path)
+    assert len(prompts) > 1
+    for prompt in prompts:
+        assert json.loads(prompt.splitlines()[-1]) == {"video_path": str(video_path.resolve())}
+        assert "PRIVATE" not in prompt
+        assert "do not infer visual details" in prompt
+    prompts.clear()
+    meeting["summary_include_video_path"] = False
+    summaries.summarize(meeting, {}, True, video_path=video_path)
+    assert all("video_path" not in prompt and str(tmp_path) not in prompt for prompt in prompts)
 
 
 def test_empty_transcript_and_size_limit_rejected_before_cli(monkeypatch):

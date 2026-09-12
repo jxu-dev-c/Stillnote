@@ -65,6 +65,7 @@ class Store:
         for item in items:
             item.setdefault("context_links", [])
             item.setdefault("video_url", None)
+            item.setdefault("summary_include_video_path", False)
         return sorted(items, key=lambda item: item["created_at"], reverse=True)
 
     def get(self, meeting_id):
@@ -75,6 +76,7 @@ class Store:
         meeting = json.loads(row[0])
         meeting.setdefault("context_links", [])
         meeting.setdefault("video_url", None)
+        meeting.setdefault("summary_include_video_path", False)
         return meeting
 
     def create(self, title, audio_name, language, speaker_count, duration, meeting_id=None, video_name=None, error=None):
@@ -92,6 +94,7 @@ class Store:
             audio_name=audio_name,
             audio_url=f"/api/meetings/{meeting_id}/audio",
             video_url=f"/api/meetings/{meeting_id}/video" if video_name else None,
+            summary_include_video_path=False,
             language=language,
             speaker_count=speaker_count,
             speakers={},

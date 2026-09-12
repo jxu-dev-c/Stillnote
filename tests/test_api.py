@@ -1,4 +1,5 @@
 import io
+import json
 import time
 import wave
 
@@ -136,7 +137,8 @@ def test_summary_requires_transcript_and_remote_consent(client, monkeypatch, pro
     client.put("/api/settings", json={"summary": {"provider": provider, "model": "model"}})
     called = []
 
-    def fake_summary(meeting, settings, allow_remote=False):
+    def fake_summary(meeting, settings, allow_remote=False, *, video_path=None):
+        assert video_path is None
         called.append(allow_remote)
         return {
             "overview": "Done",
@@ -157,6 +159,67 @@ def test_summary_requires_transcript_and_remote_consent(client, monkeypatch, pro
     # Transcript correction must not leave a stale summary presented as current.
     changed = client.patch(base, json={"speakers": {"speaker_0": "Pat", "speaker_1": "Sam"}}).json()
     assert changed["summary"] is None and changed["status"] == "transcribed"
+
+
+@pytest.mark.parametrize("provider", ["codex", "claude-code"])
+def test_video_path_preference_persists_per_meeting_and_controls_summary(client, monkeypatch, provider):
+    meeting = upload(client)
+    other = upload(client)
+    base = f"/api/meetings/{meeting['id']}"
+    store = client.app.state.store
+    assert meeting["summary_include_video_path"] is False
+    video_path = store.video_dir / meeting["id"]
+    video_path.write_bytes(b"PRIVATE VIDEO CONTENT")
+    store.update(meeting["id"], video_url=base + "/video")
+    client.patch(base, json={"segments": transcript()})
+    client.put("/api/settings", json={"summary": {"provider": provider}})
+    prompts = []
+
+    def request(provider, model, effort, instructions, prompt, schema):
+        prompts.append(prompt)
+        return json.dumps({"overview": "Done", "key_points": [], "decisions": [], "action_items": []})
+
+    monkeypatch.setattr(main.summarization, "request_json", request)
+    for enabled in [False, True, False]:
+        response = client.patch(base, json={"summary_include_video_path": enabled})
+        assert response.status_code == 200
+        assert Store(store.directory).get(meeting["id"])["summary_include_video_path"] is enabled
+        assert client.get(f"/api/meetings/{other['id']}").json()["summary_include_video_path"] is False
+        previous_calls = len(prompts)
+        assert client.post(base + "/summary", json={}).status_code == 403
+        assert len(prompts) == previous_calls
+        assert client.post(base + "/summary", json={"allow_remote": True}).status_code == 202
+        assert wait_done(client, meeting["id"])["status"] == "complete"
+        assert (str(video_path.resolve()) in prompts[-1]) is enabled
+        assert "PRIVATE VIDEO CONTENT" not in prompts[-1]
+
+
+def test_video_path_preference_requires_saved_video_and_can_disable_after_loss(client, monkeypatch):
+    meeting = upload(client)
+    base = f"/api/meetings/{meeting['id']}"
+    store = client.app.state.store
+    monkeypatch.setattr(main.summarization, "request_json", lambda *args: pytest.fail("CLI must not start"))
+    assert client.patch(base, json={"summary_include_video_path": True}).status_code == 409
+    assert client.patch(base, json={"video_path": "/arbitrary/file"}).status_code == 422
+    video_path = store.video_dir / meeting["id"]
+    video_path.write_bytes(b"video")
+    store.update(meeting["id"], video_url=base + "/video")
+    assert client.patch(base, json={"summary_include_video_path": True, "segments": transcript()}).status_code == 200
+    video_path.unlink()
+    response = client.post(base + "/summary", json={"allow_remote": True})
+    assert response.status_code == 409 and "Turn off" in response.json()["detail"]
+    assert client.get(base).json()["status"] == "transcribed"
+    assert client.patch(base, json={"summary_include_video_path": False}).status_code == 200
+
+
+def test_legacy_meetings_default_to_no_video_path(client):
+    meeting = upload(client)
+    store = client.app.state.store
+    del meeting["summary_include_video_path"]
+    with store.db() as db:
+        db.execute("UPDATE meetings SET data=? WHERE id=?", (json.dumps(meeting), meeting["id"]))
+    assert client.get(f"/api/meetings/{meeting['id']}").json()["summary_include_video_path"] is False
+    assert client.get("/api/meetings").json()[0]["summary_include_video_path"] is False
 
 
 def test_agent_failure_preserves_previous_summary_and_hides_raw_errors(client, monkeypatch):
