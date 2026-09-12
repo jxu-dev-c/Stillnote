@@ -17,7 +17,7 @@ Python 3.11–3.13 is needed once, to create the MOSS inference runtime.
 ## Run
 
 ```bash
-./scripts/setup.sh    # creates .venv-moss and builds Stillnote.app
+./scripts/setup.sh    # creates the MOSS runtime and builds Stillnote.app
 ./scripts/start.sh    # opens build/Stillnote.app
 ```
 
@@ -78,8 +78,11 @@ Stillnote uses **MOSS 0.9B**
 language and speaker-count selections are prompt hints, not enforced constraints.
 
 MOSS inference is the only part of Stillnote that is not Swift. The `mlx-audio` runtime
-that loads this checkpoint has no Swift equivalent, so it runs in `.venv-moss` as a
-short-lived worker process that the app starts for each transcription. The app decodes
+that loads this checkpoint has no Swift equivalent, so it runs in its own virtual
+environment at `~/Library/Application Support/Stillnote/venv-moss` as a short-lived worker
+process that the app starts for each transcription. The environment deliberately lives
+there rather than in this checkout: a bundled app reading the Documents folder needs
+permission macOS cannot grant while the app is still launching. The app decodes
 audio, parses the transcript, and owns everything else; the worker receives 16 kHz mono
 samples and returns MOSS's raw text. Isolation means a native model crash cannot take the
 app down, and **Stop** during transcription terminates the worker and releases its memory
@@ -149,6 +152,7 @@ Under `~/Library/Application Support/Stillnote/`:
 - `data/recordings/`: active or interrupted sessions; removed after save or discard.
 - `data/media/`: symlinks that give stored media a file extension for AVFoundation.
 - `models/`: the downloaded speech model.
+- `venv-moss/`: the MOSS inference runtime, created by `./scripts/setup.sh`.
 
 Back up the data directory while the app is closed. Audio and the database stay on your
 disk until you delete them. Optional environment variables: `STILLNOTE_DATA_DIR`,
@@ -161,6 +165,13 @@ disk until you delete them. Optional environment variables: `STILLNOTE_DATA_DIR`
 ./scripts/check.sh            # swift build, swift test, MOSS worker tests and lint
 ./scripts/build-app.sh debug  # faster rebuild during development
 swift test --filter StoreTests
+```
+
+After editing `sidecar/`, reinstall the worker into the runtime:
+
+```bash
+uv pip install --python "$HOME/Library/Application Support/Stillnote/venv-moss/bin/python" \
+  --reinstall-package stillnote-moss-worker ./sidecar
 ```
 
 `swift test` covers storage and legacy-document migration, capture timing and PCM
@@ -184,6 +195,8 @@ STILLNOTE_INTEGRATION=1 swift test --filter TranscriptionIntegrationTests
   detected from the combined audio, not from participant names.
 - **Setup failed**: check your connection to the public Hugging Face host, then retry.
   Partial files are never accepted as an installed model.
+- **Transcription says the runtime is missing**: run `./scripts/setup.sh`, then use
+  **Check Again** in Settings. `Stillnote.app --diagnose` shows which piece is missing.
 - **No speech / wrong speakers**: use clearer audio, select the language, or supply the
   expected speaker count.
 - **Agent failure**: check that `codex` or `claude` is installed, up to date, signed in,

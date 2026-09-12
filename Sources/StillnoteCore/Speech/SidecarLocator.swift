@@ -1,13 +1,22 @@
 import Foundation
 
 /// Finds the Python interpreter that hosts MOSS inference. Inference is the only part
-/// of Stillnote that is not Swift, and it lives in its own virtual environment.
+/// of Stillnote that is not Swift, and it lives in its own virtual environment with the
+/// `moss_worker` package installed into it.
+///
+/// The environment lives under Application Support rather than in a source checkout:
+/// a bundled app reading the Documents folder needs permission that macOS cannot grant
+/// while the app is still launching, and the read blocks until it can.
 public enum SidecarLocator {
-    public static let relativeVenv = ".venv-moss"
-
     public static func pythonURL(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL? {
+        candidates(environment: environment).first {
+            FileManager.default.isExecutableFile(atPath: $0.path)
+        }
+    }
+
+    static func candidates(environment: [String: String]) -> [URL] {
         var candidates: [URL] = []
         if let override = environment["STILLNOTE_MOSS_PYTHON"], !override.isEmpty {
             candidates.append(URL(fileURLWithPath: override))
@@ -15,44 +24,26 @@ public enum SidecarLocator {
         if let support = try? FileManager.default.url(
             for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false
         ) {
-            candidates.append(
-                support.appendingPathComponent("Stillnote/venv-moss/bin/python", isDirectory: false)
-            )
+            candidates.append(support.appendingPathComponent("Stillnote/venv-moss/bin/python"))
         }
-        if let checkout = Paths.enclosingCheckout() {
-            candidates.append(checkout.appendingPathComponent("\(relativeVenv)/bin/python"))
-        }
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
+        return candidates
     }
 
-    /// The worker package lives beside the interpreter's environment in a deployed
-    /// install, and in the checkout during development.
-    public static func workerRoot(pythonURL: URL) -> URL? {
-        let candidates = [
-            pythonURL.deletingLastPathComponent().deletingLastPathComponent()
-                .appendingPathComponent("sidecar", isDirectory: true),
-            Paths.enclosingCheckout()?.appendingPathComponent("sidecar", isDirectory: true),
-        ].compactMap { $0 }
-        return candidates.first {
-            FileManager.default.fileExists(atPath: $0.appendingPathComponent("moss_worker/__main__.py").path)
-        }
-    }
-
+    /// Ready means the interpreter exists and its environment holds the worker package
+    /// alongside the pinned MLX and Transformers runtime.
     public static func runtimeReady(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
-        guard let python = pythonURL(environment: environment), workerRoot(pythonURL: python) != nil else {
-            return false
-        }
+        guard let python = pythonURL(environment: environment) else { return false }
         let root = python.deletingLastPathComponent().deletingLastPathComponent()
-        let sites = (try? FileManager.default.contentsOfDirectory(
+        let versions = (try? FileManager.default.contentsOfDirectory(
             at: root.appendingPathComponent("lib", isDirectory: true), includingPropertiesForKeys: nil
-        ))?.map { $0.appendingPathComponent("site-packages", isDirectory: true) } ?? []
-        return sites.contains { site in
-            let contents = (try? FileManager.default.contentsOfDirectory(atPath: site.path)) ?? []
-            let hasTransformers5 = contents.contains { $0.hasPrefix("transformers-5") }
-            let modules = ["mlx", "mlx_audio", "numpy"]
-            return hasTransformers5 && modules.allSatisfy { contents.contains($0) }
+        )) ?? []
+        return versions.contains { version in
+            let site = version.appendingPathComponent("site-packages", isDirectory: true)
+            let contents = Set((try? FileManager.default.contentsOfDirectory(atPath: site.path)) ?? [])
+            return contents.contains { $0.hasPrefix("transformers-5") }
+                && ["mlx", "mlx_audio", "numpy", "moss_worker"].allSatisfy(contents.contains)
         }
     }
 }

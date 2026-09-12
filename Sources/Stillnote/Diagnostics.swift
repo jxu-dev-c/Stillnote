@@ -18,11 +18,7 @@ enum Diagnostics {
         lines.append("Data:            \(paths.dataDirectory.path)")
         lines.append("Models:          \(paths.modelDirectory.path)")
 
-        let python = SidecarLocator.pythonURL()
-        lines.append("MOSS python:     \(python?.path ?? "not found")")
-        lines.append(
-            "MOSS worker:     \(python.flatMap { SidecarLocator.workerRoot(pythonURL: $0)?.path } ?? "not found")"
-        )
+        lines.append("MOSS python:     \(SidecarLocator.pythonURL()?.path ?? "not found")")
         lines.append("MOSS runtime:    \(SidecarLocator.runtimeReady() ? "ready" : "missing dependencies")")
 
         let speech = SpeechStatus.current(modelDirectory: paths.modelDirectory)

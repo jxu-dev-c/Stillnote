@@ -61,8 +61,8 @@ public struct Paths: Sendable {
         }
     }
 
-    /// Finds this project's checkout, so a development build can use the `.venv-moss`
-    /// runtime and adopt existing data. Looks upward from the running binary — which
+    /// Finds this project's checkout so a first launch can adopt data left there by the
+    /// previous localhost version. Looks upward from the running binary — which
     /// covers both `build/Stillnote.app/Contents/MacOS/Stillnote` and a plain
     /// `swift run` binary — and from the working directory, which is the package root
     /// under `swift test`, where the test runner itself lives in the toolchain.

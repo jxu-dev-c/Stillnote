@@ -10,20 +10,25 @@ import StillnoteCore
 final class AppModel {
     private(set) var meetings: [Meeting] = []
     var settings = AppSettings()
-    private(set) var speech = SpeechStatus.current(modelDirectory: URL(fileURLWithPath: "/"))
-    private(set) var agents: [AgentAvailability] = AgentRunner.availability()
+    private(set) var speech = SpeechStatus.unknown
+    private(set) var agents: [AgentAvailability] = []
     private(set) var capabilities = CaptureCapabilities(
         available: false, reason: nil, microphones: [], displays: [], defaultDisplayID: nil
     )
     var startupError: String?
     var alertMessage: String?
 
-    let paths: Paths
-    let store: Store
-    let recorder: RecordingCoordinator
+    /// Everything that needs the filesystem. It is built in `load()`, never in `init`:
+    /// resolving paths can touch a folder macOS guards, and the permission prompt for
+    /// that cannot appear until the app has a window. Probing during launch deadlocks.
+    private var workspace: Workspace?
+
+    var isReady: Bool { workspace != nil }
+    var paths: Paths { workspace!.paths }
+    var store: Store { workspace!.store }
+    var recorder: RecordingCoordinator { workspace!.recorder }
 
     private let queue = JobQueue()
-    private let installer: ModelInstaller
     private var transcriptions: [String: Task<Void, Never>] = [:]
     private var installTask: Task<Void, Never>?
     private var installProgress = 0.0
@@ -31,35 +36,36 @@ final class AppModel {
     private var installError: String?
     private var installing = false
 
-    init() {
-        var resolved: Paths
-        var openedStore: Store?
-        var failure: String?
-        do {
-            resolved = try Paths.standard()
-            openedStore = try Store(paths: resolved)
-        } catch {
-            // A read-only or missing Application Support directory is unrecoverable;
-            // fall back to a temporary location so the window can explain itself.
-            failure = error.localizedDescription
-            let fallback = FileManager.default.temporaryDirectory
-                .appendingPathComponent("stillnote-unavailable-\(UUID().uuidString)", isDirectory: true)
-            resolved = Paths(
-                dataDirectory: fallback.appendingPathComponent("data"),
-                modelDirectory: fallback.appendingPathComponent("models")
-            )
-            openedStore = try? Store(paths: resolved)
-        }
-        paths = resolved
-        store = openedStore!
-        startupError = failure
-        installer = ModelInstaller(modelDirectory: paths.modelDirectory)
-        recorder = RecordingCoordinator(store: store, paths: paths)
+    private struct Workspace {
+        let paths: Paths
+        let store: Store
+        let installer: ModelInstaller
+        let recorder: RecordingCoordinator
     }
+
+    init() {}
 
     // MARK: - Loading
 
     func load() async {
+        if workspace == nil {
+            do {
+                // Off the main actor: resolving paths adopts a development checkout's
+                // data on first launch, and reading a folder macOS guards can block
+                // until the user answers a prompt.
+                let paths = try await Task.detached { try Paths.standard() }.value
+                let store = try Store(paths: paths)
+                workspace = Workspace(
+                    paths: paths,
+                    store: store,
+                    installer: ModelInstaller(modelDirectory: paths.modelDirectory),
+                    recorder: RecordingCoordinator(store: store, paths: paths)
+                )
+            } catch {
+                startupError = error.localizedDescription
+                return
+            }
+        }
         do {
             try await store.markInterruptedJobs()
             meetings = try await store.list()
@@ -68,17 +74,30 @@ final class AppModel {
             startupError = error.localizedDescription
         }
         await recorder.recover()
-        refreshEnvironment()
+        await refreshEnvironment()
     }
 
-    func refreshEnvironment() {
-        speech = SpeechStatus.current(
-            modelDirectory: paths.modelDirectory, model: settings.transcription.model,
-            installing: installing, progress: installProgress, installDetail: installDetail,
-            error: installError
-        )
-        agents = AgentRunner.availability()
-        capabilities = CaptureDeviceCatalog.capabilities()
+    /// Probes the model, MOSS runtime, agent CLIs, and capture devices off the main
+    /// actor. Each of those touches the filesystem, and a folder macOS guards can hold
+    /// that read until the user answers a prompt — which must never freeze the window.
+    func refreshEnvironment() async {
+        guard isReady else { return }
+        let modelDirectory = paths.modelDirectory
+        let model = settings.transcription.model
+        let state = (installing, installProgress, installDetail, installError)
+        let probe = await Task.detached(priority: .userInitiated) {
+            (
+                SpeechStatus.current(
+                    modelDirectory: modelDirectory, model: model, installing: state.0,
+                    progress: state.1, installDetail: state.2, error: state.3
+                ),
+                AgentRunner.availability(),
+                CaptureDeviceCatalog.capabilities()
+            )
+        }.value
+        speech = probe.0
+        agents = probe.1
+        capabilities = probe.2
     }
 
     func meeting(_ id: String) -> Meeting? { meetings.first { $0.id == id } }
@@ -384,7 +403,7 @@ final class AppModel {
     func saveSettings(_ updated: AppSettings) async {
         do {
             settings = try await store.saveSettings(updated)
-            refreshEnvironment()
+            await refreshEnvironment()
         } catch {
             report(error)
         }
@@ -399,16 +418,16 @@ final class AppModel {
         installProgress = 0
         installError = nil
         installDetail = "Preparing local model download"
-        refreshEnvironment()
+        await refreshEnvironment()
         let model = settings.transcription.model
-        let installer = installer
+        let installer = workspace!.installer
         installTask = await queue.enqueue { [self] in
             do {
                 try await installer.install(model: model) { update in
                     Task { @MainActor [self] in
                         self.installProgress = update.fraction * 100
                         self.installDetail = update.detail
-                        self.refreshEnvironment()
+                        Task { await self.refreshEnvironment() }
                     }
                 }
                 await MainActor.run { [self] in
@@ -416,7 +435,7 @@ final class AppModel {
                     self.installProgress = 100
                     self.installError = nil
                     self.installDetail = nil
-                    self.refreshEnvironment()
+                    Task { await self.refreshEnvironment() }
                 }
             } catch {
                 await MainActor.run { [self] in
@@ -424,7 +443,7 @@ final class AppModel {
                     self.installError = (error as? LocalizedError)?.errorDescription
                         ?? error.localizedDescription
                     self.installDetail = "Model setup failed. Try again."
-                    self.refreshEnvironment()
+                    Task { await self.refreshEnvironment() }
                 }
             }
         }
@@ -432,6 +451,6 @@ final class AppModel {
 
     func shutdown() async {
         for task in transcriptions.values { task.cancel() }
-        await recorder.shutdown()
+        await workspace?.recorder.shutdown()
     }
 }

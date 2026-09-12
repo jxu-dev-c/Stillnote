@@ -13,7 +13,7 @@ transcript text to a provider only after per-request consent.
 Stillnote.app
 ├── StillnoteCore   library target, no SwiftUI, fully unit-tested
 └── Stillnote       executable target: SwiftUI views + AppModel
-sidecar/moss_worker  the only Python, run from .venv-moss
+sidecar/moss_worker  the only Python, installed into ~/Library/Application Support/Stillnote/venv-moss
 ```
 
 | Module | Responsibility |
@@ -84,8 +84,11 @@ Capture permissions are requested only when a recording is started.
 ## Speech
 
 The app decodes the recording to 16 kHz mono float32 with external media references
-forbidden, then runs `.venv-moss/bin/python -m moss_worker <pcm> <model-dir> <language>
-<speaker-count>` with Hugging Face offline flags set. The worker emits
+forbidden, then runs `venv-moss/bin/python -m moss_worker <pcm> <model-dir> <language>
+<speaker-count>` with Hugging Face offline flags set. The runtime lives under Application
+Support, never in a source checkout: nothing on the app's launch path may read a folder
+macOS guards, because the prompt that would unblock it cannot appear until the app has a
+window. The worker emits
 `STILLNOTE_EVENT {json}` lines for progress, the raw transcript, or an actionable error;
 anything else on the pipe is ignored and never becomes meeting content. Cancellation
 terminates the process and escalates to `SIGKILL` after two seconds, then restores the
@@ -116,6 +119,14 @@ each section as JSON-encoded text metadata. It defaults to false for new and leg
 meetings, the path is resolved from the app's own video store, and file-reading tools stay
 disabled, so no video content is sent. Changing it affects future summaries and preserves
 any existing one.
+
+## Launch
+
+Nothing in `App.init()` touches the filesystem. The window appears first, then `load()`
+resolves paths, adopts a development checkout's data on first launch, opens the store, and
+probes the model, MOSS runtime, agent CLIs, and capture devices — the last four off the
+main actor. Until that finishes the window shows a progress view, so a slow or blocked
+read degrades into a visible wait rather than an app that never draws.
 
 ## Interface
 

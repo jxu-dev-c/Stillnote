@@ -41,7 +41,7 @@ struct TranscriptionSettingsView: View {
                 HStack {
                     Button(buttonTitle) { Task { await model.installModel() } }
                         .disabled(model.speech.installing)
-                    Button("Check Again") { model.refreshEnvironment() }
+                    Button("Check Again") { Task { await model.refreshEnvironment() } }
                 }
                 LabeledContent("Engine", value: model.speech.engine)
                 if !model.speech.runtimeReady {
@@ -110,7 +110,7 @@ struct SummarySettingsView: View {
                     Text("Install the \(provider.command) CLI, sign in, then check again.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Button("Check Again") { model.refreshEnvironment() }
+                Button("Check Again") { Task { await model.refreshEnvironment() } }
             }
 
             Section {

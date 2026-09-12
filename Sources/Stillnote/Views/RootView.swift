@@ -9,14 +9,22 @@ struct RootView: View {
 
     var body: some View {
         @Bindable var model = model
-        NavigationSplitView {
-            sidebar
-        } detail: {
-            if let selection, let meeting = model.meeting(selection) {
-                MeetingDetailView(meeting: meeting, selection: $selection)
-                    .id(meeting.id)
+        Group {
+            if !model.isReady {
+                // The window is shown before any filesystem work, so macOS can present
+                // its folder-access prompt if this copy needs one.
+                starting
             } else {
-                MeetingListView(selection: $selection, search: $search, sheet: $sheet)
+                NavigationSplitView {
+                    sidebar
+                } detail: {
+                    if let selection, let meeting = model.meeting(selection) {
+                        MeetingDetailView(meeting: meeting, selection: $selection)
+                            .id(meeting.id)
+                    } else {
+                        MeetingListView(selection: $selection, search: $search, sheet: $sheet)
+                    }
+                }
             }
         }
         .sheet(item: $sheet) { item in
@@ -31,6 +39,20 @@ struct RootView: View {
             Button("OK") { model.alertMessage = nil }
         } message: {
             Text(model.alertMessage ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private var starting: some View {
+        if let error = model.startupError {
+            ContentUnavailableView {
+                Label("Stillnote could not open its library", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(error)
+            }
+        } else {
+            ProgressView("Opening your meetings…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

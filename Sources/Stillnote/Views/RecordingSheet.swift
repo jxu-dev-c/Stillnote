@@ -86,7 +86,7 @@ struct RecordingSheet: View {
             }
 
             HStack {
-                Button("Refresh Devices") { model.refreshEnvironment() }
+                Button("Refresh Devices") { Task { await model.refreshEnvironment() } }
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                 Button(starting ? "Starting…" : "Start Recording") { Task { await start() } }
@@ -202,7 +202,7 @@ struct RecordingSheet: View {
     // MARK: - Actions
 
     private func prepare() {
-        model.refreshEnvironment()
+        Task { await model.refreshEnvironment() }
         if title.isEmpty {
             title = "Meeting · " + Date().formatted(.dateTime.month(.abbreviated).day())
         }

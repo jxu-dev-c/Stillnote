@@ -7,6 +7,7 @@ MOSS transcript, and actionable errors are written to stdout as STILLNOTE_EVENT 
 
 import json
 import sys
+import traceback
 from pathlib import Path
 
 SAMPLE_RATE = 16_000
@@ -53,6 +54,9 @@ def main() -> int:
         _emit({"type": "error", "message": str(error)[:600]})
         return 1
     except Exception:
+        # The detail goes to stderr, which the app discards; the app shows the
+        # actionable message instead of a Python traceback.
+        traceback.print_exc(file=sys.stderr)
         _emit(
             {
                 "type": "error",

@@ -23,8 +23,7 @@ public struct TranscriptionService: Sendable {
         guard FileManager.default.fileExists(atPath: audioURL.path) else {
             throw SpeechError.message("The local audio file could not be found.")
         }
-        guard let python = SidecarLocator.pythonURL(), let workerRoot = SidecarLocator.workerRoot(pythonURL: python)
-        else {
+        guard let python = SidecarLocator.pythonURL() else {
             throw SpeechError.message("Install the MOSS speech runtime with the project setup script.")
         }
 
@@ -44,8 +43,8 @@ public struct TranscriptionService: Sendable {
         progress(8, "Loading \(status.modelName) locally")
 
         let text = try await runWorker(
-            python: python, workerRoot: workerRoot, pcmURL: scratch, model: model,
-            language: language, speakerCount: speakerCount, progress: progress
+            python: python, pcmURL: scratch, model: model, language: language,
+            speakerCount: speakerCount, progress: progress
         )
         let result = try MossParser.parse(text, duration: decoded.duration, language: language)
         progress(100, "Local transcription complete")
@@ -53,7 +52,7 @@ public struct TranscriptionService: Sendable {
     }
 
     private func runWorker(
-        python: URL, workerRoot: URL, pcmURL: URL, model: String, language: String, speakerCount: Int?,
+        python: URL, pcmURL: URL, model: String, language: String, speakerCount: Int?,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> String {
         let process = Process()
@@ -66,8 +65,6 @@ public struct TranscriptionService: Sendable {
             String(speakerCount ?? 0),
         ]
         var environment = ProcessInfo.processInfo.environment
-        environment["PYTHONPATH"] = [workerRoot.path, environment["PYTHONPATH"] ?? ""]
-            .filter { !$0.isEmpty }.joined(separator: ":")
         // Inference must never reach the network or import the retired PyTorch stack.
         environment["HF_HUB_OFFLINE"] = "1"
         environment["HF_HUB_DISABLE_TELEMETRY"] = "1"

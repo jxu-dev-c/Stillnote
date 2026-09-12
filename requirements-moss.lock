@@ -36,8 +36,12 @@ idna==3.19
     # via
     #   anyio
     #   httpx
+jinja2==3.1.6
+    # via -r requirements-moss.txt
 markdown-it-py==4.2.0
     # via rich
+markupsafe==3.0.3
+    # via jinja2
 mdurl==0.1.2
     # via markdown-it-py
 miniaudio==1.71
