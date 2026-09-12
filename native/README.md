@@ -18,10 +18,10 @@ ScreenCaptureKit requires screen recording permission for system audio and its m
 
 ## Capture and recovery
 
-- `devices` returns microphone IDs and display IDs without starting a stream.
+- `devices` returns microphone IDs and display IDs with macOS monitor names without starting a stream.
 - `record <session-directory>` reads server-generated `options.json`, writes PCM to disk, and emits JSON lines on stdout. Stdin accepts `pause`, `resume`, and `stop`; EOF also ends capture.
 - A serial callback queue normalizes both sources to mono 48 kHz PCM, reports RMS/peak levels every 200 ms, and aligns samples using host-clock timestamps. Paused time is removed from every source. Sparse gaps contain silence.
-- WAV headers update during recording. Screen video uses fragmented H.264 MP4 at up to 1920 pixels wide and 15 fps. Capture stops if microphone callbacks cease for eight seconds or after 90 minutes of recorded time.
+- WAV headers update during recording. Screen video uses fragmented H.264 MP4 at up to 1920 pixels wide and 15 fps, with frame reordering disabled so pause/resume timestamps remain safe to finalize. Capture stops if usable microphone callbacks cease for eight seconds or after 90 minutes of recorded time.
 - The Python API owns one capture session at a time. Browser reloads reconnect through `/api/recordings/current`. Capture continues until stopped, discarded, interrupted, or the server exits; it is never started automatically from another app's microphone activity.
 - Finishing mixes audio in one-second blocks with equal gains to leave clipping headroom, then muxes a copy into the optional screen MP4. Speech inference reads only the WAV. The original source WAVs are removed after the meeting is saved successfully.
 - Unsaved sessions live in `data/recordings/<id>/`. After an interrupted server run, **New recording** offers to save recovered audio or discard the session. Recoverable video fragments are retained when they can be decoded; otherwise the meeting shows a warning and keeps its audio. A hard crash can lose the last audio write or incomplete video fragment.
@@ -39,7 +39,7 @@ xcrun swiftc -swift-version 5 -module-cache-path native/build/module-cache \
 native/build/capture-tests
 ```
 
-The Swift checks exercise pause timing, stereo-to-mono sample-rate conversion, signal levels, timestamp-aligned silence, and readable WAV headers before finalization. Python tests run a synthetic helper subprocess to check lifecycle, recovery, permissions failures, retry safety, audio mixing, MP4 video/audio muxing, range playback, and deletion. They do not replace a live OS-permission and hardware capture check.
+The Swift checks exercise PCM sample copying, missing/inconsistent channel layouts, empty/invalid buffers, multichannel conversion, pause timing, stereo-to-mono sample-rate conversion, signal levels, timestamp-aligned silence, and readable WAV headers before finalization. Python tests run a synthetic helper subprocess to check lifecycle, recovery, permissions failures, retry safety, audio mixing, MP4 video/audio muxing, range playback, and deletion. They do not replace a live OS-permission and hardware capture check.
 
 ## Implementation references
 

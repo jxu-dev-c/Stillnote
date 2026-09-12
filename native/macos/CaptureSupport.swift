@@ -16,6 +16,31 @@ struct CaptureTimeline {
     func accepts(_ time: Double) -> Bool { pausedAt == nil && time.isFinite && time >= (resumedAt ?? start) }
 }
 
+/// ScreenCaptureKit may send transitional buffers without a usable audio format.
+/// Build from the PCM stream description: the CM-format initializer can return nil
+/// despite its nonoptional Swift signature, crashing AVAudioPCMBuffer's initializer.
+func audioPCMBuffer(from sample: CMSampleBuffer) throws -> AVAudioPCMBuffer? {
+    guard sample.isValid, CMSampleBufferDataIsReady(sample),
+          sample.numSamples > 0, sample.numSamples <= Int32.max,
+          let description = sample.formatDescription,
+          CMFormatDescriptionGetMediaType(description) == kCMMediaType_Audio,
+          let stream = CMAudioFormatDescriptionGetStreamBasicDescription(description),
+          stream.pointee.mFormatID == kAudioFormatLinearPCM,
+          stream.pointee.mSampleRate.isFinite, stream.pointee.mSampleRate > 0,
+          stream.pointee.mChannelsPerFrame > 0 else { return nil }
+    // Mono/stereo layouts are implicit. Preserve multichannel input without relying
+    // on missing or inconsistent channel-layout metadata in the sample description.
+    let channels = stream.pointee.mChannelsPerFrame
+    let layout = channels > 2 ? AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | channels) : nil
+    guard let format = AVAudioFormat(streamDescription: stream, channelLayout: layout),
+          let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(sample.numSamples)) else { return nil }
+    buffer.frameLength = buffer.frameCapacity
+    guard CMSampleBufferCopyPCMDataIntoAudioBufferList(sample, at: 0, frameCount: Int32(sample.numSamples), into: buffer.mutableAudioBufferList) == noErr else {
+        throw CaptureError.message("The input audio buffer could not be read.")
+    }
+    return buffer
+}
+
 /// Seekable PCM keeps microphone and system samples on the same host-clock timeline.
 /// Sparse gaps read as silence. A fresh header is written after every buffer so audio
 /// remains recoverable if the helper or server exits unexpectedly.

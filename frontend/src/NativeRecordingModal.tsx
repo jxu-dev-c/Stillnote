@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AudioLines, Mic, Monitor, Pause, Play, RefreshCw, Square, X } from 'lucide-react'
-import { Feedback, Modal, PrivacyBadge, Spinner } from './components'
+import { Feedback, Modal, Spinner } from './components'
 import { api, duration, json, languages, speechReady } from './types'
 import type { Meeting, Settings } from './types'
 import './recording.css'
@@ -116,35 +116,31 @@ export default function NativeRecordingModal({ capabilities, initialSession, set
   const starting = session?.status === 'starting'
   const stopping = session?.status === 'stopping'
   return <Modal title="Record a meeting" onClose={requestClose} closeDisabled={busy}>
-    <div className="modal-symbol"><AudioLines size={25} /></div>
-    <p className="eyebrow">ROOM TO LISTEN</p><h2>Capture the conversation.</h2>
-    <p className="modal-description">{devices.available || session ? 'Record your microphone and meeting apps directly on this Mac.' : 'Choose how to record your conversation on this device.'}</p>
+    <h2>New recording</h2>
     <Feedback error={error || session?.error} />
-    {discard ? <div className="discard-box"><strong>Discard this recording?</strong><p>This stops capture and deletes the unsaved audio and screen video.</p><div className="button-row"><button className="button secondary" disabled={busy} onClick={() => setDiscard(false)}>Keep recording</button><button className="button danger" disabled={busy} onClick={() => void run(async () => { if (session) await api(`/recordings/${session.id}`, { method: 'DELETE' }); onClose() })}>{busy ? <Spinner /> : null}Discard recording</button></div></div> : session ? <div className={`recorder ${paused ? 'is-paused' : ''}`}>
-      <span className="recording-state"><i />{starting ? 'WAITING FOR MACOS PERMISSIONS' : stopping ? 'FINISHING RECORDING' : stopped ? 'CAPTURE STOPPED · READY TO SAVE' : paused ? 'RECORDING PAUSED' : 'RECORDING ON THIS MAC'}</span>
+    {discard ? <div className="discard-box"><strong>Discard this recording?</strong><p>Stops recording and deletes unsaved audio and video.</p><div className="button-row"><button className="button secondary" disabled={busy} onClick={() => setDiscard(false)}>Keep recording</button><button className="button danger" disabled={busy} onClick={() => void run(async () => { if (session) await api(`/recordings/${session.id}`, { method: 'DELETE' }); onClose() })}>{busy ? <Spinner /> : null}Discard recording</button></div></div> : session ? <div className={`recorder ${paused ? 'is-paused' : ''}`}>
+      <span className="recording-state"><i />{starting ? 'WAITING FOR MACOS PERMISSIONS' : stopping ? 'FINISHING RECORDING' : stopped ? 'READY TO SAVE' : paused ? 'PAUSED' : 'RECORDING'}</span>
       <div className="recording-clock">{duration(session.elapsed)}</div>
       <div className="capture-levels"><LevelMeter label="Microphone" level={session.levels.microphone} paused={Boolean(paused || stopped)} />{session.options.system_audio && <LevelMeter label="System audio" level={session.levels.system} paused={Boolean(paused || stopped)} />}</div>
       <p>{session.options.title}{session.options.screen_video && <span className="capture-screen-status"><Monitor size={14} />Screen video enabled</span>}</p>
       {starting && <p className="capture-hint">Allow Microphone and Screen &amp; System Audio Recording in the macOS permission prompts. If access was denied, enable Stillnote Capture in System Settings → Privacy &amp; Security.</p>}
       <div className="recorder-buttons">{!stopped && !starting && !stopping && <button className="button secondary" disabled={busy} onClick={() => void run(async () => { await api(`/recordings/${session.id}/${paused ? 'resume' : 'pause'}`, json('POST', {})) })}>{paused ? <Play size={16} /> : <Pause size={16} />}{paused ? 'Resume' : 'Pause'}</button>}
-        {!starting && <button className="button primary" disabled={busy || stopping} onClick={() => void finish()}>{busy || stopping ? <Spinner /> : <Square size={14} fill="currentColor" />}{busy ? 'Saving on your device…' : ready ? 'Finish & transcribe' : 'Save recording'}</button>}
+        {!starting && <button className="button primary" disabled={busy || stopping} onClick={() => void finish()}>{busy || stopping ? <Spinner /> : <Square size={14} fill="currentColor" />}{busy ? 'Saving…' : ready ? 'Finish & transcribe' : 'Save recording'}</button>}
       </div>
       <button className="text-button muted" disabled={busy} onClick={() => setDiscard(true)}><X size={13} />{starting ? 'Cancel capture' : 'Discard recording'}</button>
-      <p className="capture-hint">Audio is written to this Mac as you record. If you reload, open Record a meeting to reconnect.</p>
+      <p className="capture-hint">After a reload, open New recording to reconnect.</p>
     </div> : <>
       {!devices.available && <p className="capture-unavailable" role="status">{devices.reason}</p>}
-      <label className="field">Meeting title <span className="optional">optional</span><input value={title} onChange={event => setTitle(event.target.value)} placeholder="e.g. Monday product catch-up" disabled={busy} maxLength={200} /></label>
-      <div className="capture-source-heading"><strong><Mic size={16} />Audio sources</strong><button className="text-button" onClick={() => void refresh()} disabled={busy}><RefreshCw size={13} />Refresh devices</button></div>
+      <label className="field">Meeting title <span className="optional">optional</span><input value={title} onChange={event => setTitle(event.target.value)} placeholder="Untitled meeting" disabled={busy} maxLength={200} /></label>
+      <div className="capture-source-heading"><button className="text-button" onClick={() => void refresh()} disabled={busy}><RefreshCw size={13} />Refresh devices</button></div>
       <label className="field">Microphone<select value={microphone} onChange={event => setMicrophone(event.target.value)} disabled={busy || !devices.available}><option value="">System default microphone</option>{devices.microphones.map(device => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label>
-      <label className="toggle-option"><AudioLines size={19} /><span><strong>Include system audio</strong><small>Capture voices from Teams, Zoom, and other apps.</small></span><input type="checkbox" checked={systemAudio} onChange={event => setSystemAudio(event.target.checked)} disabled={busy} /><span className="toggle" aria-hidden="true" /></label>
-      <label className="toggle-option"><Monitor size={19} /><span><strong>Record screen video</strong><small>Save the selected display alongside the conversation.</small></span><input type="checkbox" checked={screenVideo} onChange={event => setScreenVideo(event.target.checked)} disabled={busy} /><span className="toggle" aria-hidden="true" /></label>
+      <label className="toggle-option"><AudioLines size={19} /><span><strong>Include system audio</strong></span><input type="checkbox" checked={systemAudio} onChange={event => setSystemAudio(event.target.checked)} disabled={busy} /><span className="toggle" aria-hidden="true" /></label>
+      <label className="toggle-option"><Monitor size={19} /><span><strong>Record screen video</strong></span><input type="checkbox" checked={screenVideo} onChange={event => setScreenVideo(event.target.checked)} disabled={busy} /><span className="toggle" aria-hidden="true" /></label>
       {screenVideo && <label className="field">Display to record<select value={display ?? ''} onChange={event => setDisplay(Number(event.target.value))} disabled={busy || !devices.available}>{devices.displays.map(device => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label>}
       <div className="form-grid"><label className="field">Language<select value={language} onChange={event => setLanguage(event.target.value)} disabled={busy}>{languages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="field">Speakers<select value={speakerCount} onChange={event => setSpeakerCount(event.target.value)} disabled={busy}><option value="">Detect automatically</option>{Array.from({ length: 10 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} speaker{i ? 's' : ''}</option>)}</select></label></div>
-      <p className="capture-hint">macOS will ask for microphone and screen/system audio access when you start. Screen images are saved only when screen video is enabled. Use headphones to reduce speaker echo.</p>
-      <button className="button primary full start-recording" disabled={busy || !devices.available} onClick={() => void start()}>{busy ? <Spinner /> : <Mic size={17} />}{busy ? 'Starting native capture…' : 'Start recording'}</button>
+      <button className="button primary full start-recording" disabled={busy || !devices.available} onClick={() => void start()}>{busy ? <Spinner /> : <Mic size={17} />}{busy ? 'Starting…' : 'Start recording'}</button>
       <button className="text-button capture-browser" onClick={onBrowser} disabled={busy}>Use browser recording</button>
-      {!ready && <p className="setup-hint">Recordings save locally. Download speech models in Settings to enable transcription.</p>}
+      {!ready && <p className="setup-hint">Download a speech model in Settings to transcribe later.</p>}
     </>}
-    <div className="modal-privacy"><PrivacyBadge /></div>
   </Modal>
 }

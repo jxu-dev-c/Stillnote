@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import CoreGraphics
 import Foundation
@@ -78,9 +79,12 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Send
             let writer = try AVAssetWriter(outputURL: directory.appendingPathComponent("screen.mp4"), fileType: .mp4)
             // Fragmented output permits recovery of completed fragments after an interruption.
             writer.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 600)
+            // Keep decode and presentation order aligned across removed pauses.
+            // Reordered H.264 frames can prevent fragmented MP4 finalization.
             let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
                 AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: config.width, AVVideoHeightKey: config.height,
-                AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 2_000_000, AVVideoMaxKeyFrameIntervalKey: 30]
+                AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 2_000_000, AVVideoMaxKeyFrameIntervalKey: 30,
+                                                  AVVideoAllowFrameReorderingKey: false]
             ])
             input.expectsMediaDataInRealTime = true; writer.add(input)
             guard writer.startWriting() else { throw writer.error ?? CaptureError.message("Could not start saving screen video.") }
@@ -154,17 +158,7 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Send
                 }
                 lastVideoPTS = pts
             } else {
-                guard let description = sample.formatDescription else {
-                    throw CaptureError.message("The input audio format could not be read.")
-                }
-                let format = AVAudioFormat(cmAudioFormatDescription: description)
-                guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(sample.numSamples)) else {
-                    throw CaptureError.message("The input audio format could not be read.")
-                }
-                buffer.frameLength = buffer.frameCapacity
-                guard CMSampleBufferCopyPCMDataIntoAudioBufferList(sample, at: 0, frameCount: Int32(sample.numSamples), into: buffer.mutableAudioBufferList) == noErr else {
-                    throw CaptureError.message("The input audio buffer could not be read.")
-                }
+                guard let buffer = try audioPCMBuffer(from: sample) else { return }
                 let isMic = type == .microphone
                 let meter = try (isMic ? microphone : system)?.append(buffer, at: seconds) ?? (0, 0)
                 levels[isMic ? "microphone" : "system"] = ["rms": meter.0, "peak": meter.1]
@@ -184,7 +178,9 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Send
                 let done = {
                     var event: [String: Any] = ["event": "state", "status": "stopped", "elapsed": self.timeline.seconds(at: hostTime())]
                     if let failure = self.failure { event["error"] = failure }
-                    if let video = self.video, video.status == .failed { event["error"] = "Screen video could not be finalized. Your audio can still be saved." }
+                    if let video = self.video, video.status == .failed, self.failure == nil {
+                        event["error"] = "Screen video could not be finalized: \(video.error?.localizedDescription ?? "Unknown error"). Your audio can still be saved."
+                    }
                     emit(event); exit(0)
                 }
                 if let writer = self.video, writer.status == .writing {
@@ -211,8 +207,13 @@ if #available(macOS 15.0, *) {
     } else if CommandLine.arguments.count == 2 && CommandLine.arguments[1] == "devices" {
         var ids = [CGDirectDisplayID](repeating: 0, count: 32); var count: UInt32 = 0
         CGGetActiveDisplayList(32, &ids, &count)
+        let screens = NSScreen.screens
         emit(["microphones": microphones().map { ["id": $0.uniqueID, "name": $0.localizedName] },
-              "displays": ids.prefix(Int(count)).map { ["id": $0, "name": "Display \($0)\($0 == CGMainDisplayID() ? " (main)" : "")"] },
+              "displays": ids.prefix(Int(count)).map { id -> [String: Any] in
+                  let screen = screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == id }
+                  let name = screen?.localizedName ?? "Display \(id)"
+                  return ["id": id, "name": "\(name)\(id == CGMainDisplayID() ? " (main)" : "")"]
+              },
               "default_display_id": CGMainDisplayID()])
     } else if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "record" {
         let directory = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)

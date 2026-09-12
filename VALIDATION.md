@@ -1,3 +1,12 @@
+## Native capture fixes — September 12, 2026
+
+- The 11:38 macOS crash report identifies a null-format crash in `AVAudioPCMBuffer.initWithPCMFormat:frameCapacity:` on the microphone callback. Synthetic PCM descriptions with missing multichannel or inconsistent mono/stereo layout metadata reproduce a nil result from the previous `AVAudioFormat(cmAudioFormatDescription:)` initializer. The replacement builds a checked format from the PCM stream description and handles both cases; unusable transitional buffers are skipped.
+- Swift regression checks pass for mono float, interleaved stereo Int16, multichannel PCM copying/conversion, inconsistent layouts, unready/invalid/empty buffers, and the existing timing/WAV recovery cases. All 12 Python recording tests and focused Ruff checks pass (existing dependency deprecation warnings remain).
+- The rebuilt, signed production helper and running API report **Built-in Retina Display (main)** and **G24F 2**, preserving their capture IDs.
+- Live verification also reproduced external-display video finalization failure after pause/resume (`AVFoundation -11800`, underlying `-16341`). Disabling H.264 frame reordering resolved repeated reproductions on the external display and passed the built-in display check. Specific capture errors are now preserved when video finalization also fails.
+- Final hardware checks used temporary stores with the production helper: microphone plus system audio, screen video on each display, and the Microsoft Teams virtual microphone. All four passed pause/resume, clean process exit, save, and 48 kHz mono WAV validation. Saved videos contain AAC audio and decoded frames after resume (44 built-in / 46 external frames in the final short checks). Temporary media was removed; the running app has no active recording.
+- These were short hardware checks. Audible system playback, device disconnection, and long-running synchronization remain unverified.
+
 ## Native recording — September 12, 2026
 
 - Added native microphone/system-audio capture and optional screen video for macOS 15+, keeping the browser recorder as a fallback.

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Globe2, Link2, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react'
+import { Check, Globe2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Feedback, Modal, Spinner } from './components'
 import { api, json } from './types'
 import type { ContextLink } from './types'
@@ -61,15 +61,9 @@ export default function ContextPanel({ notes, savedNotes, links, pending, saving
   }
 
   return <section className="context-panel" aria-label="Meeting context">
-    <div className="panel-heading">
-      <div><h2>Context for the conversation</h2><p>Keep useful links, background, and details together.</p></div>
-      <button className="button secondary" disabled={disabled || !dirty} onClick={() => void onSave({ notes }, 'Context saved.')}>
-        {saving ? <Spinner size={15} /> : <Check size={15} />}{saving ? 'Saving…' : dirty ? 'Save context' : 'Saved'}
-      </button>
-    </div>
     <section className="context-links" aria-labelledby="context-links-heading">
       <div className="context-section-heading">
-        <h3 id="context-links-heading"><Link2 size={16} />Links{links.length > 0 && <span>{links.length}</span>}</h3>
+        <h3 id="context-links-heading">Links</h3>
         <button className="button secondary" disabled={disabled || links.length >= 100} onClick={() => openEditor()}><Plus size={15} />Add link</button>
       </div>
       {links.length ? <ul className="context-link-list">{links.map(link => {
@@ -85,19 +79,22 @@ export default function ContextPanel({ notes, savedNotes, links, pending, saving
             <button className="icon-button" aria-label={`Remove ${link.title || host}`} title="Remove link" disabled={disabled} onClick={() => void onSave({ notes, context_links: links.filter(item => item.url !== link.url) }, 'Link removed.')}><Trash2 size={18} /></button>
           </div>
         </li>
-      })}</ul> : <div className="context-links-empty"><span><Link2 size={21} /></span><div><strong>Bring the background along.</strong><p>Add a document, project, or website to refer back to.</p></div></div>}
+      })}</ul> : <p className="context-links-empty">No links yet</p>}
       {links.length >= 100 && <p className="context-caption">This meeting has 100 links. Remove one to add another.</p>}
     </section>
-    <div className="context-section-heading"><label htmlFor="meeting-context-text">Background & details</label></div>
-    <textarea id="meeting-context-text" value={notes} onChange={event => onNotesChange(event.target.value)} disabled={pending} maxLength={100000} placeholder={'Add background, names, questions, or anything worth keeping…'} />
-    <p className="context-caption"><ShieldCheck size={13} />Changes save automatically. Drafts stay on this device.</p>
+    <div className="context-section-heading">
+      <label htmlFor="meeting-context-text">Notes</label>
+      <button className="button secondary" disabled={disabled || !dirty} onClick={() => void onSave({ notes }, 'Context saved.')}>
+        {saving ? <Spinner size={15} /> : <Check size={15} />}{saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+      </button>
+    </div>
+    <textarea id="meeting-context-text" aria-label="Meeting notes" value={notes} onChange={event => onNotesChange(event.target.value)} disabled={pending} maxLength={100000} placeholder={'Add notes…'} />
+
     {editor && <Modal title={editor.originalUrl ? 'Edit context link' : 'Add context link'} onClose={() => setEditor(null)} closeDisabled={submitting}>
-      <div className="modal-symbol"><Link2 size={23} /></div>
-      <h2>{editor.originalUrl ? 'Edit this link' : 'Add a little context'}</h2>
-      <p className="modal-description">Save a document, project, or website with this meeting.</p>
+      <h2>{editor.originalUrl ? 'Edit link' : 'Add link'}</h2>
       <Feedback error={linkError} />
       <form onSubmit={event => { event.preventDefault(); void saveLink() }}>
-        <label className="field">Website link<input type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={editor.url} onChange={event => { setEditor({ ...editor, url: event.target.value }); setLinkError(null) }} placeholder="https://example.com/document" maxLength={4096} required disabled={submitting} aria-invalid={!!linkError} /></label>
+        <label className="field">URL<input type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={editor.url} onChange={event => { setEditor({ ...editor, url: event.target.value }); setLinkError(null) }} placeholder="https://example.com/document" maxLength={4096} required disabled={submitting} aria-invalid={!!linkError} /></label>
         <label className="field">Label <span className="optional">(optional)</span><input value={editor.title} onChange={event => setEditor({ ...editor, title: event.target.value })} placeholder="Use the page title" maxLength={240} disabled={submitting} /></label>
         <div className="button-row modal-actions"><button type="button" className="button secondary" onClick={() => setEditor(null)} disabled={submitting}>Cancel</button><button className="button primary" disabled={disabled || !editor.url.trim()}>{submitting ? <Spinner /> : <Check size={15} />}{submitting ? 'Saving…' : editor.originalUrl ? 'Save link' : 'Add link'}</button></div>
       </form>
