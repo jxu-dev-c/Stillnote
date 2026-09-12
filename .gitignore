@@ -16,3 +16,4 @@ models/*
 .venv-moss/
 *.tsbuildinfo
 /:memory:.ses
+native/build/

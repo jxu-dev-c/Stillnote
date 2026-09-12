@@ -3,9 +3,27 @@ import { ArrowUpRight, AudioLines, Check, Mic, Monitor, Pause, Play, Square, Upl
 import { Modal, PrivacyBadge, Spinner, Feedback } from './components'
 import { api, duration, json, languages, speechReady } from './types'
 import type { Meeting, Settings } from './types'
+import NativeRecordingModal from './NativeRecordingModal'
+import type { CaptureCapabilities, CaptureSession } from './NativeRecordingModal'
 
 type Props = { mode: 'record' | 'import'; settings: Settings | null; onClose: () => void; onSaved: (meeting: Meeting) => void }
-export default function RecordingModal({ mode, settings, onClose, onSaved }: Props) {
+export default function RecordingModal(props: Props) {
+  const [browser, setBrowser] = useState(props.mode === 'import')
+  const [capture, setCapture] = useState<{ capabilities: CaptureCapabilities; session: CaptureSession | null } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    if (browser) return
+    let cancelled = false
+    void Promise.all([api<CaptureCapabilities>('/recordings/capabilities'), api<CaptureSession | null>('/recordings/current')])
+      .then(([capabilities, session]) => { if (!cancelled) setCapture({ capabilities, session }) })
+      .catch(err => { if (!cancelled) setError((err as Error).message) })
+    return () => { cancelled = true }
+  }, [browser])
+  if (browser) return <BrowserRecordingModal {...props} />
+  if (!capture) return <Modal title="Record a meeting" onClose={props.onClose}><h2>Capture the conversation.</h2>{error ? <><Feedback error={error} /><button className="button secondary" onClick={() => setBrowser(true)}>Use browser recording</button></> : <p className="capture-loading"><Spinner />Checking recording devices…</p>}</Modal>
+  return <NativeRecordingModal {...props} capabilities={capture.capabilities} initialSession={capture.session} onBrowser={() => setBrowser(true)} />
+}
+function BrowserRecordingModal({ mode, settings, onClose, onSaved }: Props) {
   const [title, setTitle] = useState('')
   const [language, setLanguage] = useState(settings?.transcription.language || 'auto')
   const [speakerCount, setSpeakerCount] = useState(settings?.transcription.speaker_count?.toString() || '')

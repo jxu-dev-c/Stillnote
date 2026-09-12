@@ -52,12 +52,12 @@ def test_migrate_saved_selection_preserves_other_preferences(tmp_path, legacy):
     store = Store(tmp_path)
     settings = store.settings()
     settings["transcription"].update(model=legacy, language="fr", speaker_count=3)
-    settings["summary"]["api_key"] = "preserve-me"
+    settings["summary"]["model"] = "preserve-me"
     with store.db() as db:
         db.execute("INSERT OR REPLACE INTO settings VALUES (1, ?)", (json.dumps(settings),))
     result = store.settings()
     assert result["transcription"] == dict(model="moss-0.9b", language="fr", speaker_count=3)
-    assert result["summary"]["api_key"] == "preserve-me"
+    assert result["summary"]["model"] == "preserve-me"
 
 
 def test_moss_speakers_and_timestamps():

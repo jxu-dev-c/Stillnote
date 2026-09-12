@@ -1,3 +1,14 @@
+## Native recording — September 12, 2026
+
+- Added native microphone/system-audio capture and optional screen video for macOS 15+, keeping the browser recorder as a fallback.
+- The Swift helper compiles and is ad-hoc signed on macOS 26.5.1 / Apple silicon. Native device discovery finds the built-in microphone, connected audio inputs, and both displays without recording.
+- Swift checks pass for pause/resume timing, rejecting stale paused buffers, stereo-to-mono resampling, RMS/peak levels, silence alignment, and reading WAV data before capture finalization.
+- 156 Python tests pass, including 12 native-capture tests. Those tests use a real synthetic helper subprocess for start/pause/resume/stop/discard, denied permissions, unexpected exits, server restart recovery, failed-save retries, idempotent saves, bounded audio mixing, video/audio muxing, range playback, and deletion.
+- Ruff and TypeScript checks and the Vite production build pass. The existing Starlette/httpx deprecation warnings remain.
+- The browser flow was checked with an isolated synthetic capture server: source options, optional display selection, input meters, pause, page reload/reconnect, resume, saving, screen video playback, and screen export. Video decoded and advanced in the browser. Desktop and 390-pixel modal layouts were visually checked; the narrow modal scrolls without horizontal overflow.
+- Native setup verified on this Mac: macOS reported microphone and screen/system audio permission already granted. A brief capture through the running API received 48 kHz microphone and system streams (204,906 and 203,790 frames), with nonzero microphone input. Pause held the timer steady and resume continued capture. System audio was silent during this check. The test session was discarded and the two existing saved meetings were preserved.
+- Audible system sound, screen-video capture, permission-denial prompts, display disconnection, and long-running hardware synchronization still require hardware checks. Native Windows/Linux capture is not implemented.
+
 # Validation record
 
 ## Apple Silicon MOSS optimization — September 8, 2026

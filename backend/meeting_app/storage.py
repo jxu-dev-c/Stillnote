@@ -1,4 +1,4 @@
-"""Local SQLite store. Audio and credentials never appear in public settings."""
+"""Local SQLite store for recordings, meeting content, and preferences."""
 
 import json
 import os
@@ -9,9 +9,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from .agents import DEFAULT_EFFORT, DEFAULT_MODELS, DEFAULT_PROVIDER
+
 DEFAULT_SETTINGS = {
     "transcription": {"model": "moss-0.9b", "language": "auto", "speaker_count": None},
-    "summary": {"provider": "local", "model": "", "base_url": "", "api_key": ""},
+    "summary": {
+        "provider": DEFAULT_PROVIDER,
+        "model": DEFAULT_MODELS[DEFAULT_PROVIDER],
+        "reasoning_effort": DEFAULT_EFFORT,
+    },
 }
 BUSY = {"transcribing", "summarizing"}
 
@@ -25,6 +31,8 @@ class Store:
         self.directory = directory
         self.audio_dir = directory / "audio"
         self.audio_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.video_dir = directory / "video"
+        self.video_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = directory / "stillnote.sqlite3"
         self.lock = threading.RLock()
         with self.db() as db:
@@ -54,6 +62,9 @@ class Store:
     def list(self):
         with self.db() as db:
             items = [json.loads(row[0]) for row in db.execute("SELECT data FROM meetings")]
+        for item in items:
+            item.setdefault("context_links", [])
+            item.setdefault("video_url", None)
         return sorted(items, key=lambda item: item["created_at"], reverse=True)
 
     def get(self, meeting_id):
@@ -61,9 +72,12 @@ class Store:
             row = db.execute("SELECT data FROM meetings WHERE id=?", (meeting_id,)).fetchone()
         if row is None:
             raise KeyError(meeting_id)
-        return json.loads(row[0])
+        meeting = json.loads(row[0])
+        meeting.setdefault("context_links", [])
+        meeting.setdefault("video_url", None)
+        return meeting
 
-    def create(self, title, audio_name, language, speaker_count, duration, meeting_id=None):
+    def create(self, title, audio_name, language, speaker_count, duration, meeting_id=None, video_name=None, error=None):
         meeting_id = meeting_id or uuid4().hex
         meeting = dict(
             id=meeting_id,
@@ -74,15 +88,17 @@ class Store:
             status="ready",
             progress=0,
             stage="Ready to transcribe",
-            error=None,
+            error=error,
             audio_name=audio_name,
             audio_url=f"/api/meetings/{meeting_id}/audio",
+            video_url=f"/api/meetings/{meeting_id}/video" if video_name else None,
             language=language,
             speaker_count=speaker_count,
             speakers={},
             segments=[],
             summary=None,
             notes="",
+            context_links=[],
         )
         with self.db() as db:
             db.execute("INSERT INTO meetings VALUES (?, ?)", (meeting_id, json.dumps(meeting)))
@@ -101,14 +117,29 @@ class Store:
             db.execute("DELETE FROM meetings WHERE id=?", (meeting_id,))
 
     def settings(self):
-        with self.db() as db:
-            row = db.execute("SELECT data FROM settings WHERE id=1").fetchone()
-        settings = json.loads(row[0]) if row else json.loads(json.dumps(DEFAULT_SETTINGS))
-        if settings["transcription"]["model"] in {"tiny", "base", "small", "tiny.en", "base.en", "small.en"}:
-            settings["transcription"]["model"] = "moss-0.9b"
+        with self.lock:
             with self.db() as db:
-                db.execute("INSERT OR REPLACE INTO settings VALUES (1, ?)", (json.dumps(settings),))
-        return settings
+                row = db.execute("SELECT data FROM settings WHERE id=1").fetchone()
+            settings = json.loads(row[0]) if row else json.loads(json.dumps(DEFAULT_SETTINGS))
+            original = json.dumps(settings)
+            if settings["transcription"]["model"] in {"tiny", "base", "small", "tiny.en", "base.en", "small.en"}:
+                settings["transcription"]["model"] = "moss-0.9b"
+            summary = settings.get("summary", {})
+            provider = summary.get("provider", DEFAULT_PROVIDER)
+            if provider not in DEFAULT_MODELS:
+                provider = "claude-code" if provider == "anthropic" else DEFAULT_PROVIDER
+                summary = {}
+            # Replace retired API settings, including keys, while keeping saved
+            # meeting summaries and all unrelated preferences untouched.
+            settings["summary"] = {
+                "provider": provider,
+                "model": summary.get("model") or DEFAULT_MODELS[provider],
+                "reasoning_effort": summary.get("reasoning_effort") or DEFAULT_EFFORT,
+            }
+            if json.dumps(settings) != original:
+                with self.db() as db:
+                    db.execute("INSERT OR REPLACE INTO settings VALUES (1, ?)", (json.dumps(settings),))
+            return settings
 
     def save_settings(self, changes):
         with self.lock:
@@ -116,14 +147,12 @@ class Store:
             for section, values in changes.items():
                 if (
                     section == "summary"
-                    and any(
-                        key in values and values[key] != settings[section][key]
-                        for key in ["provider", "base_url"]
-                    )
-                    and "api_key" not in values
+                    and values.get("provider", settings[section]["provider"]) != settings[section]["provider"]
                 ):
-                    settings[section]["api_key"] = ""
+                    settings[section]["model"] = DEFAULT_MODELS[values["provider"]]
                 settings[section].update(values)
+                if section == "summary" and not settings[section]["model"]:
+                    settings[section]["model"] = DEFAULT_MODELS[settings[section]["provider"]]
             with self.db() as db:
                 db.execute("INSERT OR REPLACE INTO settings VALUES (1, ?)", (json.dumps(settings),))
             return settings

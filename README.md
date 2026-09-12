@@ -1,8 +1,8 @@
 # Stillnote
 
-A private meeting notebook that runs on your own computer. Record your microphone, import a recording, distinguish speakers, edit the transcript, and turn the conversation into useful notes.
+A private meeting notebook that runs on your own computer. Record your microphone and system audio with optional screen video, import a recording, distinguish speakers, edit the transcript, and turn the conversation into useful notes.
 
-**Audio recording, speech recognition, and speaker diarization run locally.** Optional remote summaries send only transcript text after you confirm that choice for the meeting. The default summary never uses the network.
+**Audio recording, speech recognition, and speaker diarization run locally.** Optional summaries run through your installed Codex or Claude Code CLI, which may send transcript text to hosted models after you confirm that choice for the meeting.
 
 ## Run
 
@@ -30,17 +30,23 @@ If uv is unavailable, create `.venv` with Python, install `pip install -e '.[dev
 
 ## Use
 
-1. **Record a meeting**: grant microphone access, optionally select a browser tab and enable its shared audio, then start. Pause/resume as needed and finish to save and transcribe. If models are not installed yet, the audio is saved for later transcription.
+1. **Record a meeting**: on macOS 15+, select a native microphone, optionally include system audio and screen video, then start and grant macOS capture permissions. Separate input meters show microphone and system audio. Pause/resume as needed and finish to save and transcribe. **Use browser recording** provides the existing microphone/shared-tab capture on other platforms. If models are not installed yet, recordings are saved for later transcription.
 2. **Import audio**: choose WAV, MP3, M4A, WebM, FLAC, or a supported video container containing audio. Maximum file size is 2 GB.
 3. **Review speakers**: automatic diarization assigns anonymous speaker labels. Provide an expected speaker-count hint when you know it; rename speakers and correct text or speaker assignments in the transcript. Click a timestamp to listen to that point.
 4. **Generate a summary**: get an overview, key points, decisions, and action items. Choose a summary provider in Settings. Remote providers require a transcript-sharing confirmation each time you generate a summary.
-5. **Keep or export**: add personal notes and export Markdown, plain text, JSON, or speaker-labeled SRT subtitles. Delete a meeting to remove its database record and original audio.
+5. **Keep context or export**: use **Context** to add background and website links with optional labels. Background saves automatically; add, edit, or remove links using their controls. Existing personal notes appear here. Context and links are included in Markdown, plain text, and JSON exports; SRT contains subtitles only. Delete a meeting to remove its database record, original audio, and any screen video.
 
-Recordings stay in browser memory until you finish and save them. Keep the page open while recording and saving. If upload fails, the interface keeps the recording available to retry or download. Once saved, recordings persist on disk. Closing the app during transcription preserves audio and marks the interrupted job for retry on the next launch.
+Leave a link's label blank to use its page title. Stillnote briefly fetches the public page without browser cookies; if a title cannot be retrieved, the website's domain remains the label. You can always enter your own label. Link icons load directly from each website's `/favicon.ico` without a referrer or a third-party icon service. If an icon is unavailable or you are offline, a globe appears instead. Linked pages are not included in summaries.
+
+Native recordings write audio to disk during capture. Reopen **New recording** after a browser reload to reconnect; after a server interruption, save or discard the recovered session there. Optional screen video appears above the playback controls and is available in Export. Native recordings stop at 90 minutes. See [native recording setup and recovery](native/README.md).
+
+Browser recordings stay in browser memory until you finish and save them. Keep the page open while recording and saving. If upload fails, the interface keeps the recording available to retry or download. Once saved, recordings persist on disk. Closing the app during transcription preserves audio and marks the interrupted job for retry on the next launch.
 
 ### Capturing an online meeting
 
-Microphone recording captures what the selected input actually hears. For remote participants, enable **Include shared audio**, choose the meeting's browser tab, and check the browser's audio-sharing option. Browser and OS support varies. This version does not capture arbitrary desktop applications' system audio natively; use an audio loopback device as the microphone input or import a recording from that application. Speakers are detected from the combined audio, not from participant names or meeting accounts.
+On **macOS 15+**, build the native helper with `./scripts/build-capture.sh` (also included in setup when Swift is installed). Choose a microphone and enable **Include system audio** to capture remote participants from desktop apps such as Teams or Zoom. Enable **Record screen video** only when you want to save a selected display. macOS requires Microphone and Screen & System Audio Recording permissions; screen images are not saved in audio-only mode. Use headphones to reduce microphone echo. Native capture needs Xcode or Command Line Tools with a macOS 15+ SDK to build.
+
+For the browser fallback, enable **Include shared audio**, choose the meeting's browser tab, and check the browser's audio-sharing option. Browser and OS support varies; native capture for Windows and Linux is not yet implemented. Speakers are detected from the combined audio, not from participant names or meeting accounts.
 
 ### Speech models
 
@@ -64,29 +70,37 @@ Speaker labels are estimates, not verified identities. Review text and attributi
 
 ### Summaries
 
-| Provider | Where processing runs | Setup |
-| --- | --- | --- |
-| Built-in local | In this Python process | None. Extracts important sentences and explicit commitments; not a generative language model. |
-| Ollama | A local loopback Ollama server | Pull a local model with Ollama, enter its name and local URL. Cloud-backed Ollama models are rejected. |
-| OpenAI-compatible | Your chosen HTTPS provider | Configure the API base URL, model ID, and key. Uses Chat Completions. |
-| Anthropic | Your chosen HTTPS Anthropic-compatible endpoint | Configure the base URL, model ID, and API key. Uses Messages. |
+| Local agent | Default model | Default thinking | Setup |
+| --- | --- | --- | --- |
+| Codex (default) | `gpt-5.6-luna` | High | Install Codex CLI and run `codex login`. |
+| Claude Code | `claude-sonnet-5` (Sonnet 5) | High | Install Claude Code and run `claude auth login`. |
 
-No provider receives audio, notes, filenames, or other meeting metadata. Summary providers receive the speaker-labeled transcript and summary instructions. Long transcripts are summarized in sections, and results are merged locally. A remote provider may charge for multiple section requests. Very large transcripts receive an explicit size-limit error rather than silent truncation. Local extraction's action/decision detection works best with English. For generative local summaries, use Ollama.
+Choose the agent in Settings. Stillnote checks whether its executable is available; sign-in and model access are checked when a summary runs. You can change the model ID and thinking effort. Both CLIs must be recent enough to support the headless flags below. Authentication stays with the CLI; Stillnote has no API-key or endpoint fields.
 
-Provider keys remain on the backend, in the local SQLite settings record; the API returns only whether a key is configured. The SQLite file and audio files are created with owner-only file permissions on macOS/Linux. Keys are not encrypted or stored in the system keychain. Do not share or commit the data directory. Changing a provider/endpoint clears the previous key unless you provide a new key.
+Stillnote launches `codex exec` or `claude --print` without a shell, passing the speaker-labeled transcript through stdin. Codex uses `--output-schema`, `--output-last-message`, and `model_reasoning_effort`; Claude Code uses `--json-schema`, JSON output, and `--effort`. Each request runs in a private temporary directory with session persistence disabled. Codex uses a read-only sandbox with shell and web search disabled, and ignores user config and project instructions while retaining CLI authentication. Claude Code disables built-in tools, MCP servers, slash commands, and hooks. Its user settings remain available for CLI authentication configuration. Model availability and usage limits depend on your account; the app never silently substitutes a model.
+
+Only transcript text and speaker labels are supplied from the meeting; audio, context, links, filenames, and titles are not supplied to the agent. The CLIs may use hosted inference, so every summary requires the existing transcript-sharing confirmation. Long transcripts are summarized in sections and merged locally, with a five-minute timeout per section. Very large transcripts produce a size-limit error. CLI failures show an actionable message without exposing raw CLI logs, and preserve any earlier summary.
+
+Old Anthropic settings migrate to Claude Code; other retired providers migrate to Codex. Migration uses the new default model and high thinking, removes obsolete API credentials and endpoint fields from the settings record, and preserves meetings and saved summaries.
+
+The executable must be on the backend's `PATH`. For custom installations, set `STILLNOTE_CODEX_BIN` or `STILLNOTE_CLAUDE_BIN` to the executable's full path before starting the app. These variables accept an executable path, not a shell command or extra arguments.
+
+CLI references: [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode), [Codex configuration](https://learn.chatgpt.com/docs/config-file/config-reference), [Claude Code CLI](https://code.claude.com/docs/en/cli-reference), [Claude model configuration](https://code.claude.com/docs/en/model-config).
 
 ## Local storage and privacy boundary
 
 ```text
-Browser microphone / imported file
+Native microphone + system audio / browser microphone / imported file
   → localhost API → data/audio/<meeting-id>
   → local speech models → SQLite transcript and speaker labels
-  → built-in local summary / local Ollama
-  → optional remote summary (transcript only, explicit confirmation)
+  → optional local Codex / Claude Code CLI
+  → hosted model (transcript only, explicit confirmation)
 ```
 
 - `data/stillnote.sqlite3`: meetings, transcripts, summaries, notes, and provider settings.
 - `data/audio/`: original audio, one file per meeting.
+- `data/video/`: optional screen video with mixed audio.
+- `data/recordings/`: active or interrupted native sessions; sources are removed after successful save or explicit discard.
 - `models/`: downloaded speech and speaker models.
 - `frontend/dist/`: locally bundled interface; no external fonts, scripts, or analytics.
 - Browser local storage: unsaved note drafts, removed after successful save or meeting deletion in the interface.
@@ -115,15 +129,15 @@ npm run dev -- --host 127.0.0.1
 
 The Vite dev server proxies `/api` to the local backend. For normal use, serve the compiled interface with `./scripts/start.sh` so everything shares one localhost origin.
 
-Tests cover local persistence, audio upload/readback, transcript edits/exports, interrupted jobs, speaker/timestamp assignment, model readiness, remote-summary consent, provider payloads, and error handling. The speech engine can additionally be validated using real downloaded models and synthetic two-voice audio, with network connections blocked during inference.
+Tests cover local persistence, audio upload/readback, transcript edits/exports, interrupted jobs, speaker/timestamp assignment, model readiness, agent-summary consent, headless CLI arguments/stdin/output, settings migration, timeouts, and error handling. The speech engine can additionally be validated using real downloaded models and synthetic two-voice audio, with network connections blocked during inference.
 
 ## Troubleshooting
 
 - **Microphone denied**: allow microphone access for localhost in the browser and macOS privacy settings. Restart the browser after changing OS permissions.
-- **No shared audio**: select a browser tab and enable audio sharing. Native meeting app audio may require a virtual audio input or an imported file.
+- **No system audio**: for native recording, enable system audio and grant Screen & System Audio Recording access to Stillnote Capture in macOS settings. Check both input meters. For browser recording, select a browser tab and enable audio sharing.
 - **Setup failed**: check your connection to the public Hugging Face and GitHub model hosts, then retry. Partial files are not accepted as installed models.
 - **No speech / wrong speakers**: use clearer audio, select the language, or supply the expected speaker count. Try VibeVoice 1.5B or 7B and compare recognition on your recordings.
-- **Provider failure**: verify the endpoint, model name, and key. Remote endpoints require HTTPS. Ollama must run on a loopback address with a local model.
+- **Agent failure**: check that `codex` or `claude` is installed, up to date, signed in, and has access to the selected model. Check account usage limits. Use the executable environment variables above if the CLI is not on the server’s PATH.
 - **App interrupted during processing**: restart and retry transcription or summary; saved audio remains intact.
 
 ## Model and library references

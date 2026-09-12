@@ -19,8 +19,16 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from . import speech, summarization
-from .schemas import InstallRequest, MeetingPatch, SettingsPatch, SummaryRequest, TranscribeRequest
+from . import agents, link_metadata, recording, speech, summarization
+from .schemas import (
+    ContextLink,
+    InstallRequest,
+    MeetingPatch,
+    RecordingRequest,
+    SettingsPatch,
+    SummaryRequest,
+    TranscribeRequest,
+)
 from .storage import BUSY, Store
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -71,8 +79,19 @@ def export_text(meeting, format):
                 lines.append(f"- {text}")
             lines.append("")
         lines += [f"Summary provider: {summary['provider']} ({summary['model']})", ""]
-    if meeting.get("notes"):
-        lines += [f"{heading}Notes", "", meeting["notes"], ""]
+    if meeting.get("notes") or meeting.get("context_links"):
+        lines += [f"{heading}Context", ""]
+        if meeting.get("notes"):
+            lines += [meeting["notes"], ""]
+        for link in meeting.get("context_links", []):
+            if format == "md":
+                title = re.sub(r"([\\`*_{}\[\]<>()!])", r"\\\1", link["title"] or link["url"])
+                url = link["url"].replace("<", "%3C").replace(">", "%3E")
+                lines.append(f"- [{title}](<{url}>)")
+            else:
+                lines.append(f"- {link['title']}: {link['url']}" if link["title"] else f"- {link['url']}")
+        if meeting.get("context_links"):
+            lines.append("")
     lines += [f"{heading}Transcript", ""]
     for segment in meeting["segments"]:
         name = speakers.get(segment["speaker"], segment["speaker"])
@@ -82,6 +101,7 @@ def export_text(meeting, format):
 
 def create_app(data_dir=None, model_dir=None):
     store = Store(Path(data_dir or os.environ.get("STILLNOTE_DATA_DIR", PROJECT_ROOT / "data")))
+    capture = recording.RecordingManager(store)
     model_dir = Path(model_dir or os.environ.get("STILLNOTE_MODEL_DIR", PROJECT_ROOT / "models"))
     model_dir.mkdir(parents=True, exist_ok=True)
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stillnote")
@@ -93,6 +113,7 @@ def create_app(data_dir=None, model_dir=None):
     @asynccontextmanager
     async def lifespan(app):
         yield
+        capture.close()
         for cancel_event in list(transcription_cancellations.values()):
             cancel_event.set()
         executor.shutdown(wait=True, cancel_futures=False)
@@ -100,7 +121,12 @@ def create_app(data_dir=None, model_dir=None):
     app = FastAPI(title="Stillnote", version="0.1.0", lifespan=lifespan)
     app.state.store = store
     app.state.executor = executor
+    app.state.capture = capture
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]"])
+
+    @app.exception_handler(recording.RecordingError)
+    async def recording_error(request: Request, error: recording.RecordingError):
+        return JSONResponse({"detail": str(error)}, error.status)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError):
@@ -111,11 +137,14 @@ def create_app(data_dir=None, model_dir=None):
             "api_key",
             "provider",
             "model",
+            "reasoning_effort",
             "base_url",
             "language",
             "speaker_count",
             "title",
             "notes",
+            "context_links",
+            "url",
             "speakers",
             "segments",
             "start",
@@ -163,7 +192,7 @@ def create_app(data_dir=None, model_dir=None):
         response.headers["Permissions-Policy"] = "microphone=(self), camera=()"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; "
+            "img-src 'self' data: https: http:; media-src 'self' blob:; connect-src 'self'; "
             "font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
         )
         if request.url.path.startswith("/api/"):
@@ -179,7 +208,7 @@ def create_app(data_dir=None, model_dir=None):
 
     def public_settings():
         result = store.settings()
-        result["summary"]["api_key_set"] = bool(result["summary"].pop("api_key", ""))
+        result["agents"] = agents.agent_status()
         result["speech"] = status()
         return result
 
@@ -213,6 +242,35 @@ def create_app(data_dir=None, model_dir=None):
     @app.get("/api/meetings")
     def list_meetings():
         return store.list()
+
+    @app.get("/api/recordings/capabilities")
+    def recording_capabilities():
+        return recording.capabilities()
+
+    @app.get("/api/recordings/current")
+    def current_recording():
+        return capture.current()
+
+    @app.post("/api/recordings", status_code=201)
+    def start_recording(options: RecordingRequest):
+        return capture.start(options.model_dump())
+
+    @app.post("/api/recordings/{session_id}/pause")
+    def pause_recording(session_id: str):
+        return capture.control(session_id, "pause")
+
+    @app.post("/api/recordings/{session_id}/resume")
+    def resume_recording(session_id: str):
+        return capture.control(session_id, "resume")
+
+    @app.post("/api/recordings/{session_id}/stop")
+    def stop_recording(session_id: str):
+        return capture.finish(session_id)
+
+    @app.delete("/api/recordings/{session_id}", status_code=204)
+    def discard_recording(session_id: str):
+        capture.discard(session_id)
+        return Response(status_code=204)
 
     @app.post("/api/meetings", status_code=201)
     async def create_meeting(
@@ -266,6 +324,10 @@ def create_app(data_dir=None, model_dir=None):
         finally:
             await file.close()
 
+    @app.post("/api/context/link-title")
+    async def context_link_title(link: ContextLink):
+        return {"title": await link_metadata.page_title(str(link.url))}
+
     @app.get("/api/meetings/{meeting_id}")
     def read_meeting(meeting_id: str):
         return get_meeting(meeting_id)
@@ -275,7 +337,7 @@ def create_app(data_dir=None, model_dir=None):
         with job_lock:
             meeting = get_meeting(meeting_id)
             require_idle(meeting)
-            changes = patch.model_dump(exclude_none=True)
+            changes = patch.model_dump(mode="json", exclude_none=True)
             if patch.segments is not None:
                 segments = changes["segments"]
                 ids = [segment["id"] for segment in segments]
@@ -305,6 +367,7 @@ def create_app(data_dir=None, model_dir=None):
         with job_lock:
             require_idle(get_meeting(meeting_id))
             (store.audio_dir / meeting_id).unlink(missing_ok=True)
+            (store.video_dir / meeting_id).unlink(missing_ok=True)
             store.delete(meeting_id)
         return Response(status_code=204)
 
@@ -320,6 +383,14 @@ def create_app(data_dir=None, model_dir=None):
         return FileResponse(
             path, media_type=media_type, filename=meeting["audio_name"], content_disposition_type="inline"
         )
+
+    @app.get("/api/meetings/{meeting_id}/video")
+    def video(meeting_id: str):
+        meeting = get_meeting(meeting_id)
+        path = store.video_dir / meeting_id
+        if not meeting.get("video_url") or not path.is_file():
+            raise HTTPException(404, "The screen recording is missing from local storage.")
+        return FileResponse(path, media_type="video/mp4", filename="screen.mp4", content_disposition_type="inline")
 
     def progress_for(meeting_id):
         def report(progress, stage):
@@ -444,12 +515,9 @@ def create_app(data_dir=None, model_dir=None):
         except Exception as error:
             message = (
                 str(error)
-                if isinstance(error, ValueError)
+                if isinstance(error, summarization.SummaryError)
                 else "Summary failed. Check the provider configuration and try again."
             )
-            # Even unexpected provider exceptions must not reveal a configured credential.
-            if settings.get("api_key"):
-                message = message.replace(settings["api_key"], "[redacted]")
             store.update(meeting_id, status="error", stage="Summary failed", error=message[:1000])
 
     @app.post("/api/meetings/{meeting_id}/summary", status_code=202)
@@ -462,7 +530,7 @@ def create_app(data_dir=None, model_dir=None):
             settings = store.settings()["summary"]
             if summarization.is_remote_provider(settings) and not body.allow_remote:
                 raise HTTPException(
-                    403, "Confirm sending this transcript to your remote summary provider. Audio stays local."
+                    403, "Confirm sharing this transcript with your coding agent's model provider. Audio stays local."
                 )
             result = store.update(
                 meeting_id, status="summarizing", progress=0, stage="Queued for summary", error=None

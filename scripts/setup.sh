@@ -12,5 +12,8 @@ else
   .venv-moss/bin/python -m pip install -r requirements-moss.lock
 fi
 (cd frontend && npm ci && npm run build)
+if [[ "$(uname -s)" == Darwin ]] && xcrun --find swiftc >/dev/null 2>&1; then
+  ./scripts/build-capture.sh
+fi
 echo 'Ready. Run ./scripts/start.sh and open http://127.0.0.1:8765.'
 echo 'In Settings, download the local speech models once to enable offline transcription.'

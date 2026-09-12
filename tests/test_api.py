@@ -108,36 +108,32 @@ def test_cross_site_requests_and_dns_rebinding_are_rejected(client):
     assert client.get("/api/health", headers={"Origin": "http://127.0.0.1"}).status_code == 200
 
 
-def test_settings_never_return_secrets_and_preserve_partial_updates(client):
-    response = client.put(
-        "/api/settings",
-        json={
-            "summary": {
-                "provider": "openai-compatible",
-                "api_key": "SECRET",
-                "base_url": "https://api.example.test/v1",
-                "model": "summary-model",
-            }
-        },
-    )
+def test_agent_settings_preserve_partial_updates_and_reset_model_on_provider_change(client):
+    initial = client.get("/api/settings").json()
+    assert initial["summary"] == {"provider": "codex", "model": "gpt-5.6-luna", "reasoning_effort": "high"}
+    assert set(initial["agents"]) == {"codex", "claude-code"}
+    response = client.put("/api/settings", json={"summary": {"model": "custom-model", "reasoning_effort": "medium"}})
     assert response.status_code == 200
-    assert "SECRET" not in response.text and 'api_key"' not in response.text
-    assert response.json()["summary"]["api_key_set"]
-    client.put("/api/settings", json={"summary": {"model": "changed"}})
-    assert client.app.state.store.settings()["summary"]["api_key"] == "SECRET"
-    client.put("/api/settings", json={"summary": {"base_url": "https://other.example.test/v1"}})
-    assert not client.get("/api/settings").json()["summary"]["api_key_set"]
+    client.put("/api/settings", json={"summary": {"reasoning_effort": "low"}})
+    assert client.get("/api/settings").json()["summary"]["model"] == "custom-model"
+    switched = client.put("/api/settings", json={"summary": {"provider": "claude-code"}}).json()
+    assert switched["summary"] == {"provider": "claude-code", "model": "claude-sonnet-5", "reasoning_effort": "low"}
+    client.put("/api/settings", json={"summary": {"model": "custom-claude"}})
+    reset = client.put("/api/settings", json={"summary": {"model": "  "}}).json()
+    assert reset["summary"]["model"] == "claude-sonnet-5"
+    assert "api_key" not in str(reset) and "base_url" not in str(reset)
     client.put("/api/settings", json={"transcription": {"speaker_count": 2}})
     client.put("/api/settings", json={"transcription": {"speaker_count": None}})
     assert client.get("/api/settings").json()["transcription"]["speaker_count"] is None
 
 
-def test_summary_requires_transcript_and_remote_consent(client, monkeypatch):
+@pytest.mark.parametrize("provider", ["codex", "claude-code"])
+def test_summary_requires_transcript_and_remote_consent(client, monkeypatch, provider):
     meeting = upload(client)
     base = f"/api/meetings/{meeting['id']}"
     assert client.post(base + "/summary", json={}).status_code == 409
     client.patch(base, json={"segments": transcript(), "speakers": {"speaker_0": "Alex", "speaker_1": "Sam"}})
-    client.put("/api/settings", json={"summary": {"provider": "openai-compatible", "model": "model"}})
+    client.put("/api/settings", json={"summary": {"provider": provider, "model": "model"}})
     called = []
 
     def fake_summary(meeting, settings, allow_remote=False):
@@ -163,15 +159,30 @@ def test_summary_requires_transcript_and_remote_consent(client, monkeypatch):
     assert changed["summary"] is None and changed["status"] == "transcribed"
 
 
-def test_local_summary_without_remote_access(client):
+def test_agent_failure_preserves_previous_summary_and_hides_raw_errors(client, monkeypatch):
     meeting = upload(client)
     base = f"/api/meetings/{meeting['id']}"
     client.patch(base, json={"segments": transcript()})
-    assert client.post(base + "/summary", json={}).status_code == 202
+    previous = {"overview": "Previous summary", "provider": "local", "model": "extractive-v1"}
+    client.app.state.store.update(meeting["id"], summary=previous)
+
+    def fail(*args, **kwargs):
+        raise ValueError("PRIVATE TRANSCRIPT secret-token")
+
+    monkeypatch.setattr(main.summarization, "summarize", fail)
+    assert client.post(base + "/summary", json={"allow_remote": True}).status_code == 202
     final = wait_done(client, meeting["id"])
-    assert final["status"] == "complete", final.get("error")
-    assert final["summary"]["provider"] == "local"
-    assert final["summary"]["overview"]
+    assert final["status"] == "error"
+    assert final["summary"] == previous
+    assert "PRIVATE" not in final["error"] and "secret-token" not in final["error"]
+
+
+@pytest.mark.parametrize("summary", [
+    {"provider": "local"}, {"provider": "ollama"}, {"provider": "openai-compatible"},
+    {"provider": "anthropic"}, {"reasoning_effort": "ultra"}, {"model": "bad\nmodel"},
+])
+def test_invalid_or_retired_summary_settings_rejected(client, summary):
+    assert client.put("/api/settings", json={"summary": summary}).status_code == 422
 
 
 def test_transcription_job_and_missing_models(client, monkeypatch):
