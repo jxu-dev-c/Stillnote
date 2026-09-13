@@ -27,7 +27,7 @@ struct RecordingSheet: View {
                 setup
             }
         }
-        .padding(20)
+        .padding(24)
         .frame(width: 480)
         .interactiveDismissDisabled(starting || saving || model.recorder.session != nil)
         .onAppear(perform: prepare)
@@ -49,7 +49,7 @@ struct RecordingSheet: View {
 
     private var setup: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("New recording").font(.headline)
+            Text("New Recording").font(.title2.weight(.semibold))
 
             if !model.capabilities.available, let reason = model.capabilities.reason {
                 Label(reason, systemImage: "exclamationmark.triangle")
@@ -93,6 +93,7 @@ struct RecordingSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .disabled(starting)
                 Button(starting ? "Starting…" : "Start Recording") { Task { await start() } }
+                    .primaryActionStyle()
                     .keyboardShortcut(.defaultAction)
                     .disabled(starting || !model.capabilities.available)
             }
@@ -146,6 +147,7 @@ struct RecordingSheet: View {
                     Button("Resume") { model.recorder.resume() }
                 }
                 Button(finishTitle) { Task { await finish() } }
+                    .primaryActionStyle()
                     .keyboardShortcut(.defaultAction)
                     .disabled(saving || session.status == .starting || session.status == .stopping)
             }

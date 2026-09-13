@@ -115,29 +115,36 @@ struct PlayerView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else if player.hasVideo {
                 VideoPlayer(player: player.player)
+                    .aspectRatio(16 / 9, contentMode: .fit)
                     .frame(maxHeight: 360)
-                    .clipShape(.rect(cornerRadius: 8))
+                    .clipShape(.rect(cornerRadius: StillnoteTheme.cornerRadius))
             } else {
                 transport
             }
         }
+        .padding(player.hasVideo ? 0 : 16)
+        .modifier(AudioPlaybackSurface(enabled: !player.hasVideo))
     }
 
     private var transport: some View {
         HStack(spacing: 12) {
             Button { player.toggle() } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .frame(width: 16)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.tint)
+                    .frame(width: 32, height: 32)
             }
             .buttonStyle(.borderless)
             .controlSize(.large)
             .help(player.isPlaying ? "Pause" : "Play")
+            .accessibilityLabel(player.isPlaying ? "Pause recording" : "Play recording")
 
             Button { player.skipBack() } label: {
                 Image(systemName: "gobackward.10")
             }
             .buttonStyle(.borderless)
             .help("Back 10 seconds")
+            .accessibilityLabel("Back 10 seconds")
 
             Text(Formatting.duration(player.currentTime))
                 .monospacedDigit()
@@ -149,6 +156,8 @@ struct PlayerView: View {
                 in: 0...max(player.duration, 0.1)
             )
             .controlSize(.small)
+            .accessibilityLabel("Playback position")
+            .accessibilityValue("\(Formatting.duration(player.currentTime)) of \(Formatting.duration(player.duration))")
 
             Text(Formatting.duration(player.duration))
                 .monospacedDigit()
@@ -162,7 +171,21 @@ struct PlayerView: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .help("Playback Speed")
+            .accessibilityLabel("Playback speed, \(player.rate.formatted()) times")
         }
-        .padding(.horizontal, 4)
+    }
+}
+
+private struct AudioPlaybackSurface: ViewModifier {
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content.playbackSurface()
+        } else {
+            content
+        }
     }
 }

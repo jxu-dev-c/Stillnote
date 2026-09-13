@@ -16,6 +16,7 @@ struct ContextTab: View {
             links
             notesSection
         }
+        .font(StillnoteTheme.detailBodyFont)
         .onAppear(perform: loadNotes)
         .onDisappear {
             saveTask?.cancel()
@@ -26,9 +27,9 @@ struct ContextTab: View {
     }
 
     private var links: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Links").font(.headline)
+                Text("Links").font(StillnoteTheme.detailHeadingFont)
                 Spacer()
                 Button {
                     addingLink = true
@@ -46,6 +47,7 @@ struct ContextTab: View {
                 }
             }
         }
+        .contentPanel()
     }
 
     private func linkRow(_ link: ContextLink) -> some View {
@@ -53,9 +55,9 @@ struct ContextTab: View {
         let host = url?.host()?.replacingOccurrences(of: "www.", with: "") ?? link.url
         return HStack(spacing: 10) {
             favicon(for: url)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(link.title.isEmpty ? host : link.title).lineLimit(1)
-                Text(host + (url?.path() ?? "")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(host + (url?.path() ?? "")).font(StillnoteTheme.detailSupportingFont).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
             if let url {
@@ -74,8 +76,8 @@ struct ContextTab: View {
             }
             .buttonStyle(.borderless)
         }
-        .padding(8)
-        .background(.quaternary.opacity(0.35), in: .rect(cornerRadius: 6))
+        .padding(12)
+        .background(.background.tertiary, in: .rect(cornerRadius: 10))
     }
 
     /// Icons load directly from each website with no referrer and no third-party
@@ -90,30 +92,37 @@ struct ContextTab: View {
         } placeholder: {
             Image(systemName: "globe").foregroundStyle(.secondary)
         }
-        .frame(width: 18, height: 18)
+        .frame(width: 24, height: 24)
     }
 
     private var notesSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Notes").font(.headline)
+                Text("Notes").font(StillnoteTheme.detailHeadingFont)
                 Spacer()
                 Text(draft.error != nil ? "Not saved" : (notesDirty ? "Saving…" : "Saved"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(StillnoteTheme.detailSupportingFont).foregroundStyle(.secondary)
             }
             if let error = draft.error {
                 HStack {
                     Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.callout).foregroundStyle(.orange)
+                        .font(StillnoteTheme.detailSupportingFont).foregroundStyle(.orange)
                     Button("Retry") { Task { await saveNotes() } }
                 }
             }
             TextEditor(text: $draft.text)
-                .font(.body)
+                .font(StillnoteTheme.detailBodyFont)
+                .lineSpacing(5)
+                .scrollContentBackground(.hidden)
+                .padding(8)
                 .frame(minHeight: 200)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.separator))
+                .background(.background, in: .rect(cornerRadius: 10))
+                .clipShape(.rect(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(.separator))
+                .accessibilityLabel("Meeting notes")
                 .onChange(of: draft.text) { scheduleSave() }
         }
+        .contentPanel()
     }
 
     // MARK: - Notes drafting

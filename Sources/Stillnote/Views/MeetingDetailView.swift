@@ -24,34 +24,40 @@ struct MeetingDetailView: View {
     @State private var notesDirty = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if let error = meeting.error, meeting.status != .transcribing {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                            .font(.callout)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if let player {
-                        PlayerView(player: player)
-                    }
-                    Picker("View", selection: $tab) {
-                        ForEach(MeetingTab.allCases) { tab in
-                            Text(tab == .context && notesDirty ? "\(tab.label) •" : tab.label).tag(tab)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-
-                    content
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                header
+                if let error = meeting.error, meeting.status != .transcribing {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .font(StillnoteTheme.detailBodyFont)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentPanel()
                 }
-                .padding(20)
+                if let player, player.hasVideo {
+                    PlayerView(player: player)
+                }
+                content
+            }
+            .frame(maxWidth: StillnoteTheme.readingWidth, alignment: .leading)
+            .padding(StillnoteTheme.contentInset)
+            .frame(maxWidth: .infinity)
+        }
+        .background(.background)
+        .playbackBar {
+            if let player, !player.hasVideo {
+                PlayerView(player: player)
+                    .frame(maxWidth: StillnoteTheme.readingWidth)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
+                    .frame(maxWidth: .infinity)
             }
         }
         .navigationTitle(meeting.title)
+        // The heading already names the meeting. Keep room for navigation at compact
+        // widths; macOS retains the title in the Window menu and accessibility.
+        .toolbar(removing: .title)
         .toolbar { toolbar }
         .onAppear {
             title = meeting.title
@@ -86,41 +92,69 @@ struct MeetingDetailView: View {
     // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 16) {
             TextField("Meeting title", text: $title)
                 .textFieldStyle(.plain)
-                .font(.title2.weight(.semibold))
+                .font(StillnoteTheme.detailTitleFont)
+                .accessibilityLabel("Meeting title")
                 .disabled(meeting.status.isBusy)
                 .onSubmit(commitTitle)
                 .onChange(of: meeting.id) { title = meeting.title }
 
-            HStack(spacing: 16) {
-                Label {
-                    Text(meeting.createdDate, format: .dateTime.month(.wide).day().year())
-                } icon: {
-                    Image(systemName: "calendar")
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    metadata
+                    Spacer(minLength: 0)
+                    headerActions
                 }
-                Label {
-                    Text(meeting.duration > 0 ? Formatting.duration(meeting.duration) : "Audio saved")
-                        .monospacedDigit()
-                } icon: {
-                    Image(systemName: "clock")
-                }
-                Label {
-                    Text(meeting.speakers.isEmpty ? "No speakers" : "\(meeting.speakers.count) speakers")
-                } icon: {
-                    Image(systemName: "person.2")
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) { metadata }
+                    headerActions
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
 
             if meeting.status.isBusy {
                 jobProgress
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+    }
+
+    private var headerActions: some View {
+        HStack(spacing: 16) {
+            if tab == .summary, meeting.summary != nil, !meeting.segments.isEmpty {
+                Button { consenting = true } label: {
+                    Label("Regenerate", systemImage: "arrow.clockwise")
+                }
+                .font(StillnoteTheme.detailSupportingFont)
+                .buttonStyle(.borderless)
+                .disabled(meeting.status.isBusy)
+            }
+            MeetingStatusLabel(status: meeting.status, font: StillnoteTheme.detailSupportingFont.weight(.medium))
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    @ViewBuilder
+    private var metadata: some View {
+        Group {
+            Label {
+                Text(meeting.createdDate, format: .dateTime.month(.abbreviated).day().year())
+            } icon: {
+                Image(systemName: "calendar")
+            }
+            Label {
+                Text(meeting.duration > 0 ? Formatting.duration(meeting.duration) : "Audio saved")
+                    .monospacedDigit()
+            } icon: {
+                Image(systemName: "clock")
+            }
+            Label(meeting.speakers.isEmpty ? "No speakers" : "\(meeting.speakers.count) \(meeting.speakers.count == 1 ? "speaker" : "speakers")",
+                  systemImage: "person.2")
+        }
+        .font(StillnoteTheme.detailSupportingFont)
+        .foregroundStyle(.secondary)
+        .fixedSize()
     }
 
     private var jobProgress: some View {
@@ -129,17 +163,17 @@ struct MeetingDetailView: View {
                 value: meeting.progress, total: 100,
                 label: {
                     Text(meeting.status == .transcribing ? "Transcribing" : "Summarizing")
-                        .font(.caption.weight(.medium))
+                        .font(StillnoteTheme.detailSupportingFont.weight(.medium))
                 },
                 currentValueLabel: {
                     Text(meeting.stage.isEmpty ? "Preparing…" : meeting.stage)
-                        .font(.caption)
+                        .font(StillnoteTheme.detailSupportingFont)
                         .foregroundStyle(.secondary)
                 }
             )
             if meeting.status == .transcribing {
                 Button("Stop") { Task { await model.cancelTranscription(meeting.id) } }
-                    .controlSize(.small)
+                    .font(StillnoteTheme.detailSupportingFont)
                     .disabled(meeting.stage == "Stopping transcription…")
             }
         }
@@ -147,7 +181,17 @@ struct MeetingDetailView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItemGroup {
+        ToolbarItem(placement: .principal) {
+            Picker("Meeting view", selection: $tab) {
+                ForEach(MeetingTab.allCases) { tab in
+                    Text(tab == .context && notesDirty ? "\(tab.label) •" : tab.label).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 250)
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
             Menu {
                 ForEach(ExportFormat.allCases, id: \.self) { format in
                     Button(format.label) {
@@ -166,14 +210,21 @@ struct MeetingDetailView: View {
             } label: {
                 Label("Export", systemImage: "square.and.arrow.up")
             }
+            .help("Export Meeting")
             .disabled(meeting.status.isBusy)
 
-            Button(role: .destructive) {
-                confirmingDelete = true
+            Menu {
+                Button("Delete Meeting…", role: .destructive) {
+                    confirmingDelete = true
+                }
             } label: {
-                Label("Delete", systemImage: "trash")
+                Label("More", systemImage: "ellipsis")
             }
+            .help("More Meeting Actions")
             .disabled(meeting.status.isBusy)
+        }
+        if #available(macOS 26, *) {
+            ToolbarSpacer(.fixed, placement: .primaryAction)
         }
     }
 
@@ -204,10 +255,10 @@ struct MeetingDetailView: View {
             if meeting.status != .transcribing {
                 if model.speech.ready {
                     Button("Transcribe Recording") { Task { await model.transcribe(meeting.id) } }
-                        .buttonStyle(.borderedProminent)
+                        .primaryActionStyle()
                 } else {
                     Button("Set Up Transcription") { openSettings() }
-                        .buttonStyle(.borderedProminent)
+                        .primaryActionStyle()
                 }
             }
         }

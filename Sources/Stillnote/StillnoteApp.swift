@@ -23,6 +23,7 @@ struct StillnoteApp: App {
                 .frame(minWidth: 820, minHeight: 520)
         }
         .defaultSize(width: 1180, height: 760)
+        .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Recording…") { sheet = .record }

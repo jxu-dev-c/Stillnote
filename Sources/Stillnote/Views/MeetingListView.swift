@@ -25,7 +25,8 @@ struct MeetingListView: View {
                     Text("Record a meeting or import an existing recording to get started.")
                 } actions: {
                     Button("New Recording") { sheet = .record }
-                        .buttonStyle(.borderedProminent)
+                        .primaryActionStyle()
+                        .controlSize(.large)
                     Button("Import Audio") { sheet = .importAudio }
                 }
             } else if filtered.isEmpty {
@@ -36,42 +37,46 @@ struct MeetingListView: View {
         }
         .navigationTitle("All Meetings")
         .searchable(text: $search, placement: .toolbar, prompt: "Search meetings")
-        .toolbar {
-            ToolbarItemGroup {
-                Button { sheet = .record } label: { Label("New Recording", systemImage: "record.circle") }
-                Button { sheet = .importAudio } label: {
-                    Label("Import Audio", systemImage: "square.and.arrow.down")
-                }
-            }
-        }
+        .navigationSubtitle("\(model.meetings.count) \(model.meetings.count == 1 ? "meeting" : "meetings")")
     }
 
     private var table: some View {
         Table(filtered, selection: $selection) {
             TableColumn("Meeting") { meeting in
-                HStack(spacing: 8) {
-                    if meeting.status.isBusy { ProgressView().controlSize(.mini) }
-                    Text(meeting.title).fontWeight(.medium).lineLimit(1)
+                HStack(spacing: 12) {
+                    Image(systemName: meeting.hasVideo ? "video" : "waveform")
+                        .font(.title3)
+                        .foregroundStyle(.tint)
+                        .frame(width: 36, height: 36)
+                        .background(.tint.opacity(0.10), in: .rect(cornerRadius: 10))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(meeting.title).fontWeight(.medium).lineLimit(1)
+                        Text(meeting.speakers.isEmpty ? "Recording" : "\(meeting.speakers.count) \(meeting.speakers.count == 1 ? "speaker" : "speakers")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .padding(.vertical, 8)
+                .help(meeting.title)
             }
+            .width(min: 180, ideal: 320)
             TableColumn("Date") { meeting in
                 Text(meeting.createdDate, format: .dateTime.month(.abbreviated).day().year())
                     .foregroundStyle(.secondary)
             }
-            .width(min: 100, ideal: 120)
+            .width(min: 100, ideal: 110, max: 120)
             TableColumn("Duration") { meeting in
                 Text(meeting.duration > 0 ? Formatting.duration(meeting.duration) : "—")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-            .width(min: 70, ideal: 84)
+            .width(min: 70, ideal: 80, max: 84)
             TableColumn("Status") { meeting in
-                Label(meeting.status.label, systemImage: meeting.status.symbol)
-                    .foregroundStyle(meeting.status.tint)
-                    .labelStyle(.titleAndIcon)
+                MeetingStatusLabel(status: meeting.status)
             }
-            .width(min: 120, ideal: 150)
+            .width(min: 120, ideal: 130, max: 140)
         }
+        .alternatingRowBackgrounds(.disabled)
         .contextMenu(forSelectionType: String.self) { ids in
             if let id = ids.first {
                 Button("Open") { selection = id }

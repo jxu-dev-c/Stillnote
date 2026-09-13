@@ -23,7 +23,7 @@ struct ImportSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Import audio").font(.headline)
+            Text("Import Audio").font(.title2.weight(.semibold))
 
             Button { choosing = true } label: {
                 VStack(spacing: 6) {
@@ -38,7 +38,7 @@ struct ImportSheet: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 22)
-                .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 8))
+                .contentPanel()
             }
             .buttonStyle(.plain)
             .dropDestination(for: URL.self) { items, _ in
@@ -58,11 +58,12 @@ struct ImportSheet: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                 Button(saving ? "Saving…" : "Import") { Task { await save() } }
+                    .primaryActionStyle()
                     .keyboardShortcut(.defaultAction)
                     .disabled(url == nil || saving)
             }
         }
-        .padding(20)
+        .padding(24)
         .frame(width: 460)
         .onAppear {
             guard !initialized else { return }

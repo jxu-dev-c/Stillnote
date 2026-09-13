@@ -32,6 +32,28 @@ extension MeetingStatus {
     }
 }
 
+struct MeetingStatusLabel: View {
+    let status: MeetingStatus
+    var font: Font = .caption.weight(.medium)
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if status.isBusy {
+                ProgressView().controlSize(.mini)
+            } else {
+                Image(systemName: status.symbol)
+            }
+            Text(status.label)
+        }
+        .font(font)
+        .foregroundStyle(status.tint)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(status.tint.opacity(0.10), in: .capsule)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Speaker colors come from the system palette so they stay legible in both
 /// appearances and under Increase Contrast.
 enum SpeakerTint {
