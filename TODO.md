@@ -2,7 +2,7 @@
 
 ## Native migration follow-up
 
-Source and pitfalls: [native migration handoff](NATIVE_MIGRATION.md). These checks apply
+Source and pitfalls: [native migration handoff](docs/NATIVE_MIGRATION.md). These checks apply
 to the Swift app; older web-app/native-helper validation does not close them.
 
 - [ ] Decode WebM/Opus imports, which AVFoundation cannot open. Recordings saved by the retired browser recorder currently cannot be played or re-transcribed. Verify both playback and retranscription while preserving existing transcripts, summaries, and exports; the handoff suggests a PyAV decode fallback as one option.

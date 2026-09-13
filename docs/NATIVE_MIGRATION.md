@@ -6,8 +6,7 @@ Retrieve the source with `ntn pages get 3d94257d-2a6d-8125-b0a6-f59ea81679c8`.
 
 This records the migration's lessons and verification limits. It is a historical
 snapshot, not evidence of a new test run. Use [ARCHITECTURE.md](ARCHITECTURE.md) for the
-current implementation contract, [TODO.md](TODO.md) for open work, and
-[VALIDATION.md](VALIDATION.md) for dated verification results.
+current implementation contract and [TODO.md](../TODO.md) for open work.
 
 ## Baseline and decisions
 
@@ -47,13 +46,13 @@ listens on a network port. The decisions to preserve are:
    main thread in `__open_nocancel`. Normal startup now defers I/O to `AppModel.load()`
    and runs path resolution and environment probes off the main actor. The runtime is
    installed in Application Support. Preserve this ordering when adding startup checks.
-   See [StillnoteApp.swift](Sources/Stillnote/StillnoteApp.swift),
-   [AppModel.swift](Sources/Stillnote/AppModel.swift), and [setup.sh](scripts/setup.sh).
+   See [StillnoteApp.swift](../Sources/Stillnote/StillnoteApp.swift),
+   [AppModel.swift](../Sources/Stillnote/AppModel.swift), and [setup.sh](../scripts/setup.sh).
 
 2. **Nested SwiftPM resource bundles also stalled launch.** A `.bundle` inside the
    assembled app's Resources hung `_CFBundleCreate` when launched through `open`.
-   [build-app.sh](scripts/build-app.sh) copies resources as plain files.
-   [SpeechCatalog.swift](Sources/StillnoteCore/Speech/SpeechCatalog.swift) checks the main
+   [build-app.sh](../scripts/build-app.sh) copies resources as plain files.
+   [SpeechCatalog.swift](../Sources/StillnoteCore/Speech/SpeechCatalog.swift) checks the main
    bundle and executable-adjacent manifest first, using `Bundle.module` as a fallback
    outside the assembled app, including tests. Verify bundle launch after packaging edits.
 
@@ -64,38 +63,38 @@ listens on a network port. The decisions to preserve are:
 
 4. **Removing PyTorch also removed an implicit dependency.** Transformers still needed
    `jinja2` for MOSS's chat template. Only real inference in a freshly created runtime
-   exposed the omission. [requirements-moss.txt](requirements-moss.txt) now declares it
+   exposed the omission. [requirements-moss.txt](../requirements-moss.txt) now declares it
    directly. Dependency cleanup needs a fresh-runtime inference check, not just imports.
 
 5. **An unqualified `uv venv` selected Python 3.10.** It could not satisfy the locked
-   `numpy==2.5.3`. The `uv` path in [setup.sh](scripts/setup.sh) now selects Python 3.13
+   `numpy==2.5.3`. The `uv` path in [setup.sh](../scripts/setup.sh) now selects Python 3.13
    explicitly. Its non-`uv` fallback uses `python3`, which must already be a compatible
    version; the worker declares Python 3.11–3.13.
 
 6. **Extensionless stored media failed to open.** AVFoundation selected its demuxer from
-   the path extension. [MediaFile.swift](Sources/StillnoteCore/Audio/MediaFile.swift)
+   the path extension. [MediaFile.swift](../Sources/StillnoteCore/Audio/MediaFile.swift)
    supplies extension-bearing symlinks in `data/media/` while preserving the original
    storage layout for both audio and video. This does not add WebM/Opus decoding support.
 
 7. **Mono downmixing required explicit channel metadata.** `AVAssetReaderAudioMixOutput`
    refused sources whose channel count differed from the requested output without an
    `AVChannelLayoutKey`. Keep the explicit mono layout in
-   [AudioDecoder.swift](Sources/StillnoteCore/Audio/AudioDecoder.swift).
+   [AudioDecoder.swift](../Sources/StillnoteCore/Audio/AudioDecoder.swift).
 
 8. **An open test writer left an unreadable audio header.** An `AVAudioFile` writer must
    leave scope before the generated file is read; otherwise `loadTracks` can fail on an
    unflushed header. This was a fixture-lifetime problem, not an app failure. See
-   [CaptureSupportTests.swift](Tests/StillnoteCoreTests/CaptureSupportTests.swift).
+   [CaptureSupportTests.swift](../Tests/StillnoteCoreTests/CaptureSupportTests.swift).
 
 9. **Checkout discovery failed under `swift test`.** Six parent levels were insufficient
    for nested test bundles, and `Bundle.main` could point into the toolchain.
-   [Paths.swift](Sources/StillnoteCore/Store/Paths.swift) searches up to ten levels from
+   [Paths.swift](../Sources/StillnoteCore/Store/Paths.swift) searches up to ten levels from
    the executable paths and the working directory. Preserve the working-directory
    fallback for the test runner.
 
 10. **Video finalization could resume a continuation twice.**
     `requestMediaDataWhenReady` re-entered before `markAsFinished()` took effect, causing
-    a checked-continuation trap. [VideoMuxer.swift](Sources/StillnoteCore/Audio/VideoMuxer.swift)
+    a checked-continuation trap. [VideoMuxer.swift](../Sources/StillnoteCore/Audio/VideoMuxer.swift)
     keeps completion behind a locked, reference-typed latch owned by the callback.
 
 11. **A window on the second display looked like a blank launch.** The observed window
@@ -110,14 +109,14 @@ ruff checks. Real inference on an 81-second recording returned 11 segments with 
 speaker at 1.96–75.68 seconds; cancellation left no surviving worker. Bundle diagnostics
 resolved the migrated data/models, ready runtime, installed model, both agent CLIs,
 three microphones, and two displays. Launching with `open` showed the three existing
-meetings and no runtime setup warning. See the September 12 native-app entry in
-[VALIDATION.md](VALIDATION.md) for coverage details.
+meetings and no runtime setup warning. Detailed verification notes remain in Git
+history in `VALIDATION.md` at commit `259804c`.
 
 The worker dependency set fell from 66 packages to 37, with MLX 0.32.2 and Transformers
 5.16.1 pinned at the handoff. These are recorded versions, not a recommendation to update
 dependencies during follow-up work.
 
-The following remain open in [TODO.md](TODO.md):
+The following remain open in [TODO.md](../TODO.md):
 
 - **Legacy WebM/Opus playback and retranscription.** The handoff observed this on an
   existing browser recording; saved transcripts, summaries, and exports remained usable.

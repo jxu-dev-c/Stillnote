@@ -11,8 +11,21 @@ for the meeting.
 
 ## Requirements
 
-macOS 15 or newer on Apple silicon, with Xcode or the Xcode Command Line Tools installed.
+macOS 15 or newer on Apple silicon. Building requires Xcode 26 or newer, or the
+corresponding Command Line Tools with the macOS 26 SDK.
 Python 3.11–3.13 is needed once, to create the MOSS inference runtime.
+
+## Appearance
+
+On macOS 26, Stillnote uses native Liquid Glass navigation and a floating audio
+transport that stays available while you read. The library, transcript, summary, and
+notes use system reading surfaces, with the Mac's accent color and light or dark
+appearance. Reduce Transparency and Increase Contrast give the custom transport an
+opaque, outlined surface. macOS 15 retains standard controls and materials.
+
+The theme follows Apple's current [Liquid Glass adoption guidance](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass),
+[Materials guidelines](https://developer.apple.com/design/human-interface-guidelines/materials),
+and [macOS design conventions](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos).
 
 ## Run
 
@@ -44,9 +57,12 @@ install without opening the window.
    expected speaker count when you know it; rename speakers and correct text or speaker
    assignments in the transcript. Click a timestamp to listen to that point.
 4. **Generate a summary**: get an overview, key points, decisions, and action items.
-   Choose a summary agent in Settings. Each recording's Summary tab has a **Send video
-   path to AI** toggle, off by default, available when screen video is saved. Remote
-   providers require a sharing confirmation each time you generate a summary.
+   Choose a summary agent in Settings. The confirmation before **Send & Summarize** has
+   a **Send video path to AI** checkbox, off by default, available when screen video is
+   saved. The choice is saved for that recording when you confirm. Overview, key
+   takeaways, decisions, and next steps each have their own always-visible block.
+   **Regenerate** appears beside the recording's status in the Summary header.
+   Providers require a sharing confirmation each time you generate a summary.
 5. **Keep context or export**: use **Context** to add background notes and website links
    with optional labels. Notes save as you type. Context and links are included in
    Markdown, plain text, and JSON exports; SRT contains subtitles only. Deleting a meeting
@@ -161,9 +177,9 @@ disk until you delete them. Optional environment variables: `STILLNOTE_DATA_DIR`
 
 ## Development
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the implementation contract,
-[NATIVE_MIGRATION.md](NATIVE_MIGRATION.md) for migration pitfalls and handoff context,
-[TODO.md](TODO.md) for open work, and [VALIDATION.md](VALIDATION.md) for verification history.
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the implementation contract,
+[NATIVE_MIGRATION.md](docs/NATIVE_MIGRATION.md) for migration pitfalls and handoff context,
+and [TODO.md](TODO.md) for open work.
 
 ```bash
 ./scripts/check.sh            # swift build, swift test, MOSS worker tests and lint
