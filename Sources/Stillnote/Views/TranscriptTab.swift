@@ -22,9 +22,12 @@ struct TranscriptTab: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let segments = filtered
+        // The meeting owns the ScrollView. Build only the visible transcript rows
+        // instead of laying out every selectable text view when switching tabs.
+        LazyVStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Transcript").font(.headline)
+                Text("Transcript").font(StillnoteTheme.detailHeadingFont)
                 Spacer()
                 Button {
                     copyTranscript()
@@ -41,18 +44,29 @@ struct TranscriptTab: View {
 
             TextField("Search transcript", text: $search)
                 .textFieldStyle(.roundedBorder)
+                .controlSize(.large)
+                .accessibilityLabel("Search transcript")
 
             speakerChips
 
-            if filtered.isEmpty {
+            if segments.isEmpty {
                 ContentUnavailableView.search(text: search)
                     .frame(maxWidth: .infinity)
             } else {
-                ForEach(filtered) { segment in
-                    row(segment)
+                ForEach(segments) { segment in
+                    TranscriptSegmentRow(
+                        segment: segment,
+                        speakerName: meeting.speakerName(segment.speaker),
+                        speakerColor: SpeakerTint.color(for: segment.speaker, in: meeting),
+                        player: player,
+                        canEdit: !meeting.status.isBusy,
+                        rename: { beginRename(segment.speaker) },
+                        edit: { editing = segment }
+                    )
                 }
             }
         }
+        .font(StillnoteTheme.detailBodyFont)
         .sheet(item: $editing) { segment in
             SegmentEditor(meeting: meeting, segment: segment)
         }
@@ -65,42 +79,6 @@ struct TranscriptTab: View {
         } message: {
             Text("Renaming this speaker clears the current summary.")
         }
-    }
-
-    private func row(_ segment: Segment) -> some View {
-        let active = player.map { $0.currentTime >= segment.start && $0.currentTime < segment.end } ?? false
-        return HStack(alignment: .top, spacing: 10) {
-            Button {
-                beginRename(segment.speaker)
-            } label: {
-                SpeakerAvatar(
-                    name: meeting.speakerName(segment.speaker),
-                    color: SpeakerTint.color(for: segment.speaker, in: meeting)
-                )
-            }
-            .buttonStyle(.plain)
-            .help("Rename speaker")
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
-                    Button(meeting.speakerName(segment.speaker)) { beginRename(segment.speaker) }
-                        .buttonStyle(.plain)
-                        .font(.subheadline.weight(.semibold))
-                    Button(Formatting.timestamp(segment.start)) { player?.play(from: segment.start) }
-                        .buttonStyle(.link)
-                        .font(.caption.monospacedDigit())
-                    Spacer()
-                    Button { editing = segment } label: { Image(systemName: "pencil") }
-                        .buttonStyle(.borderless)
-                        .help("Edit segment")
-                        .disabled(meeting.status.isBusy)
-                }
-                Text(segment.text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(8)
-        .background(active ? AnyShapeStyle(.selection.opacity(0.25)) : AnyShapeStyle(.clear),
-                    in: .rect(cornerRadius: 6))
     }
 
     /// Speakers sit above the transcript as renameable chips: a panel would have to be
@@ -119,16 +97,16 @@ struct TranscriptTab: View {
                 HStack(spacing: 6) {
                     SpeakerAvatar(
                         name: meeting.speakerName(id),
-                        color: SpeakerTint.color(for: id, in: meeting), size: 20
+                        color: SpeakerTint.color(for: id, in: meeting), size: 28
                     )
-                    Text(meeting.speakerName(id)).lineLimit(1)
-                    Image(systemName: "pencil").font(.caption2).foregroundStyle(.secondary)
+                    Text(meeting.speakerName(id))
+                        .font(StillnoteTheme.detailBodyFont)
+                        .lineLimit(1)
+                    Image(systemName: "pencil").font(StillnoteTheme.detailSupportingFont).foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.quaternary.opacity(0.4), in: .capsule)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
             .help("Rename speaker")
             .disabled(meeting.status.isBusy)
         }
@@ -159,6 +137,53 @@ struct TranscriptTab: View {
             try? await Task.sleep(for: .seconds(2))
             copied = false
         }
+    }
+}
+
+/// Observe playback at the row boundary so each timer tick updates highlights
+/// without rerunning transcript search or rebuilding all of the other rows.
+private struct TranscriptSegmentRow: View {
+    let segment: Segment
+    let speakerName: String
+    let speakerColor: Color
+    let player: PlayerModel?
+    let canEdit: Bool
+    let rename: () -> Void
+    let edit: () -> Void
+
+    var body: some View {
+        let active = player.map { $0.currentTime >= segment.start && $0.currentTime < segment.end } ?? false
+        HStack(alignment: .top, spacing: 10) {
+            Button(action: rename) {
+                SpeakerAvatar(name: speakerName, color: speakerColor, size: 32)
+            }
+            .buttonStyle(.plain)
+            .help("Rename speaker")
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Button(speakerName, action: rename)
+                        .buttonStyle(.plain)
+                        .font(StillnoteTheme.detailBodyFont.weight(.semibold))
+                    Button(Formatting.timestamp(segment.start)) { player?.play(from: segment.start) }
+                        .buttonStyle(.link)
+                        .font(StillnoteTheme.detailSupportingFont.monospacedDigit())
+                        .accessibilityLabel("Play from \(Formatting.timestamp(segment.start))")
+                    Spacer()
+                    Button(action: edit) { Image(systemName: "pencil") }
+                        .buttonStyle(.borderless)
+                        .help("Edit segment")
+                        .disabled(!canEdit)
+                }
+                Text(segment.text)
+                    .lineSpacing(5)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .background(active ? AnyShapeStyle(.selection.opacity(0.25)) : AnyShapeStyle(.clear),
+                    in: .rect(cornerRadius: 12))
     }
 }
 
