@@ -88,7 +88,15 @@ struct SummarySettingsView: View {
     var body: some View {
         Form {
             Section("Agent") {
-                Picker("Provider", selection: $provider) {
+                Picker("Provider", selection: Binding(
+                    get: { provider },
+                    set: { newValue in
+                        guard newValue != provider else { return }
+                        provider = newValue
+                        summaryModel = newValue.defaultModel
+                        save()
+                    }
+                )) {
                     ForEach(SummaryProvider.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.radioGroup)
@@ -124,11 +132,6 @@ struct SummarySettingsView: View {
             provider = model.settings.summary.provider
             summaryModel = model.settings.summary.model
             effort = model.settings.summary.reasoningEffort
-        }
-        .onChange(of: provider) { _, newValue in
-            // Switching providers resets the model so a Codex id never reaches Claude Code.
-            summaryModel = newValue.defaultModel
-            save()
         }
         .onChange(of: summaryModel) { save() }
         .onChange(of: effort) { save() }

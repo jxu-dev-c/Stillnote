@@ -6,8 +6,7 @@ struct ContextTab: View {
     let meeting: Meeting
     @Binding var notesDirty: Bool
 
-    @State private var notes = ""
-    @State private var lastSaved = ""
+    @State private var draft = NotesDraft()
     @State private var editingLink: ContextLink?
     @State private var addingLink = false
     @State private var saveTask: Task<Void, Never>?
@@ -18,7 +17,10 @@ struct ContextTab: View {
             notesSection
         }
         .onAppear(perform: loadNotes)
-        .onDisappear { Task { await saveNotes() } }
+        .onDisappear {
+            saveTask?.cancel()
+            Task { await saveNotes() }
+        }
         .sheet(isPresented: $addingLink) { LinkEditor(meeting: meeting, existing: nil) }
         .sheet(item: $editingLink) { link in LinkEditor(meeting: meeting, existing: link) }
     }
@@ -96,36 +98,36 @@ struct ContextTab: View {
             HStack {
                 Text("Notes").font(.headline)
                 Spacer()
-                Text(notesDirty ? "Saving…" : "Saved").font(.caption).foregroundStyle(.secondary)
+                Text(draft.error != nil ? "Not saved" : (notesDirty ? "Saving…" : "Saved"))
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            TextEditor(text: $notes)
+            if let error = draft.error {
+                HStack {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.callout).foregroundStyle(.orange)
+                    Button("Retry") { Task { await saveNotes() } }
+                }
+            }
+            TextEditor(text: $draft.text)
                 .font(.body)
                 .frame(minHeight: 200)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.separator))
-                .onChange(of: notes) { scheduleSave() }
+                .onChange(of: draft.text) { scheduleSave() }
         }
     }
 
     // MARK: - Notes drafting
 
-    private var draftKey: String { "stillnote:notes:\(meeting.id)" }
-
     private func loadNotes() {
-        lastSaved = meeting.notes
-        // A draft survives a quit; it is discarded once it matches what was saved.
-        let draft = UserDefaults.standard.string(forKey: draftKey)
-        notes = draft ?? meeting.notes
-        notesDirty = notes != meeting.notes
+        draft.load(meetingID: meeting.id, savedText: meeting.notes)
+        notesDirty = draft.isDirty
     }
 
     private func scheduleSave() {
-        notesDirty = notes != lastSaved
-        guard notesDirty else {
-            UserDefaults.standard.removeObject(forKey: draftKey)
-            return
-        }
-        UserDefaults.standard.set(notes, forKey: draftKey)
         saveTask?.cancel()
+        draft.recordEdit()
+        notesDirty = draft.isDirty
+        guard notesDirty else { return }
         saveTask = Task {
             try? await Task.sleep(for: .milliseconds(700))
             guard !Task.isCancelled else { return }
@@ -134,12 +136,10 @@ struct ContextTab: View {
     }
 
     private func saveNotes() async {
-        guard notes != lastSaved, notes.count <= Validation.maxNotesLength else { return }
-        let pending = notes
-        await model.edit(meeting.id) { $0.notes = pending }
-        lastSaved = pending
-        notesDirty = notes != lastSaved
-        if !notesDirty { UserDefaults.standard.removeObject(forKey: draftKey) }
+        await draft.save { pending in
+            await model.edit(meeting.id) { $0.notes = pending } != nil
+        }
+        notesDirty = draft.isDirty
     }
 }
 

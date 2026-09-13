@@ -21,5 +21,8 @@ for bundle in "$bin"/*.bundle; do
   find "$bundle" -type f ! -name 'Info.plist' -print0 |
     while IFS= read -r -d '' resource; do cp "$resource" "$contents/Resources/"; done
 done
-codesign --force --sign - --identifier local.stillnote.app "$app"
+# Reuse a configured identity across builds so macOS can retain capture grants.
+# The default stays ad-hoc for local development without a signing certificate.
+codesign --force --sign "${STILLNOTE_SIGNING_IDENTITY:--}" --identifier local.stillnote.app "$app"
+codesign --verify --strict "$app"
 echo "Built $app"

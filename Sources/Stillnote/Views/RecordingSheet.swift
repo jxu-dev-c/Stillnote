@@ -17,6 +17,7 @@ struct RecordingSheet: View {
     @State private var error: String?
     @State private var confirmingDiscard = false
     @State private var saving = false
+    @State private var initialized = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -28,6 +29,7 @@ struct RecordingSheet: View {
         }
         .padding(20)
         .frame(width: 480)
+        .interactiveDismissDisabled(starting || saving || model.recorder.session != nil)
         .onAppear(perform: prepare)
         .confirmationDialog(
             "Discard this recording?", isPresented: $confirmingDiscard, titleVisibility: .visible
@@ -71,7 +73,7 @@ struct RecordingSheet: View {
                 TranscriptionOptionFields(language: $language, speakerCount: $speakerCount)
             }
             .formStyle(.grouped)
-            .frame(height: 230)
+            .frame(height: screenVideo ? 280 : 230)
 
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle")
@@ -89,6 +91,7 @@ struct RecordingSheet: View {
                 Button("Refresh Devices") { Task { await model.refreshEnvironment() } }
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
+                    .disabled(starting)
                 Button(starting ? "Starting…" : "Start Recording") { Task { await start() } }
                     .keyboardShortcut(.defaultAction)
                     .disabled(starting || !model.capabilities.available)
@@ -135,6 +138,7 @@ struct RecordingSheet: View {
 
             HStack {
                 Button("Discard", role: .destructive) { confirmingDiscard = true }
+                    .disabled(saving || session.status == .starting || session.status == .stopping)
                 Spacer()
                 if session.status == .recording {
                     Button("Pause") { model.recorder.pause() }
@@ -143,7 +147,7 @@ struct RecordingSheet: View {
                 }
                 Button(finishTitle) { Task { await finish() } }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(saving || session.status == .stopping)
+                    .disabled(saving || session.status == .starting || session.status == .stopping)
             }
         }
     }
@@ -202,6 +206,11 @@ struct RecordingSheet: View {
     // MARK: - Actions
 
     private func prepare() {
+        if !initialized {
+            language = model.settings.transcription.language
+            speakerCount = model.settings.transcription.speakerCount
+            initialized = true
+        }
         Task { await model.refreshEnvironment() }
         if title.isEmpty {
             title = "Meeting · " + Date().formatted(.dateTime.month(.abbreviated).day())

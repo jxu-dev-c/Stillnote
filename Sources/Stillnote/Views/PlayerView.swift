@@ -21,6 +21,7 @@ final class PlayerModel {
     private(set) var unplayableReason: String?
 
     private nonisolated(unsafe) var observer: Any?
+    private var statusObserver: NSKeyValueObservation?
 
     init(meeting: Meeting, paths: Paths) {
         hasVideo = meeting.hasVideo && FileManager.default.fileExists(atPath: paths.videoURL(meeting.id).path)
@@ -34,6 +35,13 @@ final class PlayerModel {
         }
         let asset = AVURLAsset(url: url)
         player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
+        // Periodic time callbacks stop at the end of a recording. Observe playback
+        // status separately so the transport also updates after completion or a stall.
+        statusObserver = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
+            Task { @MainActor [weak self] in
+                self?.isPlaying = player.timeControlStatus == .playing
+            }
+        }
         Task { [weak self] in
             let playable = (try? await asset.load(.isPlayable)) ?? false
             guard let self, !playable else { return }
@@ -46,7 +54,6 @@ final class PlayerModel {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.currentTime = time.seconds
-                self.isPlaying = self.player.timeControlStatus == .playing
                 if let item = self.player.currentItem {
                     let length = item.duration.seconds
                     if length.isFinite, length > 0 { self.duration = length }
@@ -62,14 +69,13 @@ final class PlayerModel {
     }
 
     func toggle() {
-        if player.timeControlStatus == .playing {
+        if player.rate > 0 {
             player.pause()
         } else {
             if currentTime >= duration - 0.05 { seek(to: 0) }
             player.play()
             player.rate = rate
         }
-        isPlaying = player.timeControlStatus != .playing
     }
 
     func seek(to seconds: Double) {

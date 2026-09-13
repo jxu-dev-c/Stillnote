@@ -161,11 +161,23 @@ disk until you delete them. Optional environment variables: `STILLNOTE_DATA_DIR`
 
 ## Development
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the implementation contract,
+[NATIVE_MIGRATION.md](NATIVE_MIGRATION.md) for migration pitfalls and handoff context,
+[TODO.md](TODO.md) for open work, and [VALIDATION.md](VALIDATION.md) for verification history.
+
 ```bash
 ./scripts/check.sh            # swift build, swift test, MOSS worker tests and lint
 ./scripts/build-app.sh debug  # faster rebuild during development
 swift test --filter StoreTests
 ```
+
+To retain capture permissions across rebuilds, use an existing code-signing identity:
+
+```bash
+STILLNOTE_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./scripts/build-app.sh
+```
+
+Without that variable, builds use ad-hoc signing. The build script verifies the resulting signature.
 
 After editing `sidecar/`, reinstall the worker into the runtime:
 
@@ -185,6 +197,11 @@ checkpoint and occupies the GPU:
 ```bash
 STILLNOTE_INTEGRATION=1 swift test --filter TranscriptionIntegrationTests
 ```
+
+Real summary-agent checks use synthetic transcripts and your CLI accounts (and consume
+their usage). Run a provider separately with
+`STILLNOTE_AGENT_INTEGRATION=1 swift test --filter AgentIntegrationTests/savesARealCodexSummary`
+or `AgentIntegrationTests/savesARealClaudeSummary`.
 
 ## Troubleshooting
 

@@ -13,6 +13,7 @@ struct ImportSheet: View {
     @State private var speakerCount: Int?
     @State private var choosing = false
     @State private var saving = false
+    @State private var initialized = false
 
     // The formats AVFoundation can decode on macOS. WebM and Ogg are not among them.
     static let contentTypes: [UTType] = [
@@ -63,6 +64,12 @@ struct ImportSheet: View {
         }
         .padding(20)
         .frame(width: 460)
+        .onAppear {
+            guard !initialized else { return }
+            language = model.settings.transcription.language
+            speakerCount = model.settings.transcription.speakerCount
+            initialized = true
+        }
         .fileImporter(isPresented: $choosing, allowedContentTypes: Self.contentTypes) { result in
             if case .success(let picked) = result { select(picked) }
         }
