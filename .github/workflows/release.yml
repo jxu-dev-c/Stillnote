@@ -108,5 +108,5 @@ jobs:
           fi
           [[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" == true ]] || exit 1
           gh release upload "$RELEASE_TAG" --clobber \
-            "Stillnote-${RELEASE_TAG#v}-macos-arm64.zip" SHA256SUMS LICENSE THIRD_PARTY_NOTICES.md RELEASE-NOTES.md
+            "Stillnote-${RELEASE_TAG#v}-macos-arm64.zip" Install-Stillnote.sh SHA256SUMS LICENSE THIRD_PARTY_NOTICES.md RELEASE-NOTES.md
           gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false

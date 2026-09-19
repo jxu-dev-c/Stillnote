@@ -44,7 +44,7 @@ the marketing version remains `CFBundleShortVersionString` from `Resources/Info.
 No version-bump commit is needed for each push.
 
 Find downloads under [GitHub Releases](https://github.com/jxu-dev-c/Stillnote/releases).
-Each release contains the app ZIP, `SHA256SUMS`, license, third-party notices, and
+Each release contains the app ZIP, `Install-Stillnote.sh`, `SHA256SUMS`, license, third-party notices, and
 these release notes. Assets are uploaded to a draft first, then the complete release
 is published automatically. Failed checks prevent publication. Reruns can finish an
 incomplete draft; already published releases and their assets stay unchanged.
@@ -55,10 +55,29 @@ GitHub token do not trigger another release run. No Apple account, signing secre
 or notarization is required. Only the publication job receives `contents: write`.
 These development builds are marked as prereleases, not stable/latest releases.
 
-Download the ZIP and `SHA256SUMS` into the same directory, run
+Download the ZIP, `Install-Stillnote.sh`, and `SHA256SUMS` into the same directory, run
 `shasum -a 256 -c SHA256SUMS`, extract the ZIP, and move `Stillnote.app` to Applications.
 Follow Apple's Open Anyway instructions above when required. This is a development
 candidate: transcription requires the separate Python/MOSS runtime. From a checkout
 of the same release tag, run `./scripts/setup.sh` (requires the development tools in
 the README), then download the speech model in Settings. The ZIP does not install
 that runtime, bundle model weights, or provide automatic updates.
+
+### Personal installation when Open Anyway stalls
+
+These ad-hoc builds are intended for personal development. On some Macs the
+downloaded copy can stall before entering app code even after Open Anyway. After
+verifying the checksums above, quit Stillnote and run the downloaded installer:
+
+```sh
+bash ~/Downloads/Install-Stillnote.sh ~/Downloads/Stillnote-0.1.0-dev.2-macos-arm64.zip
+```
+
+Use the ZIP filename you downloaded. For older releases without the installer asset,
+use `./scripts/install-app.sh ZIP_PATH` from this checkout.
+The installer verifies the bundle signature,
+makes a local copy without imported download metadata, and installs it in
+`~/Applications`. It preserves the exact executable, saves the previous app as a
+backup, and leaves meetings, models, and system security settings untouched.
+This is a personal-install workaround; general distribution still requires
+Developer ID signing and Apple notarization.
