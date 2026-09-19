@@ -39,7 +39,7 @@ struct StillnoteApp: App {
         Settings {
             SettingsView()
                 .environment(model)
-                .frame(width: 520)
+                .frame(width: 640)
         }
     }
 }

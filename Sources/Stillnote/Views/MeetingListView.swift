@@ -35,6 +35,7 @@ struct MeetingListView: View {
                 table
             }
         }
+        .font(StillnoteTheme.detailBodyFont)
         .navigationTitle("All Meetings")
         .searchable(text: $search, placement: .toolbar, prompt: "Search meetings")
         .navigationSubtitle("\(model.meetings.count) \(model.meetings.count == 1 ? "meeting" : "meetings")")
@@ -52,7 +53,7 @@ struct MeetingListView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(meeting.title).fontWeight(.medium).lineLimit(1)
                         Text(meeting.speakers.isEmpty ? "Recording" : "\(meeting.speakers.count) \(meeting.speakers.count == 1 ? "speaker" : "speakers")")
-                            .font(.caption)
+                            .font(StillnoteTheme.detailSupportingFont)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -64,7 +65,7 @@ struct MeetingListView: View {
                 Text(meeting.createdDate, format: .dateTime.month(.abbreviated).day().year())
                     .foregroundStyle(.secondary)
             }
-            .width(min: 100, ideal: 110, max: 120)
+            .width(min: 130, ideal: 140, max: 150)
             TableColumn("Duration") { meeting in
                 Text(meeting.duration > 0 ? Formatting.duration(meeting.duration) : "—")
                     .monospacedDigit()
@@ -72,9 +73,9 @@ struct MeetingListView: View {
             }
             .width(min: 70, ideal: 80, max: 84)
             TableColumn("Status") { meeting in
-                MeetingStatusLabel(status: meeting.status)
+                MeetingStatusLabel(status: meeting.status, font: StillnoteTheme.detailSupportingFont.weight(.medium))
             }
-            .width(min: 120, ideal: 130, max: 140)
+            .width(min: 150, ideal: 160, max: 180)
         }
         .alternatingRowBackgrounds(.disabled)
         .contextMenu(forSelectionType: String.self) { ids in

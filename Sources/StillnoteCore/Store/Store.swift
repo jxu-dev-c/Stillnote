@@ -17,8 +17,8 @@ public enum StoreError: LocalizedError {
 
 private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-/// Local SQLite store. The schema is two tables of JSON documents, identical to the
-/// Python app's, so an existing stillnote.sqlite3 opens and stays readable by both.
+/// Local SQLite store. Meetings and settings retain the legacy JSON document schema;
+/// reusable speaker profiles live in an additional table.
 public actor Store {
     public let paths: Paths
     private var handle: OpaquePointer?
@@ -39,6 +39,7 @@ public actor Store {
         sqlite3_busy_timeout(database, 30_000)
         try Store.run(database, "PRAGMA journal_mode=WAL")
         try Store.run(database, "CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+        try Store.run(database, "CREATE TABLE IF NOT EXISTS speaker_profiles (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
         try Store.run(database, "CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL)")
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: paths.databaseURL.path)
     }
@@ -152,6 +153,119 @@ public actor Store {
 
     private func encoded(_ meeting: Meeting) throws -> String {
         String(decoding: try encoder.encode(meeting), as: UTF8.self)
+    }
+
+    // MARK: - Speaker profiles
+
+    /// One-time migration: preserve distinct identities even when names happen to match.
+    public func migrateNamedSpeakers() throws {
+        let db = try database()
+        try Self.run(db, "CREATE TABLE IF NOT EXISTS migrations (id TEXT PRIMARY KEY)")
+        try Self.run(db, "BEGIN IMMEDIATE")
+        do {
+            if try documents("SELECT id FROM migrations WHERE id='speaker_profiles_v1'").isEmpty {
+                for var meeting in try list() {
+                    var changed = false
+                    for (speakerID, name) in meeting.speakers where meeting.speakerProfiles[speakerID] == nil {
+                        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty, trimmed != speakerID,
+                              trimmed.lowercased() != "unknown speaker",
+                              trimmed.range(of: #"^speaker[ _]?[0-9]+$"#, options: [.regularExpression, .caseInsensitive]) == nil
+                        else { continue }
+                        let profile = try saveProfile(SpeakerProfile(name: trimmed))
+                        meeting.speakerProfiles[speakerID] = profile.id
+                        changed = true
+                    }
+                    if changed {
+                        try execute("UPDATE meetings SET data=? WHERE id=?", [try encoded(meeting), meeting.id])
+                    }
+                }
+                try execute("INSERT INTO migrations VALUES (?)", ["speaker_profiles_v1"])
+            }
+            try Self.run(db, "COMMIT")
+        } catch {
+            try? Self.run(db, "ROLLBACK")
+            throw error
+        }
+    }
+
+    /// Unlink all references and delete atomically without changing transcript snapshots.
+    public func deleteProfile(_ id: String) throws -> [Meeting] {
+        let db = try database()
+        try Self.run(db, "BEGIN IMMEDIATE")
+        do {
+            var changed: [Meeting] = []
+            for var meeting in try list() where meeting.speakerProfiles.values.contains(id) {
+                meeting.speakerProfiles = meeting.speakerProfiles.filter { $0.value != id }
+                try execute("UPDATE meetings SET data=? WHERE id=?", [try encoded(meeting), meeting.id])
+                changed.append(meeting)
+            }
+            try execute("DELETE FROM speaker_profiles WHERE id=?", [id])
+            try Self.run(db, "COMMIT")
+            return changed
+        } catch {
+            try? Self.run(db, "ROLLBACK")
+            throw error
+        }
+    }
+
+    public func profiles() throws -> [SpeakerProfile] {
+        try documents("SELECT data FROM speaker_profiles")
+            .map { try decoder.decode(SpeakerProfile.self, from: $0) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    @discardableResult
+    public func saveProfile(_ profile: SpeakerProfile) throws -> SpeakerProfile {
+        let profile = try profile.validated()
+        try execute("INSERT OR REPLACE INTO speaker_profiles VALUES (?, ?)", [
+            profile.id, String(decoding: try encoder.encode(profile), as: UTF8.self)
+        ])
+        return profile
+    }
+
+    /// Creates a profile and links it in one transaction, rolling back either on failure.
+    public func createProfile(_ profile: SpeakerProfile, meetingID: String, speakerID: String) throws -> Meeting {
+        let db = try database()
+        try Self.run(db, "BEGIN IMMEDIATE")
+        do {
+            guard try !profiles().contains(where: { $0.id == profile.id }) else {
+                throw ValidationError("This profile already exists.")
+            }
+            let saved = try saveProfile(profile)
+            let meeting = try assignProfile(saved.id, meetingID: meetingID, speakerID: speakerID)
+            try Self.run(db, "COMMIT")
+            return meeting
+        } catch {
+            try? Self.run(db, "ROLLBACK")
+            throw error
+        }
+    }
+
+    public func assignProfile(_ profileID: String?, meetingID: String, speakerID: String,
+                              localName: String? = nil) throws -> Meeting {
+        let current = try get(meetingID)
+        guard !current.status.isBusy else { throw ValidationError("Wait for this meeting to finish processing.") }
+        guard current.speakers[speakerID] != nil else { throw ValidationError("This speaker no longer exists.") }
+        var name = try localName.map { try Validation.speakerName($0) } ?? current.speakerName(speakerID)
+        if let profileID {
+            guard let profile = try profiles().first(where: { $0.id == profileID }) else {
+                throw ValidationError("This speaker profile no longer exists.")
+            }
+            name = profile.name
+        }
+        return try update(meetingID) { meeting in
+            meeting.speakerProfiles[speakerID] = profileID
+            if meeting.speakerName(speakerID) != name {
+                meeting.speakers[speakerID] = name
+                meeting.summary = nil
+                let hasTranscript = !meeting.segments.isEmpty
+                meeting.status = hasTranscript ? .transcribed : .ready
+                meeting.error = nil
+                meeting.progress = hasTranscript ? 100 : 0
+                meeting.stage = hasTranscript ? "Transcript ready" : "Ready to transcribe"
+            }
+        }
     }
 
     // MARK: - Settings

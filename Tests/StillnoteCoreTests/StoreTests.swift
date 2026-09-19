@@ -72,6 +72,7 @@ func temporaryPaths() throws -> Paths {
 
         let reopened = try Store(paths: paths)
         let meeting = try await reopened.get("old")
+        #expect(meeting.speakerProfiles.isEmpty)
         #expect(meeting.contextLinks.isEmpty)
         #expect(meeting.videoURL == nil)
         #expect(meeting.summaryIncludeVideoPath == false)

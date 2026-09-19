@@ -10,7 +10,6 @@ struct TranscriptTab: View {
     @State private var search = ""
     @State private var editing: Segment?
     @State private var renaming: String?
-    @State private var newSpeakerName = ""
     @State private var copied = false
 
     private var filtered: [Segment] {
@@ -70,14 +69,12 @@ struct TranscriptTab: View {
         .sheet(item: $editing) { segment in
             SegmentEditor(meeting: meeting, segment: segment)
         }
-        .alert("Rename speaker", isPresented: Binding(
+        .sheet(isPresented: Binding(
             get: { renaming != nil }, set: { if !$0 { renaming = nil } }
         )) {
-            TextField("Speaker name", text: $newSpeakerName)
-            Button("Cancel", role: .cancel) { renaming = nil }
-            Button("Save Name") { commitRename() }
-        } message: {
-            Text("Renaming this speaker clears the current summary.")
+            if let id = renaming {
+                SpeakerEditor(meetingID: meeting.id, speakerID: id)
+            }
         }
     }
 
@@ -107,23 +104,14 @@ struct TranscriptTab: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.regular)
-            .help("Rename speaker")
+            .help("Edit speaker profile")
             .disabled(meeting.status.isBusy)
         }
     }
 
     private func beginRename(_ id: String) {
-        newSpeakerName = meeting.speakerName(id)
+        guard !meeting.status.isBusy else { return }
         renaming = id
-    }
-
-    private func commitRename() {
-        guard let id = renaming, let name = try? Validation.speakerName(newSpeakerName) else {
-            renaming = nil
-            return
-        }
-        renaming = nil
-        Task { await model.editTranscript(meeting.id) { $0.speakers[id] = name } }
     }
 
     private func copyTranscript() {
@@ -158,11 +146,13 @@ private struct TranscriptSegmentRow: View {
                 SpeakerAvatar(name: speakerName, color: speakerColor, size: 32)
             }
             .buttonStyle(.plain)
-            .help("Rename speaker")
+            .disabled(!canEdit)
+            .help("Edit speaker profile")
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Button(speakerName, action: rename)
+                        .disabled(!canEdit)
                         .buttonStyle(.plain)
                         .font(StillnoteTheme.detailBodyFont.weight(.semibold))
                     Button(Formatting.timestamp(segment.start)) { player?.play(from: segment.start) }

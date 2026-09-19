@@ -137,3 +137,11 @@ the meeting `Table` or a meeting's detail view; playback uses AVKit's `VideoPlay
 recordings with screen video and a compact transport otherwise. Settings live in the
 standard Settings scene. Notes autosave after a 700 ms pause, with an unsaved draft kept in
 `UserDefaults` until it matches what was saved.
+
+### Reusable speaker profiles
+
+Speaker profiles are local JSON records in SQLite’s `speaker_profiles` table, keyed by UUID. Each stores a name and one optional email and phone number. Meetings map local diarization labels to profile IDs through `speaker_profiles`; older meeting documents default to an empty mapping. Assignment is manual; diarization labels do not imply identity across recordings.
+
+Meeting `speakers` values remain name snapshots used by transcripts, summaries, and exports. Profile edits affect future assignments, while shared contact details stay solely in the profile store and are excluded from summary prompts and exports. Assignments that change a displayed name invalidate that meeting’s summary. Local renaming unlinks the identity; unlinking alone retains the snapshot. Retranscription clears assignments on successful transcript replacement, and deleting a meeting retains profiles. Creation with initial assignment uses a SQLite transaction. Store operations reject assignments to processing meetings.
+
+The transcript’s speaker sheet provides a profile dropdown and assignment/unlink actions. Edit Profile opens Settings → Speakers with the selected profile. Settings uses a macOS list with plus/minus controls and inline detail fields; there is no separate profile-editing sheet. A transactional, one-time migration converts existing custom speaker names into distinct profiles without merging matching names or changing meeting snapshots or summaries. Generic diarization labels are excluded. Contact fields are trimmed; nonempty emails receive basic format validation, while phone formatting is preserved. Failed saves remain visible in the editor.

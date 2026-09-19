@@ -106,7 +106,7 @@ public struct TranscriptionService: Sendable {
 /// Parses the worker's newline-delimited event stream. Native libraries may print
 /// diagnostics on the same pipe; anything without the event prefix is ignored and is
 /// never surfaced as meeting content or as an error message.
-private actor WorkerOutput {
+actor WorkerOutput {
     private static let prefix = "STILLNOTE_EVENT "
     private let progress: @Sendable (Double, String) -> Void
     private(set) var text: String?
@@ -119,8 +119,10 @@ private actor WorkerOutput {
     func read(from handle: FileHandle) async {
         var buffer = Data()
         while true {
-            let chunk = await Task.detached { try? handle.read(upToCount: 64 * 1024) }.value
-            guard let chunk, !chunk.isEmpty else { break }
+            // availableData returns as soon as pipe bytes arrive. A fixed-size
+            // read can wait for the entire buffer, hiding progress until exit.
+            let chunk = await Task.detached { handle.availableData }.value
+            guard !chunk.isEmpty else { break }
             buffer.append(chunk)
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self)

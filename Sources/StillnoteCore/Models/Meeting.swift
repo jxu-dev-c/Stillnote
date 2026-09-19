@@ -101,6 +101,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     public var summaryIncludeVideoPath: Bool
     public var language: String
     public var speakerCount: Int?
+    public var speakerProfiles: [String: String]
     public var speakers: [String: String]
     public var segments: [Segment]
     public var summary: MeetingSummary?
@@ -115,6 +116,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         case audioURL = "audio_url"
         case videoURL = "video_url"
         case summaryIncludeVideoPath = "summary_include_video_path"
+        case speakerProfiles = "speaker_profiles"
         case speakerCount = "speaker_count"
         case contextLinks = "context_links"
     }
@@ -137,6 +139,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         summaryIncludeVideoPath = try values.decodeIfPresent(Bool.self, forKey: .summaryIncludeVideoPath) ?? false
         language = try values.decodeIfPresent(String.self, forKey: .language) ?? "auto"
         speakerCount = try values.decodeIfPresent(Int.self, forKey: .speakerCount)
+        speakerProfiles = try values.decodeIfPresent([String: String].self, forKey: .speakerProfiles) ?? [:]
         speakers = try values.decodeIfPresent([String: String].self, forKey: .speakers) ?? [:]
         segments = try values.decodeIfPresent([Segment].self, forKey: .segments) ?? []
         summary = try values.decodeIfPresent(MeetingSummary.self, forKey: .summary)
@@ -164,6 +167,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         self.summaryIncludeVideoPath = false
         self.language = language
         self.speakerCount = speakerCount
+        self.speakerProfiles = [:]
         self.speakers = [:]
         self.segments = []
         self.summary = nil

@@ -123,6 +123,37 @@ private struct FakeAgent {
         }
     }
 
+    @Test func discoversNvmCLIWithFinderPathAndRunsItsSiblingRuntime() throws {
+        let agent = try FakeAgent(script: "#!/bin/sh\nexit 0\n")
+        defer { agent.cleanup() }
+        for version in ["v20.9.0", "v20.19.3"] {
+            let bin = agent.directory.appendingPathComponent("versions/node/" + version + "/bin")
+            try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+            for (name, script) in [
+                ("codex", "#!/usr/bin/env stillnote-test-runtime\n"),
+                ("stillnote-test-runtime", "#!/bin/sh\nprintf runtime-ok\n")
+            ] {
+                let file = bin.appendingPathComponent(name)
+                try Data(script.utf8).write(to: file)
+                try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+            }
+        }
+        let environment = ["PATH": "/usr/bin:/bin", "NVM_DIR": agent.directory.path]
+        // Explicit overrides must still win, even when invalid.
+        #expect(AgentRunner.executable(for: .codex, environment:
+            environment.merging(["STILLNOTE_CODEX_BIN": "/nonexistent/codex"]) { _, new in new }
+        ) == nil)
+        let executable = try #require(AgentRunner.executable(for: .codex, environment: environment))
+        #expect(executable.hasSuffix("v20.19.3/bin/codex"))
+        let output = agent.directory.appendingPathComponent("output")
+        let result = try PosixProcess.run(
+            executable: executable, arguments: [], workingDirectory: agent.directory.path,
+            input: Data(), stdoutURL: output, timeout: 5
+        )
+        #expect(result.exitCode == 0)
+        #expect(try String(contentsOf: output, encoding: .utf8) == "runtime-ok")
+    }
+
     @Test func reportsAMissingCLI() {
         setenv("STILLNOTE_CODEX_BIN", "/nonexistent/codex", 1)
         defer { unsetenv("STILLNOTE_CODEX_BIN") }

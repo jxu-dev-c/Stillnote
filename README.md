@@ -147,7 +147,9 @@ reading stays disabled, so it does not enable video analysis. Audio, context, li
 meeting titles are never supplied. Long transcripts are summarized in sections and merged
 locally.
 
-If a CLI is not on the app's `PATH` — likely when Stillnote is launched from Finder — set
+Stillnote searches the app's `PATH`, common installation folders, and nvm's installed
+Node versions (including a custom `NVM_DIR`) when launched from Finder. For other
+installation locations, set
 `STILLNOTE_CODEX_BIN` or `STILLNOTE_CLAUDE_BIN` to the executable's full path.
 
 ## Local storage and privacy boundary

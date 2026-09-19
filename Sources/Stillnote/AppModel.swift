@@ -9,6 +9,9 @@ import StillnoteCore
 @Observable
 final class AppModel {
     private(set) var meetings: [Meeting] = []
+    private(set) var speakerProfiles: [SpeakerProfile] = []
+    var settingsTab = "transcription"
+    var requestedSpeakerProfileID: String?
     var settings = AppSettings()
     private(set) var speech = SpeechStatus.unknown
     private(set) var agents: [AgentAvailability] = []
@@ -68,8 +71,10 @@ final class AppModel {
         }
         do {
             try await store.markInterruptedJobs()
+            try await store.migrateNamedSpeakers()
             meetings = try await store.list()
             settings = try await store.settings()
+            speakerProfiles = try await store.profiles()
         } catch {
             startupError = error.localizedDescription
         }
@@ -113,6 +118,35 @@ final class AppModel {
 
     private func report(_ error: Error) {
         alertMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
+    func deleteSpeakerProfile(_ id: String) async throws {
+        let changed = try await store.deleteProfile(id)
+        changed.forEach { apply($0) }
+        speakerProfiles.removeAll { $0.id == id }
+    }
+
+    func saveSpeakerProfile(_ profile: SpeakerProfile) async throws {
+        let saved = try await store.saveProfile(profile)
+        rememberProfile(saved)
+    }
+
+    private func rememberProfile(_ profile: SpeakerProfile) {
+        speakerProfiles.removeAll { $0.id == profile.id }
+        speakerProfiles.append(profile)
+        speakerProfiles.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    func createSpeakerProfile(_ profile: SpeakerProfile, meetingID: String, speakerID: String) async throws {
+        let validated = try profile.validated()
+        apply(try await store.createProfile(validated, meetingID: meetingID, speakerID: speakerID))
+        rememberProfile(validated)
+    }
+
+    func assignSpeakerProfile(_ profileID: String?, meetingID: String, speakerID: String,
+                              localName: String? = nil) async throws {
+        apply(try await store.assignProfile(profileID, meetingID: meetingID,
+                                            speakerID: speakerID, localName: localName))
     }
 
     // MARK: - Meeting edits
@@ -286,6 +320,7 @@ final class AppModel {
             await edit(id) {
                 $0.duration = result.duration
                 $0.language = result.language
+                $0.speakerProfiles = [:]
                 $0.speakers = result.speakers
                 $0.segments = result.segments
                 $0.status = .transcribed

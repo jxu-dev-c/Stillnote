@@ -2,12 +2,19 @@ import StillnoteCore
 import SwiftUI
 
 struct SettingsView: View {
+    @Environment(AppModel.self) private var model
     var body: some View {
-        TabView {
+        @Bindable var model = model
+        TabView(selection: $model.settingsTab) {
             TranscriptionSettingsView()
                 .tabItem { Label("Transcription", systemImage: "waveform") }
+                .tag("transcription")
+            SpeakerSettingsView()
+                .tabItem { Label("Speakers", systemImage: "person.2") }
+                .tag("speakers")
             SummarySettingsView()
                 .tabItem { Label("Summaries", systemImage: "sparkles") }
+                .tag("summaries")
         }
         .frame(height: 420)
     }

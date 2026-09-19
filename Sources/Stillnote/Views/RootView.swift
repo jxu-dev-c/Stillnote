@@ -129,7 +129,7 @@ struct RootView: View {
                     .padding(.vertical, 8)
             } else {
                 SettingsLink {
-                    Label("Transcription Ready", systemImage: "checkmark.circle")
+                    Label("Settings", systemImage: "gearshape")
                         .font(StillnoteTheme.detailSupportingFont)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)

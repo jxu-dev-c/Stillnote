@@ -46,6 +46,19 @@ public enum AgentRunner {
             let candidate = directory + "/" + command
             if FileManager.default.isExecutableFile(atPath: candidate) { return candidate }
         }
+        // nvm installs global CLIs inside version-specific directories that Finder
+        // does not inherit. Prefer the newest installed version containing the CLI.
+        let nvmDirectory = environment["NVM_DIR"] ?? "\(NSHomeDirectory())/.nvm"
+        let versions = URL(fileURLWithPath: nvmDirectory).appendingPathComponent("versions/node")
+        let installed = (try? FileManager.default.contentsOfDirectory(
+            at: versions, includingPropertiesForKeys: nil
+        )) ?? []
+        for version in installed.sorted(by: {
+            $0.lastPathComponent.compare($1.lastPathComponent, options: .numeric) == .orderedDescending
+        }) {
+            let candidate = version.appendingPathComponent("bin/" + command).path
+            if FileManager.default.isExecutableFile(atPath: candidate) { return candidate }
+        }
         return nil
     }
 

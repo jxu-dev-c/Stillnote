@@ -43,7 +43,13 @@ enum PosixProcess {
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
 
         let argv: [String] = [executable] + arguments
-        let environment = ProcessInfo.processInfo.environment.map { "\($0.key)=\($0.value)" }
+        var childEnvironment = ProcessInfo.processInfo.environment
+        // npm entry points use /usr/bin/env node. Include the selected CLI's bin
+        // directory so Finder launches use the runtime installed alongside it.
+        let executableDirectory = URL(fileURLWithPath: executable).deletingLastPathComponent().path
+        childEnvironment["PATH"] = executableDirectory + ":"
+            + (childEnvironment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
+        let environment = childEnvironment.map { "\($0.key)=\($0.value)" }
         var pid: pid_t = 0
         let status = withCStrings(argv) { argvPointers in
             withCStrings(environment) { envPointers in
