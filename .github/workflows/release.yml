@@ -1,25 +1,38 @@
 name: Release candidate
 on:
   push:
+    branches: [master]
     tags: ['v*']
 permissions:
   contents: read
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 jobs:
   build:
     runs-on: macos-26
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Validate version and toolchain
+      - name: Resolve release and validate toolchain
+        id: release
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 1
           version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
-          [[ "$RELEASE_TAG" == "v$version" ]] || exit 1
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 1
+            [[ "$RELEASE_TAG" == "v$version" ]] || exit 1
+          else
+            [[ "$GITHUB_REF" == refs/heads/master ]] || exit 1
+            RELEASE_TAG="v${version}-dev.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "archive_version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+          /usr/libexec/PlistBuddy -c "Set CFBundleVersion $GITHUB_RUN_NUMBER" Resources/Info.plist
           [[ "$(uname -m)" == arm64 ]] || exit 1
           xcode_version=$(xcodebuild -version | awk '/^Xcode / {print $2}')
           [[ "${xcode_version%%.*}" -ge 26 ]] || exit 1
@@ -34,10 +47,12 @@ jobs:
       - name: Package development candidate
         env:
           STILLNOTE_SIGNING_IDENTITY: '-'
+          STILLNOTE_RELEASE_VERSION: ${{ steps.release.outputs.archive_version }}
         run: ./scripts/package-app.sh
       - name: Verify archive
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          APP_VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
           (cd build/candidate && shasum -a 256 -c SHA256SUMS)
@@ -47,9 +62,10 @@ jobs:
           app="$extracted/Stillnote.app"
           codesign --verify --strict "$app"
           [[ "$(lipo -archs "$app/Contents/MacOS/Stillnote")" == arm64 ]] || exit 1
-          [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")" == "${RELEASE_TAG#v}" ]] || exit 1
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")" == "$APP_VERSION" ]] || exit 1
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$app/Contents/Info.plist")" == "$GITHUB_RUN_NUMBER" ]] || exit 1
           test -x "$app/Contents/MacOS/Stillnote"
-          for resource in speech_models.json LICENSE THIRD_PARTY_NOTICES.md; do
+          for resource in AppIcon.icns speech_models.json LICENSE THIRD_PARTY_NOTICES.md; do
             test -s "$app/Contents/Resources/$resource"
           done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -68,11 +84,12 @@ jobs:
         with:
           name: release-candidate
           path: candidate
-      - name: Create or update draft
+      - name: Publish development release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          RELEASE_COMMIT: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -81,11 +98,15 @@ jobs:
           # Listing must succeed: authentication/network errors must not mean "absent".
           releases=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .draft")
           if [[ -n "$releases" ]]; then
-            [[ "$releases" == true ]] || { echo 'Refusing to modify a published release.' >&2; exit 1; }
+            if [[ "$releases" == false ]]; then
+              echo "Release $RELEASE_TAG is already published; leaving its assets unchanged."
+              exit 0
+            fi
           else
-            gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease \
+            gh release create "$RELEASE_TAG" --target "$RELEASE_COMMIT" --draft --prerelease --latest=false \
               --title "Stillnote $RELEASE_TAG — development candidate" --notes-file RELEASE-NOTES.md
           fi
           [[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" == true ]] || exit 1
           gh release upload "$RELEASE_TAG" --clobber \
             "Stillnote-${RELEASE_TAG#v}-macos-arm64.zip" SHA256SUMS LICENSE THIRD_PARTY_NOTICES.md RELEASE-NOTES.md
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false

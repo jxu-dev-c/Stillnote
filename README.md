@@ -1,6 +1,7 @@
 # Stillnote
 
-**Experimental · MIT licensed · Release preparation in progress.** Tag-triggered GitHub draft releases provide development-candidate app ZIPs;
+**Experimental · MIT licensed · Release preparation in progress.** Every push to `master` automatically publishes a development-candidate app ZIP in
+[GitHub Releases](https://github.com/jxu-dev-c/Stillnote/releases);
 they still require separate speech-runtime setup. No standalone download is ready yet. See [release gates](docs/RELEASE.md), [privacy](docs/PRIVACY.md),
 [contributing](CONTRIBUTING.md), and [third-party notices](THIRD_PARTY_NOTICES.md).
 

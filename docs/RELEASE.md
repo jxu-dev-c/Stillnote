@@ -1,7 +1,7 @@
 # Release preparation
 
 Candidate releases target the repository containing the workflow, currently
-`jxu-dev-c/meeting-note-app`: Apple silicon, macOS 15+. Standalone public distribution
+`jxu-dev-c/Stillnote`: Apple silicon, macOS 15+. Standalone public distribution
 remains subject to the gates below; publishing source history is a separate operation.
 
 ## Required gates
@@ -34,26 +34,26 @@ and generated/private local content, then creates one commit on main with the Gi
 noreply identity. The destination must not exist. Inspect the exported tree before publishing.
 The existing private repository and remote remain untouched.
 
-## GitHub draft releases
+## Automatic GitHub releases
 
-Update `CFBundleShortVersionString` in `Resources/Info.plist`, commit the change and
-workflow, then push that commit before creating a matching version tag:
+Every push to `master` runs checks on macOS 26, builds an ad-hoc-signed Apple silicon
+app, verifies the extracted ZIP and checksum, then publishes a visible GitHub
+prerelease. Each push gets a unique tag, `v<app-version>-dev.<workflow-run-number>`,
+pointing at the exact built commit. The app's build number is the workflow run number;
+the marketing version remains `CFBundleShortVersionString` from `Resources/Info.plist`.
+No version-bump commit is needed for each push.
 
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
+Find downloads under [GitHub Releases](https://github.com/jxu-dev-c/Stillnote/releases).
+Each release contains the app ZIP, `SHA256SUMS`, license, third-party notices, and
+these release notes. Assets are uploaded to a draft first, then the complete release
+is published automatically. Failed checks prevent publication. Reruns can finish an
+incomplete draft; already published releases and their assets stay unchanged.
 
-Use the actual version being released. Only strict `vX.Y.Z` tags are accepted; a
-version mismatch stops the workflow before building. The workflow runs the existing
-checks on macOS 26, builds an ad-hoc-signed app, verifies the extracted ZIP, and
-creates a draft prerelease in the same repository. No Apple account, signing secret,
+Strict `vX.Y.Z` tag pushes also publish development prereleases, after checking the
+tag matches the app's marketing version. Automatic tags created with the workflow's
+GitHub token do not trigger another release run. No Apple account, signing secret,
 or notarization is required. Only the publication job receives `contents: write`.
-
-Find the draft under GitHub Releases. It contains the app ZIP, `SHA256SUMS`, license,
-third-party notices, and these release notes. Review before publishing. Rerunning a
-failed workflow replaces assets on its draft only; published releases are never
-updated by the workflow. Use a new version tag for changes after publication.
+These development builds are marked as prereleases, not stable/latest releases.
 
 Download the ZIP and `SHA256SUMS` into the same directory, run
 `shasum -a 256 -c SHA256SUMS`, extract the ZIP, and move `Stillnote.app` to Applications.
