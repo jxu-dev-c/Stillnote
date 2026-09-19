@@ -13,6 +13,7 @@ contents="$app/Contents"
 rm -rf "$app"
 mkdir -p "$contents/MacOS" "$contents/Resources"
 cp Resources/Info.plist "$contents/Info.plist"
+cp Resources/AppIcon.icns "$contents/Resources/AppIcon.icns"
 cp "$bin/Stillnote" "$contents/MacOS/Stillnote"
 # Resources are copied out of SwiftPM's bundles as plain files: a nested .bundle inside a
 # hand-assembled app hangs CFBundle when LaunchServices launches it.
