@@ -1,19 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [[ "$(uname -s)" != Darwin ]]; then
+  echo 'Stillnote is a macOS 15+ application.'
+  exit 1
+fi
+
+# MOSS inference is the only part of Stillnote that is not Swift. It lives in its own
+# virtual environment under Application Support rather than in this checkout: a bundled
+# app reading the Documents folder needs permission macOS cannot grant during launch.
+support="$HOME/Library/Application Support/Stillnote"
+venv="$support/venv-moss"
+mkdir -p "$support"
+
 if command -v uv >/dev/null 2>&1; then
-  uv sync --extra dev
-  uv venv --allow-existing .venv-moss
-  uv pip install --python .venv-moss/bin/python -r requirements-moss.lock
+  # MOSS requires a recent Python; uv may otherwise pick an older default.
+  uv venv --python 3.13 --allow-existing "$venv"
+  uv pip install --python "$venv/bin/python" -r requirements-moss.lock
+  uv pip install --python "$venv/bin/python" ./sidecar pytest ruff
 else
-  python3 -m venv .venv
-  .venv/bin/python -m pip install -e '.[dev]'
-  python3 -m venv .venv-moss
-  .venv-moss/bin/python -m pip install -r requirements-moss.lock
+  python3 -m venv "$venv"
+  "$venv/bin/python" -m pip install -r requirements-moss.lock ./sidecar pytest ruff
 fi
-(cd frontend && npm ci && npm run build)
-if [[ "$(uname -s)" == Darwin ]] && xcrun --find swiftc >/dev/null 2>&1; then
-  ./scripts/build-capture.sh
-fi
-echo 'Ready. Run ./scripts/start.sh and open http://127.0.0.1:8765.'
-echo 'In Settings, download the local speech models once to enable offline transcription.'
+
+./scripts/build-app.sh
+echo "MOSS runtime: $venv"
+echo 'Ready. Run ./scripts/start.sh, then download the speech model once in Settings.'
