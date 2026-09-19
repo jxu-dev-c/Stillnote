@@ -1,7 +1,8 @@
 # Release preparation
 
-Target: `jxu-dev-c/stillnote`, version 0.1.0, Apple silicon, macOS 15+.
-Publication is a separate operation. Do not push the historical private repository.
+Candidate releases target the repository containing the workflow, currently
+`jxu-dev-c/meeting-note-app`: Apple silicon, macOS 15+. Standalone public distribution
+remains subject to the gates below; publishing source history is a separate operation.
 
 ## Required gates
 
@@ -32,3 +33,32 @@ It exports tracked files and explicit release-preparation additions, excluding G
 and generated/private local content, then creates one commit on main with the GitHub
 noreply identity. The destination must not exist. Inspect the exported tree before publishing.
 The existing private repository and remote remain untouched.
+
+## GitHub draft releases
+
+Update `CFBundleShortVersionString` in `Resources/Info.plist`, commit the change and
+workflow, then push that commit before creating a matching version tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Use the actual version being released. Only strict `vX.Y.Z` tags are accepted; a
+version mismatch stops the workflow before building. The workflow runs the existing
+checks on macOS 26, builds an ad-hoc-signed app, verifies the extracted ZIP, and
+creates a draft prerelease in the same repository. No Apple account, signing secret,
+or notarization is required. Only the publication job receives `contents: write`.
+
+Find the draft under GitHub Releases. It contains the app ZIP, `SHA256SUMS`, license,
+third-party notices, and these release notes. Review before publishing. Rerunning a
+failed workflow replaces assets on its draft only; published releases are never
+updated by the workflow. Use a new version tag for changes after publication.
+
+Download the ZIP and `SHA256SUMS` into the same directory, run
+`shasum -a 256 -c SHA256SUMS`, extract the ZIP, and move `Stillnote.app` to Applications.
+Follow Apple's Open Anyway instructions above when required. This is a development
+candidate: transcription requires the separate Python/MOSS runtime. From a checkout
+of the same release tag, run `./scripts/setup.sh` (requires the development tools in
+the README), then download the speech model in Settings. The ZIP does not install
+that runtime, bundle model weights, or provide automatic updates.

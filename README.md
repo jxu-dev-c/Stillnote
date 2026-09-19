@@ -1,7 +1,7 @@
 # Stillnote
 
-**Experimental · MIT licensed · Release preparation in progress.** No standalone download
-is ready yet. See [release gates](docs/RELEASE.md), [privacy](docs/PRIVACY.md),
+**Experimental · MIT licensed · Release preparation in progress.** Tag-triggered GitHub draft releases provide development-candidate app ZIPs;
+they still require separate speech-runtime setup. No standalone download is ready yet. See [release gates](docs/RELEASE.md), [privacy](docs/PRIVACY.md),
 [contributing](CONTRIBUTING.md), and [third-party notices](THIRD_PARTY_NOTICES.md).
 
 A private meeting notebook that runs on your own Mac. Record your microphone and system
