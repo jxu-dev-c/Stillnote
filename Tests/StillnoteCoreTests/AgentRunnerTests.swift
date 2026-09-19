@@ -53,15 +53,15 @@ private struct FakeAgent {
 
         let arguments = try String(contentsOf: agent.argumentsURL, encoding: .utf8)
             .split(separator: "\n").map(String.init)
-        #expect(arguments.first == "exec")
-        #expect(arguments.contains("--sandbox"))
-        #expect(arguments.contains("read-only"))
-        #expect(arguments.contains("--ephemeral"))
-        #expect(arguments.contains("--ignore-user-config"))
-        #expect(arguments.contains("web_search=\"disabled\""))
-        #expect(arguments.contains("model_reasoning_effort=\"high\""))
-        #expect(arguments.contains("shell_tool"))
-        #expect(arguments.last == "-")
+        #expect(arguments.count == 10)
+        #expect(Array(arguments.prefix(5)) == [
+            "exec", "--model", "gpt-5.6-luna", "--config", "model_reasoning_effort=\"high\"",
+        ])
+        #expect(arguments[5] == "--output-schema")
+        #expect(arguments[6].hasSuffix("/schema.json"))
+        #expect(arguments[7] == "--output-last-message")
+        #expect(arguments[8].hasSuffix("/response.json"))
+        #expect(arguments[9] == "-")
         // The transcript travels on stdin, never as an argument.
         let stdin = try String(contentsOf: agent.stdinURL, encoding: .utf8)
         #expect(stdin == "INSTRUCTIONS\n\nPROMPT")

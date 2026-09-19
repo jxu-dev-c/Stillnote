@@ -90,24 +90,24 @@ public enum AgentRunner {
 
         switch provider {
         case .codex:
+            // Codex exec expects a repository. Use a disposable one rather than
+            // overriding its CLI defaults or running inside the user's project.
+            let git = try PosixProcess.run(
+                executable: "/usr/bin/git", arguments: ["init", "--quiet", workspace.path],
+                workingDirectory: workspace.path, input: Data(),
+                stdoutURL: workspace.appendingPathComponent("git-output"), timeout: 10
+            )
+            guard git.exitCode == 0, !git.timedOut else {
+                throw SummaryError("Could not prepare the summary workspace. Check that Git is installed.")
+            }
             let schemaURL = workspace.appendingPathComponent("schema.json")
             let response = workspace.appendingPathComponent("response.json")
             try schemaData.write(to: schemaURL)
             arguments = [
                 "exec", "--model", model,
                 "--config", "model_reasoning_effort=\"\(effort.rawValue)\"",
-                "--sandbox", "read-only",
-                "--skip-git-repo-check",
-                "--ephemeral",
-                "--ignore-user-config",
-                "--config", "project_doc_max_bytes=0",
-                "--config", "approval_policy=\"never\"",
-                "--config", "web_search=\"disabled\"",
-                "--disable", "shell_tool",
-                "--disable", "unified_exec",
                 "--output-schema", schemaURL.path,
                 "--output-last-message", response.path,
-                "--color", "never",
                 "-",
             ]
             stdinText = instructions + "\n\n" + prompt
