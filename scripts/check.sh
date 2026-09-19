@@ -3,10 +3,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build
 swift test
-python="$HOME/Library/Application Support/Stillnote/venv-moss/bin/python"
+python="${STILLNOTE_TEST_PYTHON:-$HOME/Library/Application Support/Stillnote/venv-moss/bin/python}"
 if [[ -x "$python" ]]; then
   (cd sidecar && "$python" -m pytest -q)
   (cd sidecar && "$python" -m ruff check .)
 else
-  echo 'Skipping MOSS worker checks: run ./scripts/setup.sh to create the runtime.'
+  echo 'MOSS worker checks require a test Python with pytest, ruff, and numpy.' >&2
+  exit 1
 fi

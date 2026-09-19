@@ -6,8 +6,8 @@ public struct SpeechModelProgress: Sendable {
     public let detail: String
 }
 
-/// Downloads and verifies the pinned MOSS checkpoint. This is the only operation in
-/// Stillnote that contacts a network host, and it transfers public model files only.
+/// Downloads and verifies the pinned MOSS checkpoint. This transfers public model files only; other network activity is documented
+/// in docs/PRIVACY.md.
 public actor ModelInstaller {
     public private(set) var isInstalling = false
     private let modelDirectory: URL

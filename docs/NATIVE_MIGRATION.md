@@ -1,9 +1,5 @@
 # Native macOS migration handoff
 
-Imported on September 12, 2026 from the [Notion handoff](https://www.notion.so/3d94257d2a6d8125b0a6f59ea81679c8)
-for reminder `C0012DF9` (回看 meeting-note-app：把 Notion handoff 的内容加进 repo).
-Retrieve the source with `ntn pages get 3d94257d-2a6d-8125-b0a6-f59ea81679c8`.
-
 This records the migration's lessons and verification limits. It is a historical
 snapshot, not evidence of a new test run. Use [ARCHITECTURE.md](ARCHITECTURE.md) for the
 current implementation contract and [TODO.md](../TODO.md) for open work.
