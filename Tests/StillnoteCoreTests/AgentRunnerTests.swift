@@ -100,6 +100,51 @@ private struct FakeAgent {
         #expect(try String(contentsOf: agent.stdinURL, encoding: .utf8) == "PROMPT")
     }
 
+    @Test func summaryDeliversConfiguredPromptToBothProviders() throws {
+        let agent = try FakeAgent(script: """
+            #!/bin/bash
+            printf '%s\\n' "$@" >> "$FAKE_DIR/arguments.txt"
+            cat >> "$FAKE_DIR/stdin.txt"
+            response=""
+            previous=""
+            for argument in "$@"; do
+              if [ "$previous" = "--output-last-message" ]; then response="$argument"; fi
+              previous="$argument"
+            done
+            if [ -n "$response" ]; then
+              printf '%s' '{"overview":"ok","key_points":[],"decisions":[],"action_items":[]}' > "$response"
+            else
+              printf '%s' '{"subtype":"success","is_error":false,"structured_output":{"overview":"ok","key_points":[],"decisions":[],"action_items":[]}}'
+            fi
+            """)
+        defer { agent.cleanup() }
+        setenv("FAKE_DIR", agent.directory.path, 1)
+        setenv("STILLNOTE_CODEX_BIN", agent.executable.path, 1)
+        setenv("STILLNOTE_CLAUDE_BIN", agent.executable.path, 1)
+        defer {
+            unsetenv("FAKE_DIR")
+            unsetenv("STILLNOTE_CODEX_BIN")
+            unsetenv("STILLNOTE_CLAUDE_BIN")
+        }
+        var meeting = Meeting(id: "prompt", title: "Test", audioName: "a", language: "en",
+                              speakerCount: nil, duration: 1)
+        meeting.segments = [Segment(id: "1", start: 0, end: 1, speaker: "speaker_1",
+                                   text: String(repeating: "Meeting content. ", count: 700))]
+        for provider in SummaryProvider.allCases {
+            for prompt in ["CUSTOM SUMMARY INSTRUCTIONS", " \n"] {
+                try Data().write(to: agent.argumentsURL)
+                try Data().write(to: agent.stdinURL)
+                let settings = SummarySettings(provider: provider, agentPrompt: prompt)
+                _ = try Summarizer.summarize(meeting: meeting, settings: settings,
+                                            allowRemote: true, videoPath: nil)
+                let captured = try String(contentsOf: provider == .codex ? agent.stdinURL : agent.argumentsURL,
+                                          encoding: .utf8)
+                let count = captured.components(separatedBy: settings.resolvedAgentPrompt).count - 1
+                #expect(count == 2)
+            }
+        }
+    }
+
     /// A failing CLI produces an actionable message, never its raw output.
     @Test func surfacesAFailedAgentWithoutItsOutput() throws {
         let agent = try FakeAgent(script: """

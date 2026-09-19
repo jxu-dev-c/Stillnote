@@ -15,6 +15,39 @@ func temporaryPaths() throws -> Paths {
 }
 
 @Suite struct StoreTests {
+    @Test func summaryPromptDefaultsAndCodableCompatibility() throws {
+        let legacy = Data(#"{"provider":"codex","model":"custom","reasoning_effort":"low"}"#.utf8)
+        let decoded = try JSONDecoder().decode(SummarySettings.self, from: legacy)
+        #expect(decoded.agentPrompt == Summarizer.defaultAgentPrompt)
+        #expect(SummarySettings().agentPrompt == Summarizer.defaultAgentPrompt)
+        #expect(SummarySettings(agentPrompt: " \n\t").resolvedAgentPrompt == Summarizer.defaultAgentPrompt)
+        let custom = SummarySettings(agentPrompt: "Custom instructions\nKeep formatting.")
+        let data = try JSONEncoder().encode(custom)
+        #expect(try JSONDecoder().decode(SummarySettings.self, from: data) == custom)
+        #expect(String(decoding: data, as: UTF8.self).contains("agent_prompt"))
+    }
+
+    @Test func persistsPromptAcrossReloadAndProviderChanges() async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        var settings = AppSettings()
+        settings.summary.agentPrompt = "Focus on decisions."
+        try await store.saveSettings(settings)
+        let reopened = try Store(paths: paths)
+        settings = try await reopened.settings()
+        #expect(settings.summary.agentPrompt == "Focus on decisions.")
+        settings.summary.provider = .claudeCode
+        settings.summary.model = "custom"
+        settings.summary.reasoningEffort = .low
+        try await reopened.saveSettings(settings)
+        #expect(try await store.settings().summary.agentPrompt == "Focus on decisions.")
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as! [String: Any]
+        let migrated = AppSettings.migrating(from: object)
+        #expect(!migrated.changed)
+        #expect(migrated.settings == settings)
+    }
+
     @Test func createsReadsAndUpdatesMeetings() async throws {
         let paths = try temporaryPaths()
         let store = try Store(paths: paths)
@@ -98,6 +131,7 @@ func temporaryPaths() throws -> Paths {
         #expect(settings.summary.provider == .claudeCode)
         #expect(settings.summary.model == SummaryProvider.claudeCode.defaultModel)
         #expect(settings.summary.reasoningEffort == .high)
+        #expect(settings.summary.agentPrompt == Summarizer.defaultAgentPrompt)
 
         // The credential fields are dropped from the stored record, not just the struct.
         let stored = try readSQL(paths.databaseURL, "SELECT data FROM settings WHERE id=1")

@@ -87,6 +87,7 @@ struct SummarySettingsView: View {
     @State private var provider = SummaryProvider.codex
     @State private var summaryModel = ""
     @State private var effort = ReasoningEffort.high
+    @State private var agentPrompt = Summarizer.defaultAgentPrompt
 
     private var availability: AgentAvailability? {
         model.agents.first { $0.provider == provider }
@@ -111,6 +112,17 @@ struct SummarySettingsView: View {
                 Picker("Thinking effort", selection: $effort) {
                     ForEach(ReasoningEffort.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
+            }
+
+            Section("Agent prompt") {
+                TextEditor(text: $agentPrompt)
+                    .font(.body.monospaced())
+                    .frame(height: 180)
+                    .accessibilityLabel("Agent prompt")
+                Text("Keep the required JSON fields: overview, key_points, decisions, and action_items. A blank prompt uses the default.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Reset to Default") { agentPrompt = Summarizer.defaultAgentPrompt }
+                    .disabled(agentPrompt == Summarizer.defaultAgentPrompt)
             }
 
             Section("Status") {
@@ -139,9 +151,11 @@ struct SummarySettingsView: View {
             provider = model.settings.summary.provider
             summaryModel = model.settings.summary.model
             effort = model.settings.summary.reasoningEffort
+            agentPrompt = model.settings.summary.agentPrompt
         }
         .onChange(of: summaryModel) { save() }
         .onChange(of: effort) { save() }
+        .onChange(of: agentPrompt) { save() }
     }
 
     private func save() {
@@ -149,9 +163,11 @@ struct SummarySettingsView: View {
         let resolved = summaryModel.trimmingCharacters(in: .whitespaces).isEmpty
             ? provider.defaultModel : summaryModel
         guard updated.summary.provider != provider || updated.summary.model != resolved
-            || updated.summary.reasoningEffort != effort
+            || updated.summary.reasoningEffort != effort || updated.summary.agentPrompt != agentPrompt
         else { return }
-        updated.summary = SummarySettings(provider: provider, model: resolved, reasoningEffort: effort)
+        updated.summary = SummarySettings(
+            provider: provider, model: resolved, reasoningEffort: effort, agentPrompt: agentPrompt
+        )
         Task { await model.saveSettings(updated) }
     }
 }

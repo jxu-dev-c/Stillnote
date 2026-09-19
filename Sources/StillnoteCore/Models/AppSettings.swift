@@ -36,18 +36,35 @@ public struct SummarySettings: Codable, Hashable, Sendable {
     public var provider: SummaryProvider
     public var model: String
     public var reasoningEffort: ReasoningEffort
+    public var agentPrompt: String
+
+    public var resolvedAgentPrompt: String {
+        agentPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? Summarizer.defaultAgentPrompt : agentPrompt
+    }
 
     enum CodingKeys: String, CodingKey {
         case provider, model
         case reasoningEffort = "reasoning_effort"
+        case agentPrompt = "agent_prompt"
     }
 
     public init(
-        provider: SummaryProvider = .codex, model: String? = nil, reasoningEffort: ReasoningEffort = .high
+        provider: SummaryProvider = .codex, model: String? = nil, reasoningEffort: ReasoningEffort = .high,
+        agentPrompt: String = Summarizer.defaultAgentPrompt
     ) {
         self.provider = provider
         self.model = model ?? provider.defaultModel
         self.reasoningEffort = reasoningEffort
+        self.agentPrompt = agentPrompt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        provider = try values.decode(SummaryProvider.self, forKey: .provider)
+        model = try values.decode(String.self, forKey: .model)
+        reasoningEffort = try values.decode(ReasoningEffort.self, forKey: .reasoningEffort)
+        agentPrompt = try values.decodeIfPresent(String.self, forKey: .agentPrompt) ?? Summarizer.defaultAgentPrompt
     }
 }
 
@@ -101,10 +118,11 @@ public struct AppSettings: Codable, Hashable, Sendable {
         settings.summary = SummarySettings(
             provider: provider,
             model: (storedModel?.isEmpty == false) ? storedModel : provider.defaultModel,
-            reasoningEffort: storedEffort.flatMap(ReasoningEffort.init(rawValue:)) ?? .high
+            reasoningEffort: storedEffort.flatMap(ReasoningEffort.init(rawValue:)) ?? .high,
+            agentPrompt: summary["agent_prompt"] as? String ?? Summarizer.defaultAgentPrompt
         )
         // Obsolete keys such as api_key and base_url are dropped by re-encoding.
-        if object["summary"] == nil || (summary.keys.contains { !["provider", "model", "reasoning_effort"].contains($0) }) {
+        if summary["agent_prompt"] as? String == nil || (summary.keys.contains { !["provider", "model", "reasoning_effort", "agent_prompt"].contains($0) }) {
             changed = true
         }
         if transcription["model"] as? String != settings.transcription.model { changed = true }
