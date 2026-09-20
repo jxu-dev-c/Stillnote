@@ -12,14 +12,6 @@ let package = Package(
             name: "MossTranscribeDiarize",
             targets: ["MossTranscribeDiarize"]
         ),
-        .executable(
-            name: "moss-transcribe",
-            targets: ["MossTranscribeCLI"]
-        ),
-        .executable(
-            name: "MossTranscribeDemo",
-            targets: ["MossTranscribeDemo"]
-        ),
     ],
     dependencies: [
         // Architecture mirrors Blaizzy/mlx-audio-swift (MLX + HF + transformers).
@@ -43,23 +35,6 @@ let package = Package(
                 .product(name: "MLXAudioCore", package: "mlx-audio-swift"),
             ],
             path: "Sources/MossTranscribeDiarize"
-        ),
-        .executableTarget(
-            name: "MossTranscribeCLI",
-            dependencies: [
-                "MossTranscribeDiarize",
-                .product(name: "MLXAudioCore", package: "mlx-audio-swift"),
-            ],
-            path: "Sources/MossTranscribeCLI"
-        ),
-        // Minimal macOS SwiftUI demo (WindowGroup + TranscribeView).
-        .executableTarget(
-            name: "MossTranscribeDemo",
-            dependencies: [
-                "MossTranscribeDiarize",
-            ],
-            path: "Examples/MossTranscribeDemo",
-            exclude: ["README.md"]
         ),
         .testTarget(
             name: "MossTranscribeDiarizeTests",
