@@ -2,7 +2,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build
-swift test
+# Process tests mutate the environment and use blocking pipe I/O. Run suites
+# sequentially so small CI runners cannot starve their background I/O threads.
+swift test --no-parallel
 python="${STILLNOTE_TEST_PYTHON:-$HOME/Library/Application Support/Stillnote/venv-moss/bin/python}"
 if [[ -x "$python" ]]; then
   (cd sidecar && "$python" -m pytest -q)
