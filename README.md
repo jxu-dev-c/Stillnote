@@ -3,12 +3,13 @@
 A private meeting notebook for your Mac. Record meetings or import recordings,
 turn speech into speaker-labeled transcripts, and keep summaries and notes together.
 
+<img width="1268" height="895" alt="image" src="https://github.com/user-attachments/assets/1dc6f398-8ca3-46db-832e-b40ef7d594d3" />
+
+
 ## Why Stillnote?
 
-- **Local transcription.** Audio and speech recognition stay on your Mac, with offline transcription after the initial model download.
-- **Capture the whole conversation.** Record microphone and system audio, with optional screen video.
-- **Make meetings useful.** Edit transcripts, name speakers, add notes, and export your work.
-- **Optional AI summaries.** Generate key points, decisions, and action items through Codex or Claude Code. Transcript text may be sent to hosted models with your confirmation.
+- **Local transcription.** Transcription and Speaker Detection entirely stay on your Mac, with offline transcription after the initial model download.
+- **AI Agent summaries.** Generate key points, decisions, and action items through **Codex or Claude Code CLI**. 
 
 ## Installation
 
