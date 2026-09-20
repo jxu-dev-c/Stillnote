@@ -470,7 +470,8 @@ final class AppModel {
                     Task { @MainActor [self] in
                         self.installProgress = update.fraction * 100
                         self.installDetail = update.detail
-                        Task { await self.refreshEnvironment() }
+                        self.speech.progress = self.installProgress
+                        self.speech.detail = update.detail
                     }
                 }
                 await MainActor.run { [self] in
