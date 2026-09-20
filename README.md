@@ -5,6 +5,8 @@ turn speech into speaker-labeled transcripts, and keep summaries and notes toget
 
 <img width="1268" height="895" alt="image" src="https://github.com/user-attachments/assets/1dc6f398-8ca3-46db-832e-b40ef7d594d3" />
 
+<img width="752" height="620" alt="image" src="https://github.com/user-attachments/assets/3b5631d6-6acf-43a9-9374-9ea429d1325c" />
+
 
 ## Why Stillnote?
 
