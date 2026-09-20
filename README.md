@@ -104,8 +104,7 @@ To repair the bundled speech engine, run `brew reinstall --cask jxu-dev-c/stilln
 or replace the app using a fresh ZIP. Existing installations need a one-time download
 of the converted 8-bit model in Settings. Existing meetings and old model files are preserved.
 
-Uninstall with `brew uninstall --cask jxu-dev-c/stillnote/stillnote` and, optionally,
-`brew uninstall jxu-dev-c/stillnote/stillnote-runtime`. These preserve your meetings,
+Uninstall with `brew uninstall --cask jxu-dev-c/stillnote/stillnote`. These preserve your meetings,
 settings, and models. Avoid `--zap` or deleting Application Support to keep your data.
 
 ## Contributing
