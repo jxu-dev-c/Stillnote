@@ -36,6 +36,9 @@ public struct SummarySettings: Codable, Hashable, Sendable {
     public var provider: SummaryProvider
     public var model: String
     public var reasoningEffort: ReasoningEffort
+    public var bypassPermissions: Bool
+    public var inheritShellEnvironment: Bool
+    public var shellPath: String
     public var agentPrompt: String
 
     public var resolvedAgentPrompt: String {
@@ -47,16 +50,23 @@ public struct SummarySettings: Codable, Hashable, Sendable {
         case provider, model
         case reasoningEffort = "reasoning_effort"
         case agentPrompt = "agent_prompt"
+        case inheritShellEnvironment = "inherit_shell_environment"
+        case shellPath = "shell_path"
+        case bypassPermissions = "bypass_permissions"
     }
 
     public init(
         provider: SummaryProvider = .codex, model: String? = nil, reasoningEffort: ReasoningEffort = .high,
-        agentPrompt: String = Summarizer.defaultAgentPrompt
+        agentPrompt: String = Summarizer.defaultAgentPrompt,
+        inheritShellEnvironment: Bool = true, shellPath: String = "", bypassPermissions: Bool = true
     ) {
         self.provider = provider
         self.model = model ?? provider.defaultModel
         self.reasoningEffort = reasoningEffort
         self.agentPrompt = agentPrompt
+        self.inheritShellEnvironment = inheritShellEnvironment
+        self.shellPath = shellPath
+        self.bypassPermissions = bypassPermissions
     }
 
     public init(from decoder: Decoder) throws {
@@ -64,6 +74,9 @@ public struct SummarySettings: Codable, Hashable, Sendable {
         provider = try values.decode(SummaryProvider.self, forKey: .provider)
         model = try values.decode(String.self, forKey: .model)
         reasoningEffort = try values.decode(ReasoningEffort.self, forKey: .reasoningEffort)
+        bypassPermissions = try values.decodeIfPresent(Bool.self, forKey: .bypassPermissions) ?? true
+        inheritShellEnvironment = try values.decodeIfPresent(Bool.self, forKey: .inheritShellEnvironment) ?? true
+        shellPath = try values.decodeIfPresent(String.self, forKey: .shellPath) ?? ""
         agentPrompt = try values.decodeIfPresent(String.self, forKey: .agentPrompt) ?? Summarizer.defaultAgentPrompt
     }
 }
@@ -119,10 +132,13 @@ public struct AppSettings: Codable, Hashable, Sendable {
             provider: provider,
             model: (storedModel?.isEmpty == false) ? storedModel : provider.defaultModel,
             reasoningEffort: storedEffort.flatMap(ReasoningEffort.init(rawValue:)) ?? .high,
-            agentPrompt: summary["agent_prompt"] as? String ?? Summarizer.defaultAgentPrompt
+            agentPrompt: summary["agent_prompt"] as? String ?? Summarizer.defaultAgentPrompt,
+            inheritShellEnvironment: summary["inherit_shell_environment"] as? Bool ?? true,
+            shellPath: summary["shell_path"] as? String ?? "",
+            bypassPermissions: summary["bypass_permissions"] as? Bool ?? true
         )
         // Obsolete keys such as api_key and base_url are dropped by re-encoding.
-        if summary["agent_prompt"] as? String == nil || (summary.keys.contains { !["provider", "model", "reasoning_effort", "agent_prompt"].contains($0) }) {
+        if summary["agent_prompt"] as? String == nil || (summary.keys.contains { !["provider", "model", "reasoning_effort", "agent_prompt", "inherit_shell_environment", "shell_path", "bypass_permissions"].contains($0) }) {
             changed = true
         }
         if transcription["model"] as? String != settings.transcription.model { changed = true }

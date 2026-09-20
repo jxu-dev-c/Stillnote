@@ -88,6 +88,9 @@ struct SummarySettingsView: View {
     @State private var summaryModel = ""
     @State private var effort = ReasoningEffort.high
     @State private var agentPrompt = Summarizer.defaultAgentPrompt
+    @State private var inheritShellEnvironment = true
+    @State private var shellPath = ""
+    @State private var bypassPermissions = true
 
     private var availability: AgentAvailability? {
         model.agents.first { $0.provider == provider }
@@ -112,6 +115,22 @@ struct SummarySettingsView: View {
                 Picker("Thinking effort", selection: $effort) {
                     ForEach(ReasoningEffort.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
+            }
+
+            Section("Permissions") {
+                Toggle("YOLO / Skip permission checks", isOn: $bypassPermissions)
+                Text("Uses Codex YOLO mode or Claude Code’s dangerously-skip-permissions mode. When enabled, the CLI can act without permission prompts; Codex also disables its sandbox.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("CLI environment") {
+                Toggle("Inherit shell environment", isOn: $inheritShellEnvironment)
+                Text("Loads exported API credentials, provider settings, and PATH from your shell when running either CLI. Works when Stillnote is opened from Finder.")
+                    .font(.caption).foregroundStyle(.secondary)
+                TextField("Shell path", text: $shellPath, prompt: Text("Automatic — account login shell"))
+                    .disabled(!inheritShellEnvironment)
+                Text("Leave blank to use your account’s shell, or enter a full path such as /bin/zsh or /bin/bash. Startup files must export the variables your CLI needs. Turn inheritance off to use only the app’s environment.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Agent prompt") {
@@ -152,10 +171,16 @@ struct SummarySettingsView: View {
             summaryModel = model.settings.summary.model
             effort = model.settings.summary.reasoningEffort
             agentPrompt = model.settings.summary.agentPrompt
+            inheritShellEnvironment = model.settings.summary.inheritShellEnvironment
+            shellPath = model.settings.summary.shellPath
+            bypassPermissions = model.settings.summary.bypassPermissions
         }
         .onChange(of: summaryModel) { save() }
         .onChange(of: effort) { save() }
         .onChange(of: agentPrompt) { save() }
+        .onChange(of: inheritShellEnvironment) { save() }
+        .onChange(of: shellPath) { save() }
+        .onChange(of: bypassPermissions) { save() }
     }
 
     private func save() {
@@ -164,9 +189,13 @@ struct SummarySettingsView: View {
             ? provider.defaultModel : summaryModel
         guard updated.summary.provider != provider || updated.summary.model != resolved
             || updated.summary.reasoningEffort != effort || updated.summary.agentPrompt != agentPrompt
+            || updated.summary.inheritShellEnvironment != inheritShellEnvironment
+            || updated.summary.shellPath != shellPath
+            || updated.summary.bypassPermissions != bypassPermissions
         else { return }
         updated.summary = SummarySettings(
-            provider: provider, model: resolved, reasoningEffort: effort, agentPrompt: agentPrompt
+            provider: provider, model: resolved, reasoningEffort: effort, agentPrompt: agentPrompt,
+            inheritShellEnvironment: inheritShellEnvironment, shellPath: shellPath, bypassPermissions: bypassPermissions
         )
         Task { await model.saveSettings(updated) }
     }

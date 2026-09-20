@@ -18,9 +18,12 @@ public enum AgentRunner {
     public static let timeout: TimeInterval = 300
     static let maxResponseBytes = 1_000_000
 
-    public static func availability() -> [AgentAvailability] {
-        SummaryProvider.allCases.map {
-            AgentAvailability(provider: $0, installed: executable(for: $0) != nil, command: $0.command)
+    public static func availability(settings: SummarySettings = .init()) -> [AgentAvailability] {
+        let environment = (try? AgentEnvironment.resolve(
+            inheritShell: settings.inheritShellEnvironment, shellPath: settings.shellPath
+        )) ?? ProcessInfo.processInfo.environment
+        return SummaryProvider.allCases.map {
+            AgentAvailability(provider: $0, installed: executable(for: $0, environment: environment) != nil, command: $0.command)
         }
     }
 
@@ -65,9 +68,11 @@ public enum AgentRunner {
     /// Sends `instructions` + `prompt` to the agent and returns its JSON response text.
     public static func requestJSON(
         provider: SummaryProvider, model: String, effort: ReasoningEffort,
-        instructions: String, prompt: String, schema: [String: Any]
+        instructions: String, prompt: String, schema: [String: Any],
+        inheritShellEnvironment: Bool = true, shellPath: String = "", bypassPermissions: Bool = true
     ) throws -> String {
-        guard let executable = executable(for: provider) else {
+        let environment = try AgentEnvironment.resolve(inheritShell: inheritShellEnvironment, shellPath: shellPath)
+        guard let executable = executable(for: provider, environment: environment) else {
             throw SummaryError(
                 "\(provider.label) CLI was not found. Install \(provider.command), sign in, and restart "
                     + "Stillnote. For a custom installation, set \(provider.environmentOverride) to its "
@@ -83,6 +88,7 @@ public enum AgentRunner {
 
         // Transcript content is never a command-line argument or a shell program.
         let transcriptOutput = workspace.appendingPathComponent("stdout")
+        let diagnosticOutput = workspace.appendingPathComponent("stderr")
         let schemaData = try JSONSerialization.data(withJSONObject: schema, options: [.sortedKeys])
         let arguments: [String]
         let stdinText: String
@@ -108,8 +114,7 @@ public enum AgentRunner {
                 "--config", "model_reasoning_effort=\"\(effort.rawValue)\"",
                 "--output-schema", schemaURL.path,
                 "--output-last-message", response.path,
-                "-",
-            ]
+            ] + (bypassPermissions ? ["--dangerously-bypass-approvals-and-sandbox"] : []) + ["-"]
             stdinText = instructions + "\n\n" + prompt
             responseURL = response
         case .claudeCode:
@@ -124,9 +129,8 @@ public enum AgentRunner {
                 "--mcp-config", "{\"mcpServers\":{}}",
                 "--setting-sources", "user",
                 "--settings", "{\"disableAllHooks\":true}",
-                "--permission-mode", "dontAsk",
-                "--no-session-persistence",
-            ]
+            ] + (bypassPermissions ? ["--dangerously-skip-permissions"] : ["--permission-mode", "dontAsk"])
+                + ["--no-session-persistence"]
             stdinText = prompt
             responseURL = nil
         }
@@ -135,7 +139,8 @@ public enum AgentRunner {
         do {
             result = try PosixProcess.run(
                 executable: executable, arguments: arguments, workingDirectory: workspace.path,
-                input: Data(stdinText.utf8), stdoutURL: transcriptOutput, timeout: timeout
+                input: Data(stdinText.utf8), stdoutURL: transcriptOutput, timeout: timeout,
+                environment: environment, stderrURL: diagnosticOutput
             )
         } catch {
             throw SummaryError(
@@ -148,6 +153,11 @@ public enum AgentRunner {
             )
         }
         guard result.exitCode == 0 else {
+            if let variable = missingEnvironmentVariable(at: diagnosticOutput) {
+                throw SummaryError("\(provider.label) requires the environment variable \(variable). "
+                    + "In Settings → Summaries, enable shell environment inheritance and select the shell "
+                    + "whose startup files export it, then retry. Stillnote does not store the value.")
+            }
             throw SummaryError(
                 "\(provider.label) could not finish the summary (exit \(result.exitCode)). "
                     + "Check CLI sign-in, model access, usage limits, and that the CLI is up to date."
@@ -190,4 +200,19 @@ public enum AgentRunner {
         }
         return text
     }
+
+    private static func missingEnvironmentVariable(at url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > 65_536 ? size - 65_536 : 0)
+        let text = String(decoding: (try? handle.read(upToCount: 65_536)) ?? Data(), as: UTF8.self)
+        // Only extract a variable name, never arbitrary CLI output or secret values.
+        let pattern = #"Missing environment variable: `([A-Za-z_][A-Za-z0-9_]*)`"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[range])
+    }
+
 }

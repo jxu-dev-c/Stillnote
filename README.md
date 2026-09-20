@@ -239,6 +239,13 @@ or `AgentIntegrationTests/savesARealClaudeSummary`.
   **Check Again** in Settings. `Stillnote.app --diagnose` shows which piece is missing.
 - **No speech / wrong speakers**: use clearer audio, select the language, or supply the
   expected speaker count.
+- **API credentials when opened from Finder**: Settings → Summaries → CLI environment
+  defaults to inheriting exported variables from your account’s interactive login shell.
+  Set a custom shell path (for example `/bin/zsh` or `/bin/bash`) if needed, or disable
+  inheritance to use only the app environment. Export provider variables in that shell’s
+  startup files; Stillnote reloads them for each request. Credentials are not saved in
+  application settings or error messages. A missing-variable error names the variable
+  that needs exporting. Shell startup must finish without asking for input.
 - **Agent failure**: check that `codex` or `claude` is installed, up to date, signed in,
   and has access to the selected model, and that the app can find it on `PATH`.
 - **A recording will not play**: AVFoundation cannot open every container. WebM/Opus files

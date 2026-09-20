@@ -89,6 +89,7 @@ final class AppModel {
         guard isReady else { return }
         let modelDirectory = paths.modelDirectory
         let model = settings.transcription.model
+        let summarySettings = settings.summary
         let state = (installing, installProgress, installDetail, installError)
         let probe = await Task.detached(priority: .userInitiated) {
             (
@@ -96,7 +97,7 @@ final class AppModel {
                     modelDirectory: modelDirectory, model: model, installing: state.0,
                     progress: state.1, installDetail: state.2, error: state.3
                 ),
-                AgentRunner.availability(),
+                AgentRunner.availability(settings: summarySettings),
                 CaptureDeviceCatalog.capabilities()
             )
         }.value

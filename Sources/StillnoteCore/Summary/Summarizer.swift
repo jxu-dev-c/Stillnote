@@ -107,7 +107,9 @@ public enum Summarizer {
                 + encoded + videoContext
             let response = try AgentRunner.requestJSON(
                 provider: settings.provider, model: model, effort: settings.reasoningEffort,
-                instructions: settings.resolvedAgentPrompt, prompt: prompt, schema: schema
+                instructions: settings.resolvedAgentPrompt, prompt: prompt, schema: schema,
+                inheritShellEnvironment: settings.inheritShellEnvironment, shellPath: settings.shellPath,
+                bypassPermissions: settings.bypassPermissions
             )
             sections.append(try parse(response))
         }

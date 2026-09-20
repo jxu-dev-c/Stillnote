@@ -24,7 +24,7 @@ private struct FakeAgent {
 }
 
 @Suite(.serialized) struct AgentRunnerTests {
-    @Test func sendsCodexTheHeadlessFlagsAndReadsItsLastMessage() throws {
+    @Test(arguments: [true, false]) func sendsCodexTheHeadlessFlagsAndReadsItsLastMessage(bypass: Bool) throws {
         let agent = try FakeAgent(script: """
             #!/bin/bash
             printf '%s\\n' "$@" > "$FAKE_DIR/arguments.txt"
@@ -47,13 +47,13 @@ private struct FakeAgent {
 
         let response = try AgentRunner.requestJSON(
             provider: .codex, model: "gpt-5.6-luna", effort: .high,
-            instructions: "INSTRUCTIONS", prompt: "PROMPT", schema: Summarizer.schema
+            instructions: "INSTRUCTIONS", prompt: "PROMPT", schema: Summarizer.schema, bypassPermissions: bypass
         )
         #expect(response.contains("\"overview\":\"ok\""))
 
         let arguments = try String(contentsOf: agent.argumentsURL, encoding: .utf8)
             .split(separator: "\n").map(String.init)
-        #expect(arguments.count == 10)
+        #expect(arguments.count == (bypass ? 11 : 10))
         #expect(Array(arguments.prefix(5)) == [
             "exec", "--model", "gpt-5.6-luna", "--config", "model_reasoning_effort=\"high\"",
         ])
@@ -61,14 +61,15 @@ private struct FakeAgent {
         #expect(arguments[6].hasSuffix("/schema.json"))
         #expect(arguments[7] == "--output-last-message")
         #expect(arguments[8].hasSuffix("/response.json"))
-        #expect(arguments[9] == "-")
+        #expect(arguments.contains("--dangerously-bypass-approvals-and-sandbox") == bypass)
+        #expect(arguments.last == "-")
         // The transcript travels on stdin, never as an argument.
         let stdin = try String(contentsOf: agent.stdinURL, encoding: .utf8)
         #expect(stdin == "INSTRUCTIONS\n\nPROMPT")
         #expect(!arguments.contains { $0.contains("PROMPT") })
     }
 
-    @Test func readsClaudeCodeStructuredOutput() throws {
+    @Test(arguments: [true, false]) func readsClaudeCodeStructuredOutput(bypass: Bool) throws {
         let agent = try FakeAgent(script: """
             #!/bin/bash
             printf '%s\\n' "$@" > "$FAKE_DIR/arguments.txt"
@@ -85,12 +86,15 @@ private struct FakeAgent {
 
         let response = try AgentRunner.requestJSON(
             provider: .claudeCode, model: "claude-sonnet-5", effort: .medium,
-            instructions: "SYSTEM", prompt: "PROMPT", schema: Summarizer.schema
+            instructions: "SYSTEM", prompt: "PROMPT", schema: Summarizer.schema, bypassPermissions: bypass
         )
         #expect(try Summarizer.parse(response).overview == "from claude")
 
         let arguments = try String(contentsOf: agent.argumentsURL, encoding: .utf8)
             .split(separator: "\n").map(String.init)
+        #expect(arguments.contains("--dangerously-skip-permissions") == bypass)
+        #expect(arguments.contains("--permission-mode") == !bypass)
+        #expect(arguments.contains("dontAsk") == !bypass)
         #expect(arguments.contains("--print"))
         #expect(arguments.contains("--disable-slash-commands"))
         #expect(arguments.contains("--strict-mcp-config"))
@@ -134,13 +138,17 @@ private struct FakeAgent {
             for prompt in ["CUSTOM SUMMARY INSTRUCTIONS", " \n"] {
                 try Data().write(to: agent.argumentsURL)
                 try Data().write(to: agent.stdinURL)
-                let settings = SummarySettings(provider: provider, agentPrompt: prompt)
+                let bypass = prompt == "CUSTOM SUMMARY INSTRUCTIONS"
+                let settings = SummarySettings(provider: provider, agentPrompt: prompt, bypassPermissions: bypass)
                 _ = try Summarizer.summarize(meeting: meeting, settings: settings,
                                             allowRemote: true, videoPath: nil)
                 let captured = try String(contentsOf: provider == .codex ? agent.stdinURL : agent.argumentsURL,
                                           encoding: .utf8)
                 let count = captured.components(separatedBy: settings.resolvedAgentPrompt).count - 1
                 #expect(count == 2)
+                let args = try String(contentsOf: agent.argumentsURL, encoding: .utf8)
+                let flag = provider == .codex ? "--dangerously-bypass-approvals-and-sandbox" : "--dangerously-skip-permissions"
+                #expect(args.contains(flag) == bypass)
             }
         }
     }
@@ -165,6 +173,27 @@ private struct FakeAgent {
         } throws: { error in
             let message = (error as? SummaryError)?.message ?? ""
             return message.contains("exit 7") && !message.contains("secret internal log")
+        }
+    }
+
+    @Test func namesMissingEnvironmentVariableWithoutLeakingOutput() throws {
+        let agent = try FakeAgent(script: """
+            #!/bin/bash
+            cat > /dev/null
+            echo 'secret internal log' >&2
+            echo 'ERROR: Missing environment variable: `CUSTOM_PROVIDER_KEY`.' >&2
+            exit 1
+            """)
+        defer { agent.cleanup() }
+        setenv("STILLNOTE_CODEX_BIN", agent.executable.path, 1)
+        defer { unsetenv("STILLNOTE_CODEX_BIN") }
+        #expect {
+            try AgentRunner.requestJSON(provider: .codex, model: "m", effort: .low,
+                instructions: "i", prompt: "p", schema: Summarizer.schema, inheritShellEnvironment: false)
+        } throws: { error in
+            let message = error.localizedDescription
+            return message.contains("CUSTOM_PROVIDER_KEY") && message.contains("Settings")
+                && !message.contains("secret internal log")
         }
     }
 

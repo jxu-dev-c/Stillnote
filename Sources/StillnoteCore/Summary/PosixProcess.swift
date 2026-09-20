@@ -16,10 +16,11 @@ enum PosixProcess {
     }
 
     /// Runs `executable`, feeding `input` on stdin and writing stdout to `stdoutURL`.
-    /// stderr is discarded because agent CLIs echo the prompt into it.
+    /// Optional stderr capture is private to the caller; it can contain the prompt.
     static func run(
         executable: String, arguments: [String], workingDirectory: String, input: Data,
-        stdoutURL: URL, timeout: TimeInterval
+        stdoutURL: URL, timeout: TimeInterval,
+        environment suppliedEnvironment: [String: String]? = nil, stderrURL: URL? = nil
     ) throws -> Result {
         var actions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&actions)
@@ -34,7 +35,9 @@ enum PosixProcess {
         posix_spawn_file_actions_addopen(
             &actions, STDOUT_FILENO, stdoutURL.path, O_WRONLY | O_CREAT | O_TRUNC, 0o600
         )
-        posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0)
+        posix_spawn_file_actions_addopen(
+            &actions, STDERR_FILENO, stderrURL?.path ?? "/dev/null", O_WRONLY | O_CREAT | O_TRUNC, 0o600
+        )
         posix_spawn_file_actions_addchdir_np(&actions, workingDirectory)
 
         var attributes: posix_spawnattr_t?
@@ -43,7 +46,7 @@ enum PosixProcess {
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
 
         let argv: [String] = [executable] + arguments
-        var childEnvironment = ProcessInfo.processInfo.environment
+        var childEnvironment = suppliedEnvironment ?? ProcessInfo.processInfo.environment
         // npm entry points use /usr/bin/env node. Include the selected CLI's bin
         // directory so Finder launches use the runtime installed alongside it.
         let executableDirectory = URL(fileURLWithPath: executable).deletingLastPathComponent().path

@@ -15,6 +15,20 @@ func temporaryPaths() throws -> Paths {
 }
 
 @Suite struct StoreTests {
+    @Test func permissionBypassDefaultsOnAndPersistsOff() async throws {
+        let legacy = Data(#"{"provider":"codex","model":"custom","reasoning_effort":"low"}"#.utf8)
+        #expect(try JSONDecoder().decode(SummarySettings.self, from: legacy).bypassPermissions)
+        #expect(SummarySettings().bypassPermissions)
+        #expect(AppSettings.migrating(from: [:]).settings.summary.bypassPermissions)
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        let settings = AppSettings(summary: SummarySettings(bypassPermissions: false))
+        try await store.saveSettings(settings)
+        let reopened = try Store(paths: paths)
+        #expect(try await reopened.settings() == settings)
+    }
+
     @Test func summaryPromptDefaultsAndCodableCompatibility() throws {
         let legacy = Data(#"{"provider":"codex","model":"custom","reasoning_effort":"low"}"#.utf8)
         let decoded = try JSONDecoder().decode(SummarySettings.self, from: legacy)
