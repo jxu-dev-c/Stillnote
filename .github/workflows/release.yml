@@ -1,7 +1,6 @@
-name: Release candidate
+name: Release
 on:
   push:
-    branches: [master]
     tags: ['v*']
 permissions:
   contents: read
@@ -22,13 +21,8 @@ jobs:
         run: |
           set -euo pipefail
           version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
-          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
-            [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 1
-            [[ "$RELEASE_TAG" == "v$version" ]] || exit 1
-          else
-            [[ "$GITHUB_REF" == refs/heads/master ]] || exit 1
-            RELEASE_TAG="v${version}-dev.${GITHUB_RUN_NUMBER}"
-          fi
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo 'Expected a vMAJOR.MINOR.PATCH tag.' >&2; exit 1; }
+          [[ "$RELEASE_TAG" == "v$version" ]] || { echo 'Tag must match CFBundleShortVersionString.' >&2; exit 1; }
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "archive_version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
@@ -84,12 +78,11 @@ jobs:
         with:
           name: release-candidate
           path: candidate
-      - name: Publish development release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.build.outputs.tag }}
-          RELEASE_COMMIT: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -103,10 +96,10 @@ jobs:
               exit 0
             fi
           else
-            gh release create "$RELEASE_TAG" --target "$RELEASE_COMMIT" --draft --prerelease --latest=false \
-              --title "Stillnote $RELEASE_TAG — development candidate" --notes-file RELEASE-NOTES.md
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "$RELEASE_TAG" --notes-file RELEASE-NOTES.md
           fi
           [[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" == true ]] || exit 1
           gh release upload "$RELEASE_TAG" --clobber \
             "Stillnote-${RELEASE_TAG#v}-macos-arm64.zip" Install-Stillnote.sh SHA256SUMS LICENSE THIRD_PARTY_NOTICES.md RELEASE-NOTES.md
-          gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease=false

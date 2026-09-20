@@ -1,5 +1,10 @@
 # Release preparation
 
+User-facing installation notes live in [RELEASE-NOTES.md](RELEASE-NOTES.md).
+Packaging substitutes the app version for `@VERSION@` and includes those notes
+in the release assets and GitHub release body. Keep this maintainer checklist out
+of the published release notes.
+
 Candidate releases target the repository containing the workflow, currently
 `jxu-dev-c/Stillnote`: Apple silicon, macOS 15+. Standalone public distribution
 remains subject to the gates below; publishing source history is a separate operation.
@@ -36,12 +41,22 @@ The existing private repository and remote remain untouched.
 
 ## Automatic GitHub releases
 
-Every push to `master` runs checks on macOS 26, builds an ad-hoc-signed Apple silicon
-app, verifies the extracted ZIP and checksum, then publishes a visible GitHub
-prerelease. Each push gets a unique tag, `v<app-version>-dev.<workflow-run-number>`,
-pointing at the exact built commit. The app's build number is the workflow run number;
-the marketing version remains `CFBundleShortVersionString` from `Resources/Info.plist`.
-No version-bump commit is needed for each push.
+Releases use numeric `MAJOR.MINOR.PATCH` versions and `vMAJOR.MINOR.PATCH` Git tags,
+following [Semantic Versioning](https://semver.org/). Major version zero denotes
+initial development. Use patch increments for fixes and minor increments for new
+features; reserve 1.0.0 for a stable public compatibility contract. Do not reuse or
+move published tags, or add `dev` suffixes to release versions.
+
+To release, update `CFBundleShortVersionString` in `Resources/Info.plist`, commit
+that change with the intended release contents, then create and push a matching
+annotated tag (for example, `git tag -a v0.1.1 -m "Release v0.1.1"` followed by
+`git push origin v0.1.1`). Choose a new version for each release.
+
+Only tag pushes publish releases. Ordinary branch pushes still run CI checks.
+The release workflow validates that the tag is numeric and matches the app version,
+runs checks on macOS 26, builds an ad-hoc-signed Apple silicon app, and verifies the
+extracted ZIP and checksum. The app's build number is the workflow run number;
+the app version and archive filename use the numeric version from the tag.
 
 Find downloads under [GitHub Releases](https://github.com/jxu-dev-c/Stillnote/releases).
 Each release contains the app ZIP, `Install-Stillnote.sh`, `SHA256SUMS`, license, third-party notices, and
@@ -49,35 +64,12 @@ these release notes. Assets are uploaded to a draft first, then the complete rel
 is published automatically. Failed checks prevent publication. Reruns can finish an
 incomplete draft; already published releases and their assets stay unchanged.
 
-Strict `vX.Y.Z` tag pushes also publish development prereleases, after checking the
-tag matches the app's marketing version. Automatic tags created with the workflow's
-GitHub token do not trigger another release run. No Apple account, signing secret,
-or notarization is required. Only the publication job receives `contents: write`.
-These development builds are marked as prereleases, not stable/latest releases.
+Releases are published with the tag as their title (for example, `v0.1.1`), without
+the prerelease flag. GitHub determines the latest release automatically. Numeric
+versioning does not remove the runtime requirements or distribution gates above.
+No Apple account, signing secret, or notarization is required by this workflow.
+Only the publication job receives `contents: write`.
 
-Download the ZIP, `Install-Stillnote.sh`, and `SHA256SUMS` into the same directory, run
-`shasum -a 256 -c SHA256SUMS`, extract the ZIP, and move `Stillnote.app` to Applications.
-Follow Apple's Open Anyway instructions above when required. This is a development
-candidate: transcription requires the separate Python/MOSS runtime. From a checkout
-of the same release tag, run `./scripts/setup.sh` (requires the development tools in
-the README), then download the speech model in Settings. The ZIP does not install
-that runtime, bundle model weights, or provide automatic updates.
-
-### Personal installation when Open Anyway stalls
-
-These ad-hoc builds are intended for personal development. On some Macs the
-downloaded copy can stall before entering app code even after Open Anyway. After
-verifying the checksums above, quit Stillnote and run the downloaded installer:
-
-```sh
-bash ~/Downloads/Install-Stillnote.sh ~/Downloads/Stillnote-0.1.0-dev.2-macos-arm64.zip
-```
-
-Use the ZIP filename you downloaded. For older releases without the installer asset,
-use `./scripts/install-app.sh ZIP_PATH` from this checkout.
-The installer verifies the bundle signature,
-makes a local copy without imported download metadata, and installs it in
-`~/Applications`. It preserves the exact executable, saves the previous app as a
-backup, and leaves meetings, models, and system security settings untouched.
-This is a personal-install workaround; general distribution still requires
-Developer ID signing and Apple notarization.
+For end-user installation and runtime setup, see [RELEASE-NOTES.md](RELEASE-NOTES.md).
+Checksums remain part of automated release verification; users are not required to
+run checksum commands or rebuild the downloaded app.
