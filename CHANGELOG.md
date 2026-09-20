@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Speed up speech model downloads with resumable parallel chunks.
+- Document local self-signing when macOS stalls during launch.
+
 ## 0.2.0
 
 - Install the app and its speech runtime through the Stillnote Homebrew tap.

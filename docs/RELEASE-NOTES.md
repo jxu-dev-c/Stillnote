@@ -2,6 +2,11 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
+## What's new in 0.2.1
+
+- Faster speech model downloads with resumable parallel chunks.
+- Local self-signing instructions for Macs where app launch stalls.
+
 ## Installation
 
 After this release has been published to the [Homebrew tap](https://github.com/jxu-dev-c/homebrew-stillnote):
