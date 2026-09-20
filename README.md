@@ -1,6 +1,6 @@
 # Stillnote
 
-A private meeting notebook for your Mac. Record meetings or import recordings,
+An extremely lightweight, private meeting notebook for your Mac. Record meetings or import recordings,
 turn speech into speaker-labeled transcripts, and keep summaries and notes together.
 
 <img width="1268" height="895" alt="image" src="https://github.com/user-attachments/assets/1dc6f398-8ca3-46db-832e-b40ef7d594d3" />
