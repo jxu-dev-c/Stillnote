@@ -114,3 +114,7 @@ python3.13 scripts/prepare-homebrew.py
 
 The Homebrew lifecycle script is restricted to disposable CI runners because it installs
 and removes the app. Local unit and worker checks remain in `./scripts/check.sh`.
+
+Homebrew 6 trusts only explicitly named packages. The documented install command names
+both the runtime formula and app cask so the runtime dependency can be loaded without
+trusting the entire tap. Older Homebrew versions also accept this mixed install command.

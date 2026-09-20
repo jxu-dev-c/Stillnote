@@ -114,6 +114,7 @@ def main():
         }, indent=2) + "\n")
         for name in ["LICENSE", "THIRD_PARTY_NOTICES.md", "requirements-moss.lock"]:
             shutil.copy2(ROOT / name, payload / name)
+        shutil.copytree(ROOT / "packaging/licenses", payload / "licenses")
         shutil.copy2(ROOT / "scripts/runtime-smoke.py", payload / "runtime-smoke.py")
         env = work / "verify"
         run(sys.executable, "-m", "venv", env)

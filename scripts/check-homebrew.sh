@@ -30,7 +30,7 @@ PY
 support="$HOME/Library/Application Support/Stillnote"
 mkdir -p "$support"
 printf 'preserve\n' > "$support/homebrew-test-sentinel"
-brew install --cask "$tap/stillnote"
+brew install "$tap/stillnote-runtime" "$tap/stillnote"
 brew test "$tap/stillnote-runtime"
 (cd "$HOME" && /Applications/Stillnote.app/Contents/MacOS/Stillnote --diagnose) | tee "$candidate/diagnostics.txt"
 grep -F '/opt/homebrew/opt/stillnote-runtime/libexec/bin/python' "$candidate/diagnostics.txt"

@@ -7,7 +7,7 @@ Local meeting recording and transcription for **Apple silicon Macs running macOS
 After this release has been published to the [Homebrew tap](https://github.com/jxu-dev-c/homebrew-stillnote):
 
 ```sh
-brew install --cask jxu-dev-c/stillnote/stillnote
+brew install jxu-dev-c/stillnote/stillnote-runtime jxu-dev-c/stillnote/stillnote
 ```
 
 Homebrew installs the app, Python, and all speech dependencies. Open Stillnote from

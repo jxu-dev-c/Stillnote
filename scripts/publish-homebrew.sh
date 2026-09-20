@@ -29,7 +29,7 @@ cat > "$scratch/tap/README.md" <<'EOF'
 For Apple silicon Macs running macOS 15 or newer:
 
 ```sh
-brew install --cask jxu-dev-c/stillnote/stillnote
+brew install jxu-dev-c/stillnote/stillnote-runtime jxu-dev-c/stillnote/stillnote
 ```
 
 Open Stillnote, approve its first launch in macOS Privacy & Security if needed,
@@ -79,4 +79,4 @@ else
   cmp "$scratch/assets/SHA256SUMS" "$scratch/published/SHA256SUMS"
 fi
 git -C "$scratch/tap" push origin HEAD:main
-echo "Published: brew install --cask jxu-dev-c/stillnote/stillnote"
+echo "Published: brew install jxu-dev-c/stillnote/stillnote-runtime jxu-dev-c/stillnote/stillnote"

@@ -15,7 +15,7 @@ turn speech into speaker-labeled transcripts, and keep summaries and notes toget
 **Requirements:** Apple silicon Mac, macOS 15+, and [Homebrew](https://brew.sh).
 
 ```bash
-brew install --cask jxu-dev-c/stillnote/stillnote
+brew install jxu-dev-c/stillnote/stillnote-runtime jxu-dev-c/stillnote/stillnote
 ```
 
 Homebrew installs the app and its isolated speech runtime, including Python. No

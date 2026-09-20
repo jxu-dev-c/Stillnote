@@ -21,7 +21,7 @@ class StillnoteRuntime < Formula
     system libexec/"bin/python", "-m", "pip", "check"
     libexec.install "runtime-smoke.py", "manifest.json", "requirements-moss.lock"
     system libexec/"bin/python", libexec/"runtime-smoke.py"
-    pkgshare.install "THIRD_PARTY_NOTICES.md"
+    pkgshare.install "THIRD_PARTY_NOTICES.md", "licenses"
   end
 
   test do
