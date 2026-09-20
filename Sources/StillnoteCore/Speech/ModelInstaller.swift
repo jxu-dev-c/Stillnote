@@ -85,32 +85,40 @@ public actor ModelInstaller {
         let partial = destination.appendingPathExtension("partial")
         defer { try? FileManager.default.removeItem(at: partial) }
 
-        let delegate = DownloadDelegate(expectedBytes: size, progress: progress)
-        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
-        var request = URLRequest(url: url, timeoutInterval: 60)
-        request.setValue("Stillnote-local-model-setup/1", forHTTPHeaderField: "User-Agent")
-
-        let temporary: URL
-        do {
-            temporary = try await delegate.run(session: session, request: request)
-        } catch let error as SpeechError {
-            throw error
-        } catch {
-            throw SpeechError.message(
-                "Model setup failed. Check your internet connection and free disk space, then retry."
-            )
+        // Key chunks by the pinned digest so a manifest update never reuses old bytes.
+        let chunks = destination.appendingPathExtension("chunks-" + (sha256 ?? "unknown"))
+        var usedChunks = false
+        if size >= 32 * 1024 * 1024, sha256 != nil {
+            do {
+                try await ChunkedModelDownload().download(
+                    url: url, size: size, directory: chunks, output: partial, progress: progress
+                )
+                usedChunks = true
+            } catch ChunkedModelDownload.Failure.unsupportedRanges {
+                // Some proxies/hosts ignore Range. Retain compatibility with a full transfer.
+            }
         }
-        try? FileManager.default.removeItem(at: partial)
-        try FileManager.default.moveItem(at: temporary, to: partial)
+        if !usedChunks {
+            let delegate = DownloadDelegate(expectedBytes: size, progress: progress)
+            let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+            defer { session.finishTasksAndInvalidate() }
+            var request = URLRequest(url: url, timeoutInterval: 60)
+            request.setValue("Stillnote-local-model-setup/2", forHTTPHeaderField: "User-Agent")
+            let temporary = try await delegate.run(session: session, request: request)
+            try? FileManager.default.removeItem(at: partial)
+            try FileManager.default.moveItem(at: temporary, to: partial)
+        }
         guard ModelInstaller.hasExactSize(partial, size) else {
             throw SpeechError.message("Model download failed verification. Please retry setup.")
         }
         if let sha256, try digest(of: partial) != sha256 {
+            // Discard corrupt cached chunks so retry can repair the download.
+            try? FileManager.default.removeItem(at: chunks)
             throw SpeechError.message("Model download failed verification. Please retry setup.")
         }
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: partial, to: destination)
+        try? FileManager.default.removeItem(at: chunks)
         progress(1)
     }
 
@@ -131,6 +139,7 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
     private let progress: @Sendable (Double) -> Void
     private var continuation: CheckedContinuation<URL, Error>?
     private var moved: URL?
+    private var lastProgress = Date.distantPast
 
     init(expectedBytes: Int, progress: @escaping @Sendable (Double) -> Void) {
         self.expectedBytes = expectedBytes
@@ -156,7 +165,8 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
         _ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
         totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64
     ) {
-        guard expectedBytes > 0 else { return }
+        guard expectedBytes > 0, Date().timeIntervalSince(lastProgress) >= 0.25 else { return }
+        lastProgress = Date()
         progress(min(1, Double(totalBytesWritten) / Double(expectedBytes)))
     }
 
