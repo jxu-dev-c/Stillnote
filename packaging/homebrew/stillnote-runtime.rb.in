@@ -6,8 +6,8 @@ class StillnoteRuntime < Formula
   sha256 "@RUNTIME_SHA256@"
   license "MIT"
 
-  depends_on :macos
   depends_on arch: :arm64
+  depends_on :macos
   depends_on "python@3.13"
 
   on_macos do
@@ -15,7 +15,7 @@ class StillnoteRuntime < Formula
   end
 
   def install
-    system Formula["python@3.13"].opt_bin/"python3.13", "-m", "venv", libexec
+    system formula_opt_bin("python@3.13")/"python3.13", "-m", "venv", libexec
     system libexec/"bin/python", "-m", "pip", "install",
            "--no-index", "--no-deps", "--require-hashes", "-r", "requirements.txt"
     system libexec/"bin/python", "-m", "pip", "check"
