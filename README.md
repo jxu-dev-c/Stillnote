@@ -104,11 +104,6 @@ To repair speech dependencies, run `brew reinstall jxu-dev-c/stillnote/stillnote
 If you prefer a downloaded app ZIP, install only the runtime with
 `brew install jxu-dev-c/stillnote/stillnote-runtime`.
 
-When migrating from a manual app installation, quit Stillnote and move the old app
-out of `/Applications` or `~/Applications` before installing with Homebrew. Keep
-`~/Library/Application Support/Stillnote`: it contains your meetings and models.
-The older runtime there can remain; the app prefers the Homebrew runtime.
-
 Uninstall with `brew uninstall --cask jxu-dev-c/stillnote/stillnote` and, optionally,
 `brew uninstall jxu-dev-c/stillnote/stillnote-runtime`. These preserve your meetings,
 settings, and models. Avoid `--zap` or deleting Application Support to keep your data.
