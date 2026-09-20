@@ -17,14 +17,14 @@ Transcription and speaker detection are powered by [OpenMOSS's MOSS-Transcribe-D
 
 ## Installation
 
-**Requirements:** Apple silicon Mac, macOS 15+, and [Homebrew](https://brew.sh).
+**Requirements:** Apple silicon Mac and macOS 15+. Install with [Homebrew](https://brew.sh) or the app ZIP.
 
 ```bash
-brew install jxu-dev-c/stillnote/stillnote-runtime jxu-dev-c/stillnote/stillnote
+brew install jxu-dev-c/stillnote/stillnote
 ```
 
-Homebrew installs the app and its isolated speech runtime, including Python. No
-Stillnote source checkout or manual Python setup is needed. This command requires
+The app bundles its native Swift speech engine. Python and a separate runtime
+installation are not needed. This command requires
 the first Homebrew-enabled release to have been published to the
 [Stillnote tap](https://github.com/jxu-dev-c/homebrew-stillnote).
 
@@ -32,7 +32,7 @@ Open Stillnote from Applications. The app is currently ad-hoc signed; if macOS b
 its first launch, use [Open Anyway in Privacy & Security](https://support.apple.com/en-gb/102445).
 If that fails or the icon keeps bouncing, follow the self-signing steps below.
 
-In **Settings**, download the speech model once (about 1.8 GB). Grant microphone
+In **Settings**, download the speech model once (about 1.3 GB). Grant microphone
 and screen/system audio permissions when prompted. For AI summaries, install and
 sign in to the Codex or Claude Code CLI, then select it in Settings.
 
@@ -97,13 +97,12 @@ Quit Stillnote before updating:
 
 ```bash
 brew update
-brew upgrade jxu-dev-c/stillnote/stillnote-runtime
 brew upgrade --cask jxu-dev-c/stillnote/stillnote
 ```
 
-To repair speech dependencies, run `brew reinstall jxu-dev-c/stillnote/stillnote-runtime`.
-If you prefer a downloaded app ZIP, install only the runtime with
-`brew install jxu-dev-c/stillnote/stillnote-runtime`.
+To repair the bundled speech engine, run `brew reinstall --cask jxu-dev-c/stillnote/stillnote`
+or replace the app using a fresh ZIP. Existing installations need a one-time download
+of the converted 8-bit model in Settings. Existing meetings and old model files are preserved.
 
 Uninstall with `brew uninstall --cask jxu-dev-c/stillnote/stillnote` and, optionally,
 `brew uninstall jxu-dev-c/stillnote/stillnote-runtime`. These preserve your meetings,
@@ -125,6 +124,4 @@ for your macOS user and applies to all transcriptions and retranscriptions queue
 after saving. Existing transcripts are unchanged. To disable hints, clear the list
 and save. Blank lines and duplicate entries are removed.
 
-Hot words require the updated speech runtime. If prompted, run `brew update` and
-`brew reinstall jxu-dev-c/stillnote/stillnote-runtime`, or rerun `./scripts/setup.sh`
-for a source installation.
+Hot words are supported by the bundled native speech engine.

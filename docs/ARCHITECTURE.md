@@ -1,9 +1,7 @@
 # Stillnote implementation contract
 
-A native macOS 15+ app for Apple silicon: SwiftUI interface, SwiftPM package, no external
-Swift dependencies. Capture, storage, decoding, summaries, and exports are Swift and run
-in process. MOSS 0.9B inference runs in a short-lived Python worker because the
-`mlx-audio` runtime that loads this checkpoint has no Swift equivalent. Nothing listens on
+A native macOS 15+ app for Apple silicon: SwiftUI interface, SwiftPM package with a pinned native MLX dependency. Capture, storage, decoding, summaries, and exports are Swift and run
+in process. MOSS 0.9B inference runs in a short-lived bundled Swift worker using the vendored MOSS package. Nothing listens on
 a network port. No recording or transcription leaves the computer. Summaries can send
 transcript text to a provider only after per-request consent.
 
@@ -13,7 +11,7 @@ transcript text to a provider only after per-request consent.
 Stillnote.app
 ├── StillnoteCore   library target, no SwiftUI, fully unit-tested
 └── Stillnote       executable target: SwiftUI views + AppModel
-sidecar/moss_worker  the only Python, installed by Homebrew into stillnote-runtime/libexec; source setup uses ~/Library/Application Support/Stillnote/venv-moss
+Sources/StillnoteSpeechWorker  bundled native MLX executable; models download separately
 ```
 
 | Module | Responsibility |
@@ -84,11 +82,9 @@ Capture permissions are requested only when a recording is started.
 ## Speech
 
 The app decodes the recording to 16 kHz mono float32 with external media references
-forbidden, then runs `venv-moss/bin/python -m moss_worker <pcm> <model-dir> <language>
-<speaker-count>` with Hugging Face offline flags set. The runtime lives under Application
-Support, never in a source checkout: nothing on the app's launch path may read a folder
-macOS guards, because the prompt that would unblock it cannot appear until the app has a
-window. The worker emits
+forbidden, then runs the bundled `StillnoteSpeechWorker <pcm> <model-dir> <language>
+<speaker-count> [<hot-words-json>]`. The model loader accepts a verified local directory;
+no inference downloads or external executable dependencies are used. The worker emits
 `STILLNOTE_EVENT {json}` lines for progress, the raw transcript, or an actionable error;
 anything else on the pipe is ignored and never becomes meeting content. Cancellation
 terminates the process and escalates to `SIGKILL` after two seconds, then restores the
@@ -155,5 +151,7 @@ The optional argument is a JSON string array passed directly through `Process`
 (no shell); empty lists use the original four-argument protocol. The worker validates
 and appends nonempty lists to the existing diarized transcription prompt using
 MOSS's `热词提示：` format. No transcript replacement or meeting-specific list is used.
-Runtime packaging includes the worker from `sidecar`; app and runtime releases must
-ship together. Older runtimes rejecting the extra argument produce an update message.
+The app bundles and signs the worker with `mlx.metallib` beside it. The vendored package
+revision and patches are recorded in `Vendor/MossTranscribeDiarize/UPSTREAM.md`.
+The converted 8-bit checkpoint uses `speech/moss-0.9b-mlx-8bit`; the old model directory
+is retained but never mistaken for a compatible native checkpoint.

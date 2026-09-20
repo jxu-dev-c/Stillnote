@@ -32,26 +32,17 @@ jobs:
           [[ "$(uname -m)" == arm64 ]] || exit 1
           xcode_version=$(xcodebuild -version | awk '/^Xcode / {print $2}')
           [[ "${xcode_version%%.*}" -ge 26 ]] || exit 1
-      - name: Prepare worker tests
-        run: |
-          python3 -m venv build/test-python
-          build/test-python/bin/python -m pip install pytest ruff numpy packaging
+      - name: Install Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
       - name: Run checks
-        env:
-          STILLNOTE_TEST_PYTHON: ${{ github.workspace }}/build/test-python/bin/python
         run: ./scripts/check.sh
       - name: Package development candidate
         env:
           STILLNOTE_SIGNING_IDENTITY: '-'
           STILLNOTE_RELEASE_VERSION: ${{ steps.release.outputs.archive_version }}
         run: ./scripts/package-app.sh
-      - name: Package offline speech runtime and Homebrew definitions
-        run: |
-          brew install python@3.13
-          "$(brew --prefix python@3.13)/bin/python3.13" -m venv build/package-python
-          build/package-python/bin/python -m pip install packaging
-          build/package-python/bin/python scripts/package-runtime.py
-          build/package-python/bin/python scripts/prepare-homebrew.py
+      - name: Prepare Homebrew cask
+        run: python3 scripts/prepare-homebrew.py
       - name: Verify archive
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -63,7 +54,8 @@ jobs:
           trap 'rm -rf "$extracted"' EXIT
           ditto -x -k "build/candidate/Stillnote-${RELEASE_TAG#v}-macos-arm64.zip" "$extracted"
           app="$extracted/Stillnote.app"
-          codesign --verify --strict "$app"
+          codesign --verify --deep --strict "$app"
+          "$app/Contents/MacOS/StillnoteSpeechWorker" --self-test
           [[ "$(lipo -archs "$app/Contents/MacOS/Stillnote")" == arm64 ]] || exit 1
           [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")" == "$APP_VERSION" ]] || exit 1
           [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$app/Contents/Info.plist")" == "$GITHUB_RUN_NUMBER" ]] || exit 1
@@ -127,6 +119,6 @@ jobs:
           [[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" == true ]] || exit 1
           gh release upload "$RELEASE_TAG" --clobber \
             "Stillnote-${RELEASE_TAG#v}-macos-arm64.zip" \
-            "Stillnote-runtime-${RELEASE_TAG#v}-macos-arm64.tar.gz" Stillnote-homebrew.tar.gz \
+            Stillnote-homebrew.tar.gz \
             Install-Stillnote.sh SHA256SUMS LICENSE THIRD_PARTY_NOTICES.md RELEASE-NOTES.md
           gh release edit "$RELEASE_TAG" --draft=false --prerelease=false

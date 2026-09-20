@@ -9,7 +9,7 @@ candidate="$PWD/build/candidate"
 tap='jxu-dev-c/stillnote'
 brew tap-new --no-git "$tap"
 tap_dir="$(brew --repository)/Library/Taps/jxu-dev-c/homebrew-stillnote"
-cp -R "$candidate/homebrew/Casks" "$candidate/homebrew/Formula" "$tap_dir/"
+cp -R "$candidate/homebrew/Casks" "$tap_dir/"
 # Exercise the exact generated definitions against the candidate assets before
 # publication. Only transport changes; SHA256 and version checks remain intact.
 python3 - "$tap_dir" "$candidate" <<'PY'
@@ -30,16 +30,13 @@ PY
 support="$HOME/Library/Application Support/Stillnote"
 mkdir -p "$support"
 printf 'preserve\n' > "$support/homebrew-test-sentinel"
-brew install "$tap/stillnote-runtime" "$tap/stillnote"
-brew test "$tap/stillnote-runtime"
+brew install "$tap/stillnote"
 (cd "$HOME" && /Applications/Stillnote.app/Contents/MacOS/Stillnote --diagnose) | tee "$candidate/diagnostics.txt"
-grep -F '/opt/homebrew/opt/stillnote-runtime/libexec/bin/python' "$candidate/diagnostics.txt"
+grep -F '/Applications/Stillnote.app/Contents/MacOS/StillnoteSpeechWorker' "$candidate/diagnostics.txt"
 grep -F 'MOSS runtime:    ready' "$candidate/diagnostics.txt"
-for definition in "$tap_dir"/{Casks,Formula}/*.rb.next; do mv "$definition" "${definition%.next}"; done
-brew upgrade "$tap/stillnote-runtime"
+for definition in "$tap_dir"/Casks/*.rb.next; do mv "$definition" "${definition%.next}"; done
 brew upgrade --cask "$tap/stillnote"
-brew reinstall "$tap/stillnote-runtime"
-brew test "$tap/stillnote-runtime"
+brew reinstall --cask "$tap/stillnote"
+/Applications/Stillnote.app/Contents/MacOS/StillnoteSpeechWorker --self-test
 brew uninstall --cask "$tap/stillnote"
-brew uninstall "$tap/stillnote-runtime"
 test "$(cat "$support/homebrew-test-sentinel")" = preserve

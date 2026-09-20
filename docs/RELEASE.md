@@ -11,9 +11,8 @@ remains subject to the gates below; publishing source history is a separate oper
 
 ## Required gates
 
-- [ ] In-app runtime setup with progress, cancellation, repair, and rollback.
-- [ ] Pinned relocatable Python runtime and dependency wheels, with verified hashes.
-- [ ] Runtime manifest embedded in app and candidate runtime archived alongside it.
+- [ ] Native worker, Metal library, and dependency licenses bundled and signed.
+- [ ] Relocated app self-test and offline real-model inference pass.
 - [ ] Dependency/model license audit and redistribution notices complete.
 - [ ] Clean-account installation without developer tools on macOS 15 and 26.
 - [ ] Gatekeeper opening, setup, offline transcription, playback, export, and relaunch.
@@ -24,8 +23,8 @@ remains subject to the gates below; publishing source history is a separate oper
 ## Candidate app
 
 Run `./scripts/package-app.sh` to build an ad-hoc-signed development candidate ZIP
-and checksum. The app ZIP does not contain the speech runtime. Homebrew installs the separate
-runtime formula automatically; in-app runtime management remains future work.
+and checksum. The app ZIP includes the native speech worker and Metal kernels.
+Only the verified model weights are downloaded separately.
 
 No notarization or auto-update is provided. Users must follow Apple's Open Anyway flow:
 https://support.apple.com/en-gb/102445 . Updates may reset capture permission grants.
@@ -79,17 +78,14 @@ run checksum commands or rebuild the downloaded app.
 The source repository is private. Public binary downloads live in
 `jxu-dev-c/homebrew-stillnote` releases; never point public formula URLs at private assets.
 
-The tag workflow builds the app plus `Stillnote-runtime-VERSION-macos-arm64.tar.gz`.
-Runtime packaging downloads only binary wheels for Python 3.13/macOS 15/arm64,
-builds the pinned MLX Audio commit and worker, checks wheel tags and native deployment
-targets, and installs the complete wheel inventory into a fresh environment offline.
-It rejects missing dependencies, hash mismatches, and failed native imports/computation.
-The archive retains upstream licenses inside the wheels; Python is supplied by Homebrew.
+The tag workflow builds the app and a `Stillnote-homebrew.tar.gz` containing the app cask.
+Full Xcode and its Metal toolchain build the worker and `mlx.metallib`; no Python runtime
+archive is produced. The archive carries upstream licenses and `Package.resolved` pins
+the Swift dependency graph.
 
-The generated `Stillnote-homebrew.tar.gz` holds a matched cask and runtime formula.
-Before publication, macOS 15 and 26 jobs install these definitions from candidate assets,
-check app runtime discovery, reinstall the runtime, and uninstall without deleting data.
-Real GPU transcription and Finder first-launch approval still require manual acceptance.
+Before publication, macOS 15 and 26 jobs install the candidate cask, check native worker
+computation, upgrade/reinstall, and uninstall without deleting data. Real GPU transcription
+and Finder first-launch approval still require acceptance testing.
 
 Once the source release passes CI and is published, a maintainer with access to both
 repositories runs:
@@ -99,22 +95,20 @@ repositories runs:
 ```
 
 This verifies release checksums, publishes only the named distributable assets to the
-public tap, and then commits both definitions together. It uses the maintainer's existing
+public tap, and then commits the cask and installation notes. It uses the maintainer's existing
 `gh` credentials; no cross-repository token is stored in Actions. Existing published
 assets are immutable, and reruns must match their checksums. Quit Stillnote before testing
-runtime upgrades. A failed candidate must not advance the public tap.
+app upgrades. A failed candidate must not advance the public tap.
 
-To package locally, use Python 3.13 with pip and packaging installed:
+To package locally, use full Xcode with the Metal toolchain; cask generation uses Python 3:
 
 ```sh
 ./scripts/package-app.sh
-python3.13 scripts/package-runtime.py
-python3.13 scripts/prepare-homebrew.py
+python3 scripts/prepare-homebrew.py
 ```
 
 The Homebrew lifecycle script is restricted to disposable CI runners because it installs
 and removes the app. Local unit and worker checks remain in `./scripts/check.sh`.
 
-Homebrew 6 trusts only explicitly named packages. The documented install command names
-both the runtime formula and app cask so the runtime dependency can be loaded without
-trusting the entire tap. Older Homebrew versions also accept this mixed install command.
+The app cask has no dependency on the legacy `stillnote-runtime` formula. Existing
+legacy installations are left alone so older app versions can still use them.

@@ -14,14 +14,14 @@ gh release download "$tag" --repo "$source_repo" --dir "$scratch/assets"
 cd "$scratch/assets"
 shasum -a 256 -c SHA256SUMS
 # Explicit asset list keeps unrelated private release attachments out of the tap.
-assets=("Stillnote-${tag#v}-macos-arm64.zip" "Stillnote-runtime-${tag#v}-macos-arm64.tar.gz"
+assets=("Stillnote-${tag#v}-macos-arm64.zip"
         Stillnote-homebrew.tar.gz Install-Stillnote.sh SHA256SUMS LICENSE THIRD_PARTY_NOTICES.md RELEASE-NOTES.md)
 for asset in "${assets[@]}"; do test -s "$asset"; done
 tar -xzf Stillnote-homebrew.tar.gz
 gh repo clone "$tap_repo" "$scratch/tap"
 mkdir -p "$scratch/tap/Casks" "$scratch/tap/Formula"
 cp homebrew/Casks/stillnote.rb "$scratch/tap/Casks/"
-cp homebrew/Formula/stillnote-runtime.rb "$scratch/tap/Formula/"
+# Retain any legacy runtime formula for older app installations; the new cask does not depend on it.
 cp LICENSE "$scratch/tap/LICENSE"
 cat > "$scratch/tap/README.md" <<'EOF'
 # Stillnote Homebrew tap
@@ -29,7 +29,7 @@ cat > "$scratch/tap/README.md" <<'EOF'
 For Apple silicon Macs running macOS 15 or newer:
 
 ```sh
-brew install jxu-dev-c/stillnote/stillnote-runtime jxu-dev-c/stillnote/stillnote
+brew install jxu-dev-c/stillnote/stillnote
 ```
 
 Open Stillnote, approve its first launch in macOS Privacy & Security if needed,
@@ -95,11 +95,10 @@ Quit Stillnote before upgrading:
 
 ```sh
 brew update
-brew upgrade jxu-dev-c/stillnote/stillnote-runtime
 brew upgrade --cask jxu-dev-c/stillnote/stillnote
 ```
 
-Repair speech dependencies with `brew reinstall jxu-dev-c/stillnote/stillnote-runtime`.
+Repair the bundled speech engine with `brew reinstall --cask jxu-dev-c/stillnote/stillnote`.
 Uninstall with `brew uninstall --cask jxu-dev-c/stillnote/stillnote`; optionally remove
 `stillnote-runtime` too. Meetings and downloaded models remain in Application Support.
 
@@ -135,4 +134,4 @@ else
   cmp "$scratch/assets/SHA256SUMS" "$scratch/published/SHA256SUMS"
 fi
 git -C "$scratch/tap" push origin HEAD:main
-echo "Published: brew install jxu-dev-c/stillnote/stillnote-runtime jxu-dev-c/stillnote/stillnote"
+echo "Published: brew install jxu-dev-c/stillnote/stillnote"

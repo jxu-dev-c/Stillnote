@@ -14,7 +14,7 @@ public struct SpeechStatus: Sendable, Equatable {
     public var detail: String
 
     public var ready: Bool { modelInstalled && runtimeReady }
-    public let engine = "MLX · Apple GPU · 8-bit decoder"
+    public let engine = "Native Swift · MLX · Apple GPU · 8-bit decoder"
 
     /// A placeholder that touches no files, for use before the app has resolved its
     /// paths. Probing the filesystem during launch can deadlock against a permission
@@ -31,14 +31,14 @@ public struct SpeechStatus: Sendable, Equatable {
     ) -> SpeechStatus {
         let spec = try? SpeechCatalog.spec(model)
         let installed = ModelInstaller.isInstalled(modelDirectory: modelDirectory, model: model)
-        let runtime = SidecarLocator.runtimeReady()
+        let runtime = SpeechWorkerLocator.runtimeReady()
         var missing: [String] = []
         if !runtime { missing.append("MOSS inference runtime") }
 
         var detail = "\(spec?.name ?? model) is ready for local transcription and speaker detection. "
-            + "MLX · Apple GPU · 8-bit decoder."
+            + "Native Swift · MLX · Apple GPU · 8-bit decoder."
         if !missing.isEmpty {
-            detail = "Install the speech runtime: brew install jxu-dev-c/stillnote/stillnote-runtime. To repair it, use brew reinstall jxu-dev-c/stillnote/stillnote-runtime."
+            detail = SpeechWorkerLocator.repairMessage
         } else if !installed {
             detail = "Download the speech model once in Settings to enable offline transcription."
         }

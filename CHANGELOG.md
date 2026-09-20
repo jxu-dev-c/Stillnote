@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Bundle a native Swift MLX speech engine; remove the Python and Homebrew runtime requirement.
+- Download a pinned 8-bit checkpoint once (about 1.3 GB), preserving older model files and meetings.
+- Preserve diarization, hot words, progress, bounded GPU memory, and process-based cancellation.
+
 ## 0.3.0
 
 - Save one hot-word list per user and apply it to transcription and retranscription.

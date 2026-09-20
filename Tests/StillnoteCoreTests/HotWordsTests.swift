@@ -39,24 +39,18 @@ import Testing
         let pcm = URL(fileURLWithPath: "/audio file.f32")
         let empty = try service.workerArguments(pcmURL: pcm, model: SpeechCatalog.defaultModel,
                                                 language: "", speakerCount: nil, hotWords: [])
-        #expect(empty.count == 6)
+        #expect(empty.count == 4)
         #expect(Array(empty.suffix(2)) == ["auto", "0"])
         var settings = TranscriptionSettings(hotWords: ["示例", "New York", "a, b", "say \"hi\"", "$HOME"])
         let queuedWords = settings.hotWords
         settings.hotWords = ["Changed later"]
         let arguments = try service.workerArguments(pcmURL: pcm, model: SpeechCatalog.defaultModel,
                                                     language: "en", speakerCount: 2, hotWords: queuedWords)
-        #expect(arguments.count == 7)
-        #expect(arguments[2] == pcm.path)
-        #expect(try JSONDecoder().decode([String].self, from: Data(arguments[6].utf8)) == queuedWords)
-        #expect(arguments[4] == "en")
-        #expect(arguments[5] == "2")
+        #expect(arguments.count == 5)
+        #expect(arguments[0] == pcm.path)
+        #expect(try JSONDecoder().decode([String].self, from: Data(arguments[4].utf8)) == queuedWords)
+        #expect(arguments[2] == "en")
+        #expect(arguments[3] == "2")
     }
 
-    @Test func oldRuntimeErrorIsActionableOnlyWithHotWords() {
-        let oldError = "The speech worker was started with unexpected arguments."
-        #expect(TranscriptionService.workerError(oldError, hotWords: ["API"]).contains("brew reinstall"))
-        #expect(TranscriptionService.workerError(oldError, hotWords: []) == oldError)
-        #expect(TranscriptionService.workerError("Other error", hotWords: ["API"]) == "Other error")
-    }
 }
