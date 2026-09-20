@@ -10,8 +10,8 @@ turn speech into speaker-labeled transcripts, and keep summaries and notes toget
 
 ## Why Stillnote?
 
-- **Local transcription.** Transcription and Speaker Detection entirely stay on your Mac, with offline transcription after the initial model download.
-- **AI Agent summaries.** Generate key points, decisions, and action items through **Codex or Claude Code CLI**. 
+- **Local transcription.** Transcription and Speaker Detection entirely stay on your Mac.
+- **AI Agent summaries.** Use **Codex or Claude Code CLI** for summaries, without needing extract API configurations. 
 
 ## Installation
 
@@ -37,8 +37,7 @@ sign in to the Codex or Claude Code CLI, then select it in Settings.
 ## If the icon keeps bouncing or Open Anyway does not work
 
 The current release is already ad-hoc signed, but it is **not Apple-notarized**.
-On some Macs, macOS can hold it before startup even after **Open Anyway**. Reinstalling
-the speech runtime does not fix this launch problem.
+On some Macs, macOS can hold it before startup even after **Open Anyway**. 
 
 You can make a fresh copy and self-sign it locally. This does **not** require a paid
 Apple Developer membership. Only do this with Stillnote downloaded from this project's
