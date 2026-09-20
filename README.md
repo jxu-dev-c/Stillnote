@@ -11,7 +11,7 @@ turn speech into speaker-labeled transcripts, and keep summaries and notes toget
 ## Why Stillnote?
 
 - **Local transcription.** Transcription and Speaker Detection entirely stay on your Mac.
-- **AI Agent summaries.** Use **Codex or Claude Code CLI** for summaries, without needing extract API configurations. 
+- **AI Agent summaries.** Use **Codex or Claude Code CLI** for summaries, without needing extra API configurations. 
 
 ## Installation
 
