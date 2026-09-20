@@ -4,14 +4,18 @@ import Foundation
 /// of Stillnote that is not Swift, and it lives in its own virtual environment with the
 /// `moss_worker` package installed into it.
 ///
-/// The environment lives under Application Support rather than in a source checkout:
+/// The environment lives in Homebrew or Application Support rather than a source checkout:
 /// a bundled app reading the Documents folder needs permission that macOS cannot grant
 /// while the app is still launching, and the read blocks until it can.
 public enum SidecarLocator {
     public static func pythonURL(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL? {
-        candidates(environment: environment).first {
+        firstExecutable(in: candidates(environment: environment))
+    }
+
+    static func firstExecutable(in candidates: [URL]) -> URL? {
+        candidates.first {
             FileManager.default.isExecutableFile(atPath: $0.path)
         }
     }
@@ -21,6 +25,7 @@ public enum SidecarLocator {
         if let override = environment["STILLNOTE_MOSS_PYTHON"], !override.isEmpty {
             candidates.append(URL(fileURLWithPath: override))
         }
+        candidates.append(URL(fileURLWithPath: "/opt/homebrew/opt/stillnote-runtime/libexec/bin/python"))
         if let support = try? FileManager.default.url(
             for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false
         ) {

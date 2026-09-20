@@ -13,7 +13,7 @@ transcript text to a provider only after per-request consent.
 Stillnote.app
 ├── StillnoteCore   library target, no SwiftUI, fully unit-tested
 └── Stillnote       executable target: SwiftUI views + AppModel
-sidecar/moss_worker  the only Python, installed into ~/Library/Application Support/Stillnote/venv-moss
+sidecar/moss_worker  the only Python, installed by Homebrew into stillnote-runtime/libexec; source setup uses ~/Library/Application Support/Stillnote/venv-moss
 ```
 
 | Module | Responsibility |

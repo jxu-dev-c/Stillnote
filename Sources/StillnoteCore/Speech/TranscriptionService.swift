@@ -24,7 +24,7 @@ public struct TranscriptionService: Sendable {
             throw SpeechError.message("The local audio file could not be found.")
         }
         guard let python = SidecarLocator.pythonURL() else {
-            throw SpeechError.message("Install the MOSS speech runtime with the project setup script.")
+            throw SpeechError.message("Install the speech runtime: brew install jxu-dev-c/stillnote/stillnote-runtime. To repair it, use brew reinstall jxu-dev-c/stillnote/stillnote-runtime.")
         }
 
         let scratch = FileManager.default.temporaryDirectory
