@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Save one hot-word list per user and apply it to transcription and retranscription.
+- Show examples for separate words and phrases with spaces in transcription settings.
+- Update the packaged speech worker to accept hot-word hints, with upgrade guidance for older runtimes.
+
 ## 0.2.1
 
 - Speed up speech model downloads with resumable parallel chunks.

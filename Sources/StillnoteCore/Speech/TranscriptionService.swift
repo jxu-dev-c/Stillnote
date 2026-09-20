@@ -11,7 +11,7 @@ public struct TranscriptionService: Sendable {
     }
 
     public func transcribe(
-        audioURL: URL, model: String, language: String, speakerCount: Int?,
+        audioURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String] = [],
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> TranscriptionResult {
         _ = try SpeechCatalog.spec(model)
@@ -44,26 +44,44 @@ public struct TranscriptionService: Sendable {
 
         let text = try await runWorker(
             python: python, pcmURL: scratch, model: model, language: language,
-            speakerCount: speakerCount, progress: progress
+            speakerCount: speakerCount, hotWords: hotWords, progress: progress
         )
         let result = try MossParser.parse(text, duration: decoded.duration, language: language)
         progress(100, "Local transcription complete")
         return result
     }
 
+    func workerArguments(
+        pcmURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String]
+    ) throws -> [String] {
+        var arguments = [
+            "-m", "moss_worker", pcmURL.path,
+            SpeechCatalog.directory(modelDirectory: modelDirectory, model: model).path,
+            language.isEmpty ? "auto" : language, String(speakerCount ?? 0),
+        ]
+        let words = TranscriptionSettings.normalizeHotWords(hotWords)
+        if !words.isEmpty {
+            arguments.append(String(decoding: try JSONEncoder().encode(words), as: UTF8.self))
+        }
+        return arguments
+    }
+
+    static func workerError(_ message: String, hotWords: [String]) -> String {
+        if !hotWords.isEmpty && message == "The speech worker was started with unexpected arguments." {
+            return "Your speech runtime does not support hot words yet. Update it with brew update, then brew reinstall jxu-dev-c/stillnote/stillnote-runtime. For a source installation, run ./scripts/setup.sh again. Your recording is saved."
+        }
+        return message
+    }
+
     private func runWorker(
-        python: URL, pcmURL: URL, model: String, language: String, speakerCount: Int?,
+        python: URL, pcmURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String],
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> String {
         let process = Process()
         process.executableURL = python
-        process.arguments = [
-            "-m", "moss_worker",
-            pcmURL.path,
-            SpeechCatalog.directory(modelDirectory: modelDirectory, model: model).path,
-            language.isEmpty ? "auto" : language,
-            String(speakerCount ?? 0),
-        ]
+        process.arguments = try workerArguments(
+            pcmURL: pcmURL, model: model, language: language, speakerCount: speakerCount, hotWords: hotWords
+        )
         var environment = ProcessInfo.processInfo.environment
         // Inference must never reach the network or import the retired PyTorch stack.
         environment["HF_HUB_OFFLINE"] = "1"
@@ -84,7 +102,9 @@ public struct TranscriptionService: Sendable {
             await collector.read(from: output.fileHandleForReading)
             process.waitUntilExit()
             if Task.isCancelled { throw SpeechError.cancelled }
-            if let message = await collector.error { throw SpeechError.message(message) }
+            if let message = await collector.error {
+                throw SpeechError.message(Self.workerError(message, hotWords: hotWords))
+            }
             guard process.terminationStatus == 0, let text = await collector.text else {
                 throw SpeechError.message(
                     "The local speech worker stopped unexpectedly. Your recording is saved. "

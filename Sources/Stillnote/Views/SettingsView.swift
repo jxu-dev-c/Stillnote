@@ -24,11 +24,53 @@ struct TranscriptionSettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var language = "auto"
     @State private var speakerCount: Int?
+    @State private var hotWordsText = ""
+    @State private var savingHotWords = false
 
     var body: some View {
         Form {
             Section("Defaults") {
                 TranscriptionOptionFields(language: $language, speakerCount: $speakerCount)
+            }
+
+            Section("Hot words") {
+                Text("Enter one word or phrase per line. Names, acronyms, and specialized terms help guide recognition; they are not guaranteed replacements.")
+                    .font(.callout).foregroundStyle(.secondary)
+                TextEditor(text: $hotWordsText)
+                    .frame(height: 90)
+                    .overlay(alignment: .topLeading) {
+                        if hotWordsText.isEmpty {
+                            Text("One entry per line. Keep phrases with spaces together.\nOpenMOSS\nAPI\nNew York")
+                                .font(.body)
+                                .foregroundStyle(.tertiary)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 6)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .accessibilityLabel("Hot words, one word or phrase per line")
+                    .accessibilityHint("Press Return between entries. Keep phrases such as New York on one line.")
+                    .disabled(savingHotWords)
+                HStack {
+                    Button("Clear") { hotWordsText = "" }
+                        .disabled(hotWordsText.isEmpty || savingHotWords)
+                    Button("Save Hot Words") {
+                        savingHotWords = true
+                        var updated = model.settings
+                        updated.transcription.hotWords = normalizedHotWords
+                        Task {
+                            await model.saveSettings(updated)
+                            if model.settings.transcription.hotWords == updated.transcription.hotWords {
+                                hotWordsText = model.settings.transcription.hotWords.joined(separator: "\n")
+                            }
+                            savingHotWords = false
+                        }
+                    }
+                    .disabled(savingHotWords || normalizedHotWords == model.settings.transcription.hotWords)
+                }
+                Text("Saved for all your transcriptions, including retranscriptions. Clear and save to stop using hot words.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Speech model") {
@@ -62,9 +104,14 @@ struct TranscriptionSettingsView: View {
         .onAppear {
             language = model.settings.transcription.language
             speakerCount = model.settings.transcription.speakerCount
+            hotWordsText = model.settings.transcription.hotWords.joined(separator: "\n")
         }
         .onChange(of: language) { save() }
         .onChange(of: speakerCount) { save() }
+    }
+
+    private var normalizedHotWords: [String] {
+        TranscriptionSettings.normalizeHotWords(hotWordsText.components(separatedBy: .newlines))
     }
 
     private var buttonTitle: String {

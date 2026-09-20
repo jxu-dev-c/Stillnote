@@ -145,3 +145,15 @@ Speaker profiles are local JSON records in SQLite’s `speaker_profiles` table, 
 Meeting `speakers` values remain name snapshots used by transcripts, summaries, and exports. Profile edits affect future assignments, while shared contact details stay solely in the profile store and are excluded from summary prompts and exports. Assignments that change a displayed name invalidate that meeting’s summary. Local renaming unlinks the identity; unlinking alone retains the snapshot. Retranscription clears assignments on successful transcript replacement, and deleting a meeting retains profiles. Creation with initial assignment uses a SQLite transaction. Store operations reject assignments to processing meetings.
 
 The transcript’s speaker sheet provides a profile dropdown and assignment/unlink actions. Edit Profile opens Settings → Speakers with the selected profile. Settings uses a macOS list with plus/minus controls and inline detail fields; there is no separate profile-editing sheet. A transactional, one-time migration converts existing custom speaker names into distinct profiles without merging matching names or changing meeting snapshots or summaries. Generic diarization labels are excluded. Contact fields are trimmed; nonempty emails receive basic format validation, while phone formatting is preserved. Failed saves remain visible in the editor.
+
+### Hot-word settings and worker protocol
+
+The per-user settings document stores `transcription.hot_words` as a string array;
+missing values default to an empty list. Jobs capture the saved list when queued.
+The worker accepts `<pcm> <model-dir> <language> <speaker-count> [<hot-words-json>]`.
+The optional argument is a JSON string array passed directly through `Process`
+(no shell); empty lists use the original four-argument protocol. The worker validates
+and appends nonempty lists to the existing diarized transcription prompt using
+MOSS's `热词提示：` format. No transcript replacement or meeting-specific list is used.
+Runtime packaging includes the worker from `sidecar`; app and runtime releases must
+ship together. Older runtimes rejecting the extra argument produce an update message.

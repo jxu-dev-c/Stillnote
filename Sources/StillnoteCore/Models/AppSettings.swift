@@ -19,16 +19,35 @@ public struct TranscriptionSettings: Codable, Hashable, Sendable {
     public var model: String
     public var language: String
     public var speakerCount: Int?
+    public var hotWords: [String]
 
     enum CodingKeys: String, CodingKey {
         case model, language
         case speakerCount = "speaker_count"
+        case hotWords = "hot_words"
     }
 
-    public init(model: String = SpeechCatalog.defaultModel, language: String = "auto", speakerCount: Int? = nil) {
+    public init(model: String = SpeechCatalog.defaultModel, language: String = "auto", speakerCount: Int? = nil, hotWords: [String] = []) {
         self.model = model
         self.language = language
         self.speakerCount = speakerCount
+        self.hotWords = Self.normalizeHotWords(hotWords)
+    }
+
+    public static func normalizeHotWords(_ words: [String]) -> [String] {
+        var seen = Set<String>()
+        return words.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            model: try values.decode(String.self, forKey: .model),
+            language: try values.decode(String.self, forKey: .language),
+            speakerCount: try values.decodeIfPresent(Int.self, forKey: .speakerCount),
+            hotWords: try values.decodeIfPresent([String].self, forKey: .hotWords) ?? []
+        )
     }
 }
 
@@ -110,7 +129,8 @@ public struct AppSettings: Codable, Hashable, Sendable {
         settings.transcription = TranscriptionSettings(
             model: model,
             language: transcription["language"] as? String ?? "auto",
-            speakerCount: transcription["speaker_count"] as? Int
+            speakerCount: transcription["speaker_count"] as? Int,
+            hotWords: transcription["hot_words"] as? [String] ?? []
         )
 
         let summary = object["summary"] as? [String: Any] ?? [:]

@@ -284,6 +284,7 @@ public actor Store {
     @discardableResult
     public func saveSettings(_ settings: AppSettings) throws -> AppSettings {
         var settings = settings
+        settings.transcription.hotWords = TranscriptionSettings.normalizeHotWords(settings.transcription.hotWords)
         if settings.summary.model.trimmingCharacters(in: .whitespaces).isEmpty {
             settings.summary.model = settings.summary.provider.defaultModel
         }

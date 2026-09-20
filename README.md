@@ -115,3 +115,16 @@ Bug reports, suggestions, and pull requests are welcome. Read the
 [contributing guide](CONTRIBUTING.md), keep changes focused, and run
 `./scripts/check.sh` before submitting a pull request. Use synthetic examples
 instead of private meeting content.
+
+### Transcription hot words
+
+In **Settings → Transcription → Hot words**, enter one word or phrase per line,
+then select **Save Hot Words**. Names, acronyms, and specialized terms guide MOSS
+recognition; they are hints, not guaranteed replacements. One list is saved locally
+for your macOS user and applies to all transcriptions and retranscriptions queued
+after saving. Existing transcripts are unchanged. To disable hints, clear the list
+and save. Blank lines and duplicate entries are removed.
+
+Hot words require the updated speech runtime. If prompted, run `brew update` and
+`brew reinstall jxu-dev-c/stillnote/stillnote-runtime`, or rerun `./scripts/setup.sh`
+for a source installation.

@@ -68,9 +68,23 @@ def _prepare_audio(model, audio, prompt, progress):
     return input_ids, embeddings
 
 
-def run(path: Path, audio, language, speaker_count, progress):
+def build_prompt(language, speaker_count, hot_words=()):
+    prompt = (
+        "请将音频转写为文本，每一段需以起始时间戳和说话人编号（[S01]、[S02]、[S03]…）开头，"
+        "正文为对应的语音内容，并在段末标注结束时间戳，以清晰标明该段语音范围。"
+    )
+    if language not in ("auto", "", None):
+        prompt += f" Audio language: {language}."
+    if speaker_count:
+        prompt += f" Expected speakers: {speaker_count}."
+    if hot_words:
+        prompt += " 热词提示：" + ", ".join(hot_words)
+    return prompt
+
+
+def run(path: Path, audio, language, speaker_count, progress, hot_words=()):
     try:
-        return _run(path, audio, language, speaker_count, progress)
+        return _run(path, audio, language, speaker_count, progress, hot_words)
     except RuntimeError as error:
         if "memory" in str(error).lower() or "alloc" in str(error).lower():
             raise RuntimeError(
@@ -79,7 +93,7 @@ def run(path: Path, audio, language, speaker_count, progress):
         raise
 
 
-def _run(path: Path, audio, language, speaker_count, progress):
+def _run(path: Path, audio, language, speaker_count, progress, hot_words=()):
     import mlx.core as mx
     import mlx.nn as nn
     from mlx_audio.lm.generate import generate_step
@@ -106,14 +120,7 @@ def _run(path: Path, audio, language, speaker_count, progress):
     )
     mx.eval(model.parameters())
     mx.clear_cache()
-    prompt = (
-        "请将音频转写为文本，每一段需以起始时间戳和说话人编号（[S01]、[S02]、[S03]…）开头，"
-        "正文为对应的语音内容，并在段末标注结束时间戳，以清晰标明该段语音范围。"
-    )
-    if language not in ("auto", "", None):
-        prompt += f" Audio language: {language}."
-    if speaker_count:
-        prompt += f" Expected speakers: {speaker_count}."
+    prompt = build_prompt(language, speaker_count, hot_words)
     input_ids, embeddings = _prepare_audio(model, audio, prompt, progress)
     duration = len(audio) / model.sample_rate
     limit = token_budget(duration, len(input_ids), model.config.text_config.max_position_embeddings)

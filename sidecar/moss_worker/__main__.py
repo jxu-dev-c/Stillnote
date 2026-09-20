@@ -1,6 +1,6 @@
 """Isolated inference entry point, launched only by the Stillnote app.
 
-argv: <pcm-path> <model-dir> <language> <speaker-count>
+argv: <pcm-path> <model-dir> <language> <speaker-count> [<hot-words-json>]
 The PCM file holds 16 kHz mono float32 samples decoded by the app. Progress, the raw
 MOSS transcript, and actionable errors are written to stdout as STILLNOTE_EVENT lines.
 """
@@ -31,8 +31,18 @@ def _load_audio(path: Path):
     return audio
 
 
+def parse_hot_words(raw: str) -> list[str]:
+    try:
+        words = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError("Hot words must be a JSON array of strings.") from error
+    if not isinstance(words, list) or any(not isinstance(word, str) for word in words):
+        raise ValueError("Hot words must be a JSON array of strings.")
+    return list(dict.fromkeys(word.strip() for word in words if word.strip()))
+
+
 def main() -> int:
-    if len(sys.argv) != 5:
+    if len(sys.argv) not in (5, 6):
         _emit({"type": "error", "message": "The speech worker was started with unexpected arguments."})
         return 2
 
@@ -42,6 +52,7 @@ def main() -> int:
     try:
         from .mlx_runner import run
 
+        hot_words = parse_hot_words(sys.argv[5]) if len(sys.argv) == 6 else []
         audio = _load_audio(Path(sys.argv[1]))
         text = run(
             Path(sys.argv[2]),
@@ -49,6 +60,7 @@ def main() -> int:
             sys.argv[3],
             int(sys.argv[4]) or None,
             progress,
+            hot_words=hot_words,
         )
     except (RuntimeError, ValueError) as error:
         _emit({"type": "error", "message": str(error)[:600]})

@@ -43,6 +43,19 @@ struct TranscriptionIntegrationTests {
         #expect(stages.withLock { $0.contains { $0.contains("Apple GPU") } })
     }
 
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["STILLNOTE_HOT_WORDS_AUDIO"] != nil))
+    func transcribesWithHotWords() async throws {
+        let paths = try installedPaths()
+        let audio = try #require(ProcessInfo.processInfo.environment["STILLNOTE_HOT_WORDS_AUDIO"])
+        let result = try await TranscriptionService(modelDirectory: paths.modelDirectory).transcribe(
+            audioURL: URL(fileURLWithPath: audio), model: SpeechCatalog.defaultModel,
+            language: "en", speakerCount: 1, hotWords: ["Stillnote", "OpenMOSS"]
+        ) { _, _ in }
+        #expect(!result.segments.isEmpty)
+        #expect(result.segments.allSatisfy { $0.end >= $0.start && $0.end <= result.duration })
+        #expect(result.segments.allSatisfy { result.speakers[$0.speaker] != nil })
+    }
+
     /// Stopping must terminate the worker process, not just abandon it.
     @Test func cancellationStopsTheWorkerProcess() async throws {
         let paths = try installedPaths()

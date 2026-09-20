@@ -2,10 +2,12 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
-## What's new in 0.2.1
+## What's new in 0.3.0
 
-- Faster speech model downloads with resumable parallel chunks.
-- Local self-signing instructions for Macs where app launch stalls.
+- Save a personal hot-word list in Settings → Transcription to guide MOSS recognition.
+- Enter one word or phrase per line; phrases with spaces stay together.
+- Apply the saved list to all future transcriptions and retranscriptions.
+- Update the speech runtime alongside the app to enable hot-word hints.
 
 ## Installation
 
