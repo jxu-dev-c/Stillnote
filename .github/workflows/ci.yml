@@ -7,13 +7,9 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Prepare worker tests
-        run: |
-          python3 -m venv build/test-python
-          build/test-python/bin/python -m pip install pytest ruff numpy packaging
+      - name: Install Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
       - name: Run checks
-        env:
-          STILLNOTE_TEST_PYTHON: ${{ github.workspace }}/build/test-python/bin/python
         run: ./scripts/check.sh
       - name: Package development candidate
         run: ./scripts/package-app.sh

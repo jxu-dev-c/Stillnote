@@ -1,13 +1,20 @@
 import Foundation
 
-/// Drives MOSS inference in a separate Python process. Isolation means a native model
+/// Drives MOSS inference in a separate native Swift process. Isolation means a native model
 /// crash cannot take the app down, and stopping a job is a process termination rather
 /// than an unwinding of in-process GPU work.
 public struct TranscriptionService: Sendable {
     public let modelDirectory: URL
+    private let workerOverride: URL?
 
     public init(modelDirectory: URL) {
         self.modelDirectory = modelDirectory
+        self.workerOverride = nil
+    }
+
+    init(modelDirectory: URL, workerURL: URL) {
+        self.modelDirectory = modelDirectory
+        self.workerOverride = workerURL
     }
 
     public func transcribe(
@@ -19,12 +26,15 @@ public struct TranscriptionService: Sendable {
             throw SpeechError.message("Speaker count must be between 1 and 20, or automatic.")
         }
         let status = SpeechStatus.current(modelDirectory: modelDirectory, model: model)
-        guard status.ready else { throw SpeechError.message(status.detail) }
+        guard status.modelInstalled else { throw SpeechError.message(status.detail) }
+        guard SpeechWorkerLocator.runtimeReady(worker: workerOverride ?? SpeechWorkerLocator.workerURL()) else {
+            throw SpeechError.message(SpeechWorkerLocator.repairMessage)
+        }
         guard FileManager.default.fileExists(atPath: audioURL.path) else {
             throw SpeechError.message("The local audio file could not be found.")
         }
-        guard let python = SidecarLocator.pythonURL() else {
-            throw SpeechError.message("Install the speech runtime: brew install jxu-dev-c/stillnote/stillnote-runtime. To repair it, use brew reinstall jxu-dev-c/stillnote/stillnote-runtime.")
+        guard let worker = workerOverride ?? SpeechWorkerLocator.workerURL() else {
+            throw SpeechError.message(SpeechWorkerLocator.repairMessage)
         }
 
         let scratch = FileManager.default.temporaryDirectory
@@ -43,7 +53,7 @@ public struct TranscriptionService: Sendable {
         progress(8, "Loading \(status.modelName) locally")
 
         let text = try await runWorker(
-            python: python, pcmURL: scratch, model: model, language: language,
+            worker: worker, pcmURL: scratch, model: model, language: language,
             speakerCount: speakerCount, hotWords: hotWords, progress: progress
         )
         let result = try MossParser.parse(text, duration: decoded.duration, language: language)
@@ -55,7 +65,7 @@ public struct TranscriptionService: Sendable {
         pcmURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String]
     ) throws -> [String] {
         var arguments = [
-            "-m", "moss_worker", pcmURL.path,
+            pcmURL.path,
             SpeechCatalog.directory(modelDirectory: modelDirectory, model: model).path,
             language.isEmpty ? "auto" : language, String(speakerCount ?? 0),
         ]
@@ -66,28 +76,20 @@ public struct TranscriptionService: Sendable {
         return arguments
     }
 
-    static func workerError(_ message: String, hotWords: [String]) -> String {
-        if !hotWords.isEmpty && message == "The speech worker was started with unexpected arguments." {
-            return "Your speech runtime does not support hot words yet. Update it with brew update, then brew reinstall jxu-dev-c/stillnote/stillnote-runtime. For a source installation, run ./scripts/setup.sh again. Your recording is saved."
-        }
-        return message
-    }
-
-    private func runWorker(
-        python: URL, pcmURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String],
+    func runWorker(
+        worker: URL, pcmURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String],
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> String {
         let process = Process()
-        process.executableURL = python
+        process.executableURL = worker
         process.arguments = try workerArguments(
             pcmURL: pcmURL, model: model, language: language, speakerCount: speakerCount, hotWords: hotWords
         )
         var environment = ProcessInfo.processInfo.environment
-        // Inference must never reach the network or import the retired PyTorch stack.
+        // Defense in depth: the helper only loads an already verified local directory.
         environment["HF_HUB_OFFLINE"] = "1"
         environment["HF_HUB_DISABLE_TELEMETRY"] = "1"
         environment["TRANSFORMERS_OFFLINE"] = "1"
-        environment["USE_TORCH"] = "0"
         process.environment = environment
 
         let output = Pipe()
@@ -103,12 +105,12 @@ public struct TranscriptionService: Sendable {
             process.waitUntilExit()
             if Task.isCancelled { throw SpeechError.cancelled }
             if let message = await collector.error {
-                throw SpeechError.message(Self.workerError(message, hotWords: hotWords))
+                throw SpeechError.message(message)
             }
             guard process.terminationStatus == 0, let text = await collector.text else {
                 throw SpeechError.message(
                     "The local speech worker stopped unexpectedly. Your recording is saved. "
-                        + "Try again, use a shorter recording, or reinstall MOSS 0.9B."
+                        + "Try again, use a shorter recording, or reinstall Stillnote."
                 )
             }
             return text

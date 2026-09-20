@@ -27,3 +27,26 @@ struct WorkerOutputTests {
         #expect(deliveredWhileOpen)
     }
 }
+
+struct WorkerFailureTests {
+    @Test func ignoresDiagnosticsAndPreservesSplitUnicode() async throws {
+        let pipe = Pipe()
+        let collector = WorkerOutput { _, _ in }
+        let read = Task { await collector.read(from: pipe.fileHandleForReading) }
+        let bytes = Data("untrusted library diagnostic\nSTILLNOTE_EVENT invalid\nSTILLNOTE_EVENT {\"type\":\"result\",\"text\":\"示例\"}".utf8)
+        for byte in bytes { try pipe.fileHandleForWriting.write(contentsOf: Data([byte])) }
+        try pipe.fileHandleForWriting.close()
+        await read.value
+        #expect(await collector.text == "示例")
+        #expect(await collector.error == nil)
+    }
+
+    @Test func abnormalExitIsNotASuccessfulTranscript() async throws {
+        let service = TranscriptionService(modelDirectory: URL(fileURLWithPath: "/models"))
+        await #expect(throws: Error.self) {
+            try await service.runWorker(worker: URL(fileURLWithPath: "/usr/bin/false"),
+                pcmURL: URL(fileURLWithPath: "/unused"), model: SpeechCatalog.defaultModel,
+                language: "auto", speakerCount: nil, hotWords: []) { _, _ in }
+        }
+    }
+}

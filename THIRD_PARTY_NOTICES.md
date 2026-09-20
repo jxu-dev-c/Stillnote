@@ -1,17 +1,17 @@
 # Third-party components
 
-The MIT license covers Stillnote's original code only. Model weights, Python, MLX,
-MLX Audio, Transformers, and their transitive dependencies retain their upstream licenses.
+Stillnote's original code is MIT licensed. Third-party code and separately downloaded
+model weights retain their upstream licenses.
 
-The runtime dependency inventory is pinned in `requirements-moss.lock`. MOSS model files
-are pinned in `Sources/StillnoteCore/Resources/speech_models.json`.
-The Homebrew runtime archive retains the original dependency wheels, including their
-upstream license files and package metadata. Installed copies retain those files in
-`libexec/lib/python3.13/site-packages`. Python is installed separately by Homebrew and
-is not redistributed in this archive. Model weights are downloaded separately in Settings.
-This inventory does not replace the upstream licenses bundled with each dependency.
+- MOSS native Swift implementation: vanch007/mlx-MOSS-Transcribe-Diarize, Apache-2.0.
+  The source revision and local patches are in Vendor/MossTranscribeDiarize/UPSTREAM.md.
+- MLX Swift and MLX Swift LM: Apple, MIT.
+- MLX Audio Swift: Blaizzy and contributors, MIT.
+- Swift Transformers, Hugging Face Swift, and Swift Jinja: Hugging Face and contributors,
+  Apache-2.0. Their transitive dependencies retain their own notices.
 
-The tokenizers 0.23.2 wheel omits its Apache-2.0 license text. A copy from
-https://github.com/huggingface/tokenizers/blob/v0.23.2/LICENSE is included at
-`licenses/tokenizers-LICENSE` in the runtime archive and the formula's shared files.
-Stillnote's worker is covered by the root MIT LICENSE included in the archive.
+Package.resolved pins the complete Swift dependency graph. The app includes upstream
+license files under Contents/Resources/licenses. Model files are pinned by revision,
+size, and SHA-256 in Sources/StillnoteCore/Resources/speech_models.json and downloaded
+separately. The checkpoint is vanch007/mlx-MOSS-Transcribe-Diarize-8bit, derived from
+OpenMOSS MOSS-Transcribe-Diarize. Python and Python packages are not distributed.

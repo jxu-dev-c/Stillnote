@@ -63,7 +63,7 @@ public enum SpeechCatalog {
 
     public static func directory(modelDirectory: URL, model: String) -> URL {
         modelDirectory.appendingPathComponent("speech", isDirectory: true)
-            .appendingPathComponent(model, isDirectory: true)
+            .appendingPathComponent(model + "-mlx-8bit", isDirectory: true)
     }
 }
 

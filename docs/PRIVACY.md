@@ -12,6 +12,6 @@ provider; optionally they include the local video path as text. Provider retenti
 account policies apply. No cloud transcription fallback is used.
 
 To uninstall, quit Stillnote, remove the app, and optionally remove its Application Support
-folder to delete recordings, models, and the Python runtime. Back up wanted recordings
+folder to delete recordings and models (and any legacy Python runtime). Back up wanted recordings
 first. Environment-variable overrides may place data elsewhere; remove those separately.
 CLI accounts and their credentials belong to the independently installed provider CLIs.

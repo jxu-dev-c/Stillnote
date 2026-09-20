@@ -2,31 +2,28 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
-## What's new in 0.3.0
+## Native speech engine
 
 - Save a personal hot-word list in Settings → Transcription to guide MOSS recognition.
 - Enter one word or phrase per line; phrases with spaces stay together.
 - Apply the saved list to all future transcriptions and retranscriptions.
-- Update the speech runtime alongside the app to enable hot-word hints.
+- Transcription now uses a bundled Swift MLX engine; Python is no longer required.
+- Existing users download the converted 8-bit model once. Meetings and old model files are preserved.
 
 ## Installation
 
 After this release has been published to the [Homebrew tap](https://github.com/jxu-dev-c/homebrew-stillnote):
 
 ```sh
-brew install jxu-dev-c/stillnote/stillnote-runtime jxu-dev-c/stillnote/stillnote
+brew install jxu-dev-c/stillnote/stillnote
 ```
 
-Homebrew installs the app, Python, and all speech dependencies. Open Stillnote from
-Applications, then download the speech model once in Settings (about 1.8 GB).
+Homebrew installs the app with its native speech engine. Open Stillnote from
+Applications, then download the speech model once in Settings (about 1.3 GB).
 Recording and transcription work offline after that download.
 
 For a manual app download, extract `Stillnote-@VERSION@-macos-arm64.zip`, move
-Stillnote.app into Applications, and install its runtime with:
-
-```sh
-brew install jxu-dev-c/stillnote/stillnote-runtime
-```
+Stillnote.app into Applications. No separate speech runtime is needed.
 
 The app is ad-hoc signed and not notarized. If macOS blocks the first launch, follow
 [Apple’s Open Anyway instructions](https://support.apple.com/en-gb/102445).
@@ -94,14 +91,13 @@ Quit Stillnote before upgrading:
 
 ```sh
 brew update
-brew upgrade jxu-dev-c/stillnote/stillnote-runtime
 brew upgrade --cask jxu-dev-c/stillnote/stillnote
 ```
 
-Repair dependencies with `brew reinstall jxu-dev-c/stillnote/stillnote-runtime`.
+Repair the app with `brew reinstall --cask jxu-dev-c/stillnote/stillnote`.
 For migration, quit and move the manually installed app out of Applications before
 installing through Homebrew. Preserve `~/Library/Application Support/Stillnote`;
-existing meetings and models are reused, and the legacy runtime may remain.
+existing meetings are reused. Download the native model once; legacy files may remain.
 
 Uninstall the app with `brew uninstall --cask jxu-dev-c/stillnote/stillnote` and optionally
 remove `stillnote-runtime`. Neither operation deletes meetings, settings, or models.

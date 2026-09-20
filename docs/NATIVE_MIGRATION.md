@@ -1,5 +1,8 @@
 # Native macOS migration handoff
 
+> Historical notes for the earlier UI migration. The current speech engine is bundled
+> native Swift; see ARCHITECTURE.md and Vendor/MossTranscribeDiarize/UPSTREAM.md.
+
 This records the migration's lessons and verification limits. It is a historical
 snapshot, not evidence of a new test run. Use [ARCHITECTURE.md](ARCHITECTURE.md) for the
 current implementation contract and [TODO.md](../TODO.md) for open work.
@@ -59,7 +62,7 @@ listens on a network port. The decisions to preserve are:
 
 4. **Removing PyTorch also removed an implicit dependency.** Transformers still needed
    `jinja2` for MOSS's chat template. Only real inference in a freshly created runtime
-   exposed the omission. [requirements-moss.txt](../requirements-moss.txt) now declares it
+   exposed the omission. the former `requirements-moss.txt` now declares it
    directly. Dependency cleanup needs a fresh-runtime inference check, not just imports.
 
 5. **An unqualified `uv venv` selected Python 3.10.** It could not satisfy the locked

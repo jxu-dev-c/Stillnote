@@ -7,6 +7,8 @@ if [[ "$(uname -s)" != Darwin ]]; then
 fi
 configuration="${1:-release}"
 swift build -c "$configuration" --product Stillnote
+swift build -c "$configuration" --product StillnoteSpeechWorker
+./scripts/build-metal.sh "$configuration"
 bin="$(swift build -c "$configuration" --show-bin-path)"
 app='build/Stillnote.app'
 contents="$app/Contents"
@@ -15,15 +17,29 @@ mkdir -p "$contents/MacOS" "$contents/Resources"
 cp Resources/Info.plist "$contents/Info.plist"
 cp Resources/AppIcon.icns "$contents/Resources/AppIcon.icns"
 cp "$bin/Stillnote" "$contents/MacOS/Stillnote"
-# Resources are copied out of SwiftPM's bundles as plain files: a nested .bundle inside a
-# hand-assembled app hangs CFBundle when LaunchServices launches it.
+cp "$bin/StillnoteSpeechWorker" "$contents/MacOS/StillnoteSpeechWorker"
+# MLX searches Resources/mlx relative to its executable. Keep data out of MacOS.
+cp "$bin/mlx.metallib" "$contents/Resources/mlx.metallib"
+ln -s ../Resources "$contents/MacOS/Resources"
+cp Sources/StillnoteCore/Resources/speech_models.json "$contents/Resources/"
 for bundle in "$bin"/*.bundle; do
   [[ -d "$bundle" ]] || continue
-  find "$bundle" -type f ! -name 'Info.plist' -print0 |
-    while IFS= read -r -d '' resource; do cp "$resource" "$contents/Resources/"; done
+  [[ "$(basename "$bundle")" == Stillnote_StillnoteCore.bundle ]] && continue
+  cp -R "$bundle" "$contents/Resources/"
 done
+mkdir -p "$contents/Resources/licenses"
+cp Vendor/MossTranscribeDiarize/LICENSE "$contents/Resources/licenses/MossTranscribeDiarize-LICENSE"
+# Preserve licenses/notices for embedded C/C++ components as well as Swift packages.
+while IFS= read -r -d '' license; do
+  relative="${license#.build/checkouts/}"
+  destination="$contents/Resources/licenses/$relative"
+  mkdir -p "$(dirname "$destination")"
+  cp "$license" "$destination"
+done < <(find .build/checkouts -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -not -path '*/.git/*' -print0)
+codesign --force --sign "${STILLNOTE_SIGNING_IDENTITY:--}" "$contents/MacOS/StillnoteSpeechWorker"
 # Reuse a configured identity across builds so macOS can retain capture grants.
 # The default stays ad-hoc for local development without a signing certificate.
 codesign --force --sign "${STILLNOTE_SIGNING_IDENTITY:--}" --identifier local.stillnote.app "$app"
-codesign --verify --strict "$app"
+codesign --verify --deep --strict "$app"
+"$contents/MacOS/StillnoteSpeechWorker" --self-test
 echo "Built $app"
