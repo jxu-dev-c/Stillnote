@@ -28,8 +28,10 @@ struct StillnoteApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("New Recording…") { sheet = .record }
                     .keyboardShortcut("r", modifiers: .command)
+                    .disabled(!model.isReady)
                 Button("Import Audio…") { sheet = .importAudio }
                     .keyboardShortcut("o", modifiers: .command)
+                    .disabled(!model.isReady)
             }
             CommandGroup(replacing: .help) {
                 Link("MOSS speech model", destination: URL(string: "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize")!)
@@ -37,7 +39,14 @@ struct StillnoteApp: App {
         }
 
         Settings {
-            SettingsView()
+            Group {
+                if model.isReady {
+                    SettingsView()
+                } else {
+                    Text("Your library is still opening. Return to the main window for status.")
+                        .padding()
+                }
+            }
                 .environment(model)
                 .frame(width: 640)
         }

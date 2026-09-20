@@ -71,9 +71,11 @@ struct RootView: View {
                 Label("Stillnote could not open its library", systemImage: "exclamationmark.triangle")
             } description: {
                 Text(error)
+            } actions: {
+                Button("Try Again") { Task { await model.load() } }
             }
         } else {
-            ProgressView("Opening your meetings…")
+            ProgressView(model.startupStage)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }

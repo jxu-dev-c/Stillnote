@@ -18,6 +18,9 @@ final class AppModel {
     private(set) var capabilities = CaptureCapabilities(
         available: false, reason: nil, microphones: [], displays: [], defaultDisplayID: nil
     )
+    private(set) var startupStage = "Preparing your library…"
+    private(set) var isReady = false
+    private var isLoading = false
     var startupError: String?
     var alertMessage: String?
 
@@ -26,7 +29,6 @@ final class AppModel {
     /// that cannot appear until the app has a window. Probing during launch deadlocks.
     private var workspace: Workspace?
 
-    var isReady: Bool { workspace != nil }
     var paths: Paths { workspace!.paths }
     var store: Store { workspace!.store }
     var recorder: RecordingCoordinator { workspace!.recorder }
@@ -51,34 +53,39 @@ final class AppModel {
     // MARK: - Loading
 
     func load() async {
-        if workspace == nil {
-            do {
-                // Off the main actor: resolving paths adopts a development checkout's
-                // data on first launch, and reading a folder macOS guards can block
-                // until the user answers a prompt.
+        // Every window shares this model. Never rerun recovery over active jobs.
+        guard !isLoading, !isReady else { return }
+        isLoading = true
+        startupError = nil
+        defer { isLoading = false }
+        do {
+            if workspace == nil {
+                startupStage = "Preparing your library folders…"
                 let paths = try await Task.detached { try Paths.standard() }.value
-                let store = try Store(paths: paths)
+                startupStage = "Opening the meeting database…"
+                // Actor initializers run synchronously on their caller. SQLite can
+                // wait for a lock, so constructing Store must also leave the UI thread.
+                let store = try await Task.detached { try Store(paths: paths) }.value
                 workspace = Workspace(
                     paths: paths,
                     store: store,
                     installer: ModelInstaller(modelDirectory: paths.modelDirectory),
                     recorder: RecordingCoordinator(store: store, paths: paths)
                 )
-            } catch {
-                startupError = error.localizedDescription
-                return
             }
-        }
-        do {
+            startupStage = "Loading meetings and settings…"
             try await store.markInterruptedJobs()
             try await store.migrateNamedSpeakers()
             meetings = try await store.list()
             settings = try await store.settings()
             speakerProfiles = try await store.profiles()
+            startupStage = "Recovering interrupted recordings…"
+            await recorder.recover()
+            isReady = true
         } catch {
             startupError = error.localizedDescription
+            return
         }
-        await recorder.recover()
         await refreshEnvironment()
     }
 

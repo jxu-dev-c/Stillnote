@@ -42,19 +42,30 @@ public final class RecordingCoordinator {
     /// meeting already exists were saved successfully and are removed.
     public func recover() async {
         guard session == nil else { return }
-        let manager = FileManager.default
-        let directories = (try? manager.contentsOfDirectory(
-            at: paths.recordingsDirectory, includingPropertiesForKeys: nil
-        )) ?? []
-        for directory in directories.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-            let descriptor = directory.appendingPathComponent("session.json")
-            guard let data = try? Data(contentsOf: descriptor),
-                  var state = try? JSONDecoder().decode(RecordingSessionState.self, from: data),
-                  state.id == directory.lastPathComponent
-            else { continue }
-            if await store.exists(state.id) {
-                try? manager.removeItem(at: directory)
+        let recordingsDirectory = paths.recordingsDirectory
+        let candidates = await Task.detached {
+            let directories = (try? FileManager.default.contentsOfDirectory(
+                at: recordingsDirectory, includingPropertiesForKeys: nil
+            )) ?? []
+            return directories.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+                .compactMap { directory -> (URL, RecordingSessionState)? in
+                    let descriptor = directory.appendingPathComponent("session.json")
+                    guard let data = try? Data(contentsOf: descriptor),
+                          let state = try? JSONDecoder().decode(RecordingSessionState.self, from: data),
+                          state.id == directory.lastPathComponent else { return nil }
+                    return (directory, state)
+                }
+        }.value
+        for (directory, candidate) in candidates {
+            // Recovery can suspend for disk I/O; do not replace a session started meanwhile.
+            guard session == nil else { return }
+            if await store.exists(candidate.id) {
+                await Task.detached {
+                    try? FileManager.default.removeItem(at: directory)
+                }.value
             } else {
+                guard session == nil else { return }
+                var state = candidate
                 state.status = .stopped
                 state.error = "Recording was interrupted. Save the captured audio or discard it."
                 session = state
