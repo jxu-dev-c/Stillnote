@@ -7,6 +7,7 @@ python="${STILLNOTE_TEST_PYTHON:-$HOME/Library/Application Support/Stillnote/ven
 if [[ -x "$python" ]]; then
   (cd sidecar && "$python" -m pytest -q)
   (cd sidecar && "$python" -m ruff check .)
+  "$python" -m unittest discover -s scripts/tests
 else
   echo 'MOSS worker checks require a test Python with pytest, ruff, and numpy.' >&2
   exit 1

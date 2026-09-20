@@ -1,0 +1,30 @@
+class StillnoteRuntime < Formula
+  desc "Local speech runtime for Stillnote"
+  homepage "https://github.com/jxu-dev-c/Stillnote"
+  url "https://github.com/jxu-dev-c/homebrew-stillnote/releases/download/v@VERSION@/Stillnote-runtime-@VERSION@-macos-arm64.tar.gz"
+  version "@VERSION@"
+  sha256 "@RUNTIME_SHA256@"
+  license "MIT"
+
+  depends_on :macos
+  depends_on arch: :arm64
+  depends_on "python@3.13"
+
+  on_macos do
+    depends_on macos: :sequoia
+  end
+
+  def install
+    system Formula["python@3.13"].opt_bin/"python3.13", "-m", "venv", libexec
+    system libexec/"bin/python", "-m", "pip", "install",
+           "--no-index", "--no-deps", "--require-hashes", "-r", "requirements.txt"
+    system libexec/"bin/python", "-m", "pip", "check"
+    libexec.install "runtime-smoke.py", "manifest.json", "requirements-moss.lock"
+    system libexec/"bin/python", libexec/"runtime-smoke.py"
+    pkgshare.install "THIRD_PARTY_NOTICES.md"
+  end
+
+  test do
+    system libexec/"bin/python", libexec/"runtime-smoke.py"
+  end
+end

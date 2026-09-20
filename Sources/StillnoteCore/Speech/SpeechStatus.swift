@@ -38,7 +38,7 @@ public struct SpeechStatus: Sendable, Equatable {
         var detail = "\(spec?.name ?? model) is ready for local transcription and speaker detection. "
             + "MLX · Apple GPU · 8-bit decoder."
         if !missing.isEmpty {
-            detail = "Install the MOSS speech runtime with the project setup script."
+            detail = "Install the speech runtime: brew install jxu-dev-c/stillnote/stillnote-runtime. To repair it, use brew reinstall jxu-dev-c/stillnote/stillnote-runtime."
         } else if !installed {
             detail = "Download the speech model once in Settings to enable offline transcription."
         }

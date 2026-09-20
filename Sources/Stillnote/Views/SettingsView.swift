@@ -52,7 +52,7 @@ struct TranscriptionSettingsView: View {
                 }
                 LabeledContent("Engine", value: model.speech.engine)
                 if !model.speech.runtimeReady {
-                    Text("Run ./scripts/setup.sh once to install the MOSS inference runtime.")
+                    Text("Install the speech runtime in Terminal: brew install jxu-dev-c/stillnote/stillnote-runtime. To repair it, use brew reinstall jxu-dev-c/stillnote/stillnote-runtime.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
