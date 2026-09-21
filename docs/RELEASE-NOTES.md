@@ -2,13 +2,19 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
-## Native speech engine
+## What's new in 0.4.0
 
-- Save a personal hot-word list in Settings → Transcription to guide MOSS recognition.
-- Enter one word or phrase per line; phrases with spaces stay together.
-- Apply the saved list to all future transcriptions and retranscriptions.
-- Transcription now uses a bundled Swift MLX engine; Python is no longer required.
-- Existing users download the converted 8-bit model once. Meetings and old model files are preserved.
+- **Bundled native speech engine:** transcription now runs through Swift MLX. Python and the separate Homebrew speech runtime are no longer required.
+- **Transcription memory modes:** choose Quality, Balanced, or Low Memory in Settings → Transcription. Balanced uses 8-bit context storage; Low Memory reduces it further and can change wording, timestamps, or speaker assignments.
+- **More efficient transcription:** windowed audio reads, smaller prefill batches, and optimized decoding reduce memory pressure. Device-aware memory checks help avoid workloads that exceed the estimated budget.
+- Existing speaker labels, personal hot words, progress reporting, and cancellation remain supported.
+
+## Upgrading from 0.3.0
+
+Download the new pinned 8-bit speech model once in Settings (about 1.3 GB).
+Existing meetings, settings, and older model files are preserved. The legacy
+`stillnote-runtime` package is no longer needed by this version and may be removed
+if you no longer use an older Stillnote app.
 
 ## Installation
 
