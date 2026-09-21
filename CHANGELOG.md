@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+
+- Add Quality, Balanced, and Low Memory transcription modes with device-aware memory checks.
+- Reduce transcription memory pressure with windowed audio reads, smaller prefill batches, and optimized decoding.
 
 - Bundle a native Swift MLX speech engine; remove the Python and Homebrew runtime requirement.
 - Download a pinned 8-bit checkpoint once (about 1.3 GB), preserving older model files and meetings.
