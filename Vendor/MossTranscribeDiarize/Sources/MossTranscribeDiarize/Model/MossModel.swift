@@ -180,6 +180,7 @@ public final class MossModel: Module, @unchecked Sendable {
     public var timeMarkerEverySeconds: Int = 5
     public var enableTimeMarker = true
 
+    private var generationWeightBytes = 0
     private var digitTokenIds: [Character: Int] = [:]
 
     public init(_ config: ModelConfig) {
@@ -197,8 +198,15 @@ public final class MossModel: Module, @unchecked Sendable {
         }
     }
 
-    public func makeCache() -> [KVCache] {
-        (0..<config.textConfig.numHiddenLayers).map { _ in KVCacheSimple() }
+    public func makeCache(context: ContextCache = .original) -> [KVCache] {
+        (0..<config.textConfig.numHiddenLayers).map { index in
+            if let bits = context.bits {
+                // Protect boundary layers: uniform 4-bit KV can suppress all output.
+                let protected = context == .fourBit && (index < 2 || index >= config.textConfig.numHiddenLayers - 2)
+                return QuantizedKVCache(groupSize: 64, bits: protected ? 8 : bits)
+            }
+            return KVCacheSimple()
+        }
     }
 
     public func callAsFunction(
@@ -232,19 +240,44 @@ public final class MossModel: Module, @unchecked Sendable {
         parameters: GenerateParameters = GenerateParameters(),
         progress: @escaping @Sendable (GenerationProgress) -> Void = { _ in }
     ) throws -> TranscribeResult {
+        let wav = try audioToMono(audio)
+        return try generateSamples(count: wav.dim(0), parameters: parameters, progress: progress) { range in wav[range] }
+    }
+
+    /// Reads little-endian, mono 16 kHz float32 PCM in bounded encoder windows.
+    public func generate(pcmURL: URL, parameters: GenerateParameters = .init(),
+                         progress: @escaping @Sendable (GenerationProgress) -> Void = { _ in }) throws -> TranscribeResult {
+        let source = try PCMSource(url: pcmURL)
+        return try generateSamples(count: source.count, parameters: parameters, progress: progress) { try source.read($0) }
+    }
+
+    private func generateSamples(count: Int, parameters: GenerateParameters,
+                                progress: @escaping @Sendable (GenerationProgress) -> Void,
+                                read: (Range<Int>) throws -> MLXArray) throws -> TranscribeResult {
+        defer { Stream().synchronize(); Memory.clearCache() }
         let started = Date()
+        generationWeightBytes = parametersMemoryBytes()
         let prefillStart = Date()
-        let prepared = try prepareGenerationInputs(audio: audio, prompt: parameters.resolvedPrompt, progress: progress)
+        var pcmSeconds = 0.0
+        var prepared: PreparedGenerationInputs? = try prepareGenerationInputs(count: count, read: { range in
+            let start = Date()
+            defer { pcmSeconds += Date().timeIntervalSince(start) }
+            return try read(range)
+        }, parameters: parameters, progress: progress)
         let prefillTime = Date().timeIntervalSince(prefillStart)
 
+        let duration = prepared!.duration
+        let promptCount = prepared!.promptTokenCount
+        Memory.clearCache()
         let genStart = Date()
-        let tokens = try generateTokenIds(
-            promptIds: prepared.promptIds,
-            inputEmbeddings: prepared.inputEmbeddings,
+        let generated = try generateTokenIds(
+            prepared: &prepared,
             parameters: parameters,
             progress: progress
         )
-        let genTime = Date().timeIntervalSince(genStart)
+        Stream().synchronize()
+        let tokens = generated.tokens
+        let genTime = Date().timeIntervalSince(genStart) - generated.prefillTime
 
         let text = tokenizer?
             .decode(tokens: tokens, skipSpecialTokens: true)
@@ -255,15 +288,17 @@ public final class MossModel: Module, @unchecked Sendable {
         return TranscribeResult(
             text: text,
             segments: segments.isEmpty
-                ? [TranscriptSegment(start: 0, end: prepared.duration, speaker: "S00", text: text)]
+                ? [TranscriptSegment(start: 0, end: duration, speaker: "S00", text: text)]
                 : segments,
-            promptTokens: prepared.promptTokenCount,
+            promptTokens: promptCount,
             generationTokens: tokens.count,
-            totalTokens: prepared.promptTokenCount + tokens.count,
-            promptTokensPerSecond: prefillTime > 0 ? Double(prepared.promptTokenCount) / prefillTime : 0,
+            totalTokens: promptCount + tokens.count,
+            promptTokensPerSecond: generated.prefillTime > 0 ? Double(promptCount) / generated.prefillTime : 0,
             generationTokensPerSecond: genTime > 0 ? Double(tokens.count) / genTime : 0,
             totalTime: totalTime,
-            peakMemoryGB: Double(Memory.peakMemory) / 1e9
+            peakMemoryGB: Double(Memory.peakMemory) / 1e9, contextCacheBytes: generated.cacheBytes,
+            pcmReadTime: pcmSeconds, encodingTime: prefillTime - pcmSeconds,
+            prefillTime: generated.prefillTime, decodingTime: genTime
         )
     }
 
@@ -388,8 +423,8 @@ extension MossModel {
 
 // MARK: - Generation internals
 
-private extension MossModel {
-    struct PreparedGenerationInputs {
+extension MossModel {
+    private struct PreparedGenerationInputs {
         let promptIds: MLXArray
         let inputEmbeddings: MLXArray
         let promptTokenCount: Int
@@ -488,29 +523,29 @@ private extension MossModel {
         return MLXArray(tokenIds.map(Int32.init)).expandedDimensions(axis: 0)
     }
 
-    func prepareGenerationInputs(
-        audio: MLXArray, prompt: String?, progress: @Sendable (GenerationProgress) -> Void
+    private func prepareGenerationInputs(
+        count: Int, read: (Range<Int>) throws -> MLXArray, parameters: GenerateParameters, progress: @Sendable (GenerationProgress) -> Void
     ) throws -> PreparedGenerationInputs {
-        let wav = try audioToMono(audio)
         let window = MossWhisperAudioConfig.chunkLengthSamples
-        let starts = Array(stride(from: 0, to: wav.dim(0), by: window))
-        let lengths = starts.map { computeAudioTokenLength(numSamples: min(window, wav.dim(0) - $0)) }
-        let inputIds = try buildPrompt(audioTokenCount: lengths.reduce(0, +), prompt: prompt)
+        let starts = Array(stride(from: 0, to: count, by: window))
+        let lengths = starts.map { computeAudioTokenLength(numSamples: min(window, count - $0)) }
+        let inputIds = try buildPrompt(audioTokenCount: lengths.reduce(0, +), prompt: parameters.resolvedPrompt)
         guard config.textConfig.maxPositionEmbeddings - inputIds.dim(1) - 1 >= 256 else {
             throw MossError.generationFailed("This recording exceeds the MOSS context limit. Import a shorter recording.")
         }
+        try checkMemory(tokens: inputIds.dim(1), parameters: parameters)
         var encoded: [MLXArray] = []
         for (index, start) in starts.enumerated() {
             try Task.checkCancellation()
+            try checkMemory(tokens: inputIds.dim(1), parameters: parameters)
             let features = MossWhisperAudio.encoderFeatures(
-                audio: wav[start..<min(start + window, wav.dim(0))], nMels: config.audioConfig.numMelBins
+                audio: try read(start..<min(start + window, count)), nMels: config.audioConfig.numMelBins
             ).asType(model.whisperEncoder.conv1.weight.dtype)
             let part = try model.getAudioFeatures(
                 inputFeatures: features, audioFeatureLengths: MLXArray([Int32(lengths[index])])
             )[0]
             eval(part)
             encoded.append(part)
-            Memory.clearCache()
             progress(.encoding(index + 1, starts.count))
         }
         let embeds = model.languageModel.embedTokens(inputIds)
@@ -526,78 +561,124 @@ private extension MossModel {
         eval(inputsEmbeds)
         return PreparedGenerationInputs(
             promptIds: inputIds, inputEmbeddings: inputsEmbeds,
-            promptTokenCount: inputIds.dim(1), duration: Double(wav.dim(0)) / Double(sampleRate)
+            promptTokenCount: inputIds.dim(1), duration: Double(count) / Double(sampleRate)
         )
+    }
+
+    func checkMemory(tokens: Int, parameters: GenerateParameters) throws {
+        guard let budget = parameters.memoryBudget else { return }
+        let c = config.textConfig
+        let baseBytes = parameters.contextCache.bits.map { Double($0) / 8 + 4.0 / 64 } ?? 2
+        let bytesPerValue = baseBytes + (parameters.contextCache == .fourBit ? 0.5 * Double(min(4, c.numHiddenLayers)) / Double(c.numHiddenLayers) : 0)
+        let cacheBytes = Double(((tokens + 255) / 256) * 256) * Double(2 * c.numHiddenLayers * c.numKeyValueHeads * c.headDim) * bytesPerValue
+        let weights = generationWeightBytes
+        let embeddings = Double(tokens * c.hiddenSize * 2 * 3)
+        let scratch = max(Double(1024 * 1024 * 1024), parameters.contextCache.bits == nil ? 0 : Double(c.numAttentionHeads * parameters.prefillStepSize * tokens * 8))
+        guard Double(weights) + cacheBytes * 1.08 + embeddings + scratch + Double(256 * 1024 * 1024) <= Double(budget),
+              Memory.activeMemory < budget else {
+            throw MossError.generationFailed(parameters.contextCache == .fourBit
+                ? "This recording exceeds the memory budget. Use a shorter recording."
+                : "This recording exceeds the memory budget for the selected mode. Choose a lower-memory mode or a shorter recording.")
+        }
+    }
+
+    private func parametersMemoryBytes() -> Int {
+        parameters().flattened().reduce(0) { $0 + $1.1.nbytes }
     }
 
     func eosTokenIds() -> Set<Int> {
         [151_643, 151_645]
     }
 
-    func generateTokenIds(
-        promptIds: MLXArray,
-        inputEmbeddings: MLXArray,
-        parameters: GenerateParameters,
-        progress: @Sendable (GenerationProgress) -> Void
-    ) throws -> [Int] {
-        let limit = try GenerationPolicy.tokenLimit(requested: parameters.maxTokens,
-            promptTokens: promptIds.dim(1), contextSize: config.textConfig.maxPositionEmbeddings)
-        let cache = makeCache()
+    func prefill(promptIds: MLXArray, inputEmbeddings: MLXArray,
+                         cache: [KVCache], parameters: GenerateParameters,
+                         progress: @Sendable (GenerationProgress) -> Void) throws -> MLXArray {
         let prefillStepSize = max(1, parameters.prefillStepSize)
         let totalTokens = promptIds.dim(1)
         var processedTokens = 0
 
         while totalTokens - processedTokens > 1 {
             try Task.checkCancellation()
+            try checkMemory(tokens: totalTokens, parameters: parameters)
             let remaining = (totalTokens - processedTokens) - 1
             let n = min(prefillStepSize, remaining)
             let chunkIds = promptIds[0..., processedTokens..<(processedTokens + n)]
             let chunkEmbeds = inputEmbeddings[0..., processedTokens..<(processedTokens + n), 0...]
-            let logits = try callAsFunction(inputIds: chunkIds, inputEmbeddings: chunkEmbeds, cache: cache)
-            eval(logits)
-            Memory.clearCache()
+            _ = try model(inputIds: chunkIds, inputsEmbeds: chunkEmbeds, cache: cache)
+            eval(cache.flatMap { $0.innerState() })
             processedTokens += n
             progress(.prefill(processedTokens, totalTokens))
         }
 
         let lastIds = promptIds[0..., processedTokens..<totalTokens]
         let lastEmbeds = inputEmbeddings[0..., processedTokens..<totalTokens, 0...]
-        var logits = try callAsFunction(inputIds: lastIds, inputEmbeddings: lastEmbeds, cache: cache)
-        var lastLogits = logits[0..., -1, 0...]
+        let logits = try callAsFunction(inputIds: lastIds, inputEmbeddings: lastEmbeds, cache: cache)
+        eval(logits)
+        return logits[0..., -1, 0...]
+    }
+
+    private func generateTokenIds(
+        prepared: inout PreparedGenerationInputs?, parameters: GenerateParameters,
+        progress: @Sendable (GenerationProgress) -> Void
+    ) throws -> (tokens: [Int], prefillTime: Double, cacheBytes: Int) {
+        let totalTokens = prepared!.promptTokenCount
+        let limit = try GenerationPolicy.tokenLimit(requested: parameters.maxTokens,
+            promptTokens: totalTokens, contextSize: config.textConfig.maxPositionEmbeddings)
+        let cache = makeCache(context: parameters.contextCache)
+        let started = Date()
+        var lastLogits = try prefill(promptIds: prepared!.promptIds,
+            inputEmbeddings: prepared!.inputEmbeddings, cache: cache, parameters: parameters, progress: progress)
+        prepared = nil
+        Memory.clearCache()
+        let prefillTime = Date().timeIntervalSince(started)
         lastLogits = applyLogitProcessors(lastLogits, generated: [], parameters: parameters)
         var nextTokenArray = sampleFromLogits(lastLogits, parameters: parameters)
         asyncEval(nextTokenArray)
-
         var generated: [Int] = []
         let eos = eosTokenIds()
+        var lastDecoded = Date.distantPast
 
         progress(.prefill(totalTokens, totalTokens))
         for tokenIndex in 0..<limit {
             try Task.checkCancellation()
-            let token = nextTokenArray.item(Int.self)
+            do { try checkMemory(tokens: totalTokens + tokenIndex + 2, parameters: parameters) }
+            catch {
+                // A completed transcript needs no speculative next step or cache growth.
+                if eos.contains(nextTokenArray.item(Int.self)) {
+                    return (try GenerationPolicy.completedTokens(generated, reachedEOS: true),
+                            prefillTime, cache.flatMap { $0.innerState() }.reduce(0) { $0 + $1.nbytes })
+                }
+                throw error
+            }
+            let current = nextTokenArray
+            let pipelined = parameters.temperature <= 0 && parameters.repetitionPenalty == 1 && tokenIndex < limit - 1
+            if pipelined {
+                let output = try callAsFunction(inputIds: current.reshaped(1, 1), cache: cache)
+                nextTokenArray = output[0..., -1, 0...].argMax(axis: -1)
+                asyncEval(nextTokenArray)
+            }
+            let token = current.item(Int.self)
             if eos.contains(token) {
-                return try GenerationPolicy.completedTokens(generated, reachedEOS: true)
+                return (try GenerationPolicy.completedTokens(generated, reachedEOS: true), prefillTime, cache.flatMap { $0.innerState() }.reduce(0) { $0 + $1.nbytes })
             }
             generated.append(token)
 
             try GenerationPolicy.checkRepetition(generated)
-            if generated.count % 32 == 0 {
+            if generated.count % 32 == 0 && Date().timeIntervalSince(lastDecoded) >= 0.5 {
+                lastDecoded = Date()
                 progress(.decoded(tokenizer?.decode(tokens: generated, skipSpecialTokens: true) ?? ""))
             }
             if tokenIndex == limit - 1 { break }
 
+            if pipelined { continue }
             let nextInput = MLXArray([Int32(token)]).expandedDimensions(axis: 0)
-            logits = try callAsFunction(inputIds: nextInput, cache: cache)
+            let logits = try callAsFunction(inputIds: nextInput, cache: cache)
             lastLogits = logits[0..., -1, 0...]
             lastLogits = applyLogitProcessors(lastLogits, generated: generated, parameters: parameters)
             nextTokenArray = sampleFromLogits(lastLogits, parameters: parameters)
             asyncEval(nextTokenArray)
-
-            if tokenIndex > 0 && tokenIndex % 256 == 0 {
-                Memory.clearCache()
-            }
         }
-        return try GenerationPolicy.completedTokens(generated, reachedEOS: false)
+        return (try GenerationPolicy.completedTokens(generated, reachedEOS: false), prefillTime, 0)
     }
 
     func applyLogitProcessors(

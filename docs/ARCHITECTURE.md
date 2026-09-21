@@ -83,7 +83,7 @@ Capture permissions are requested only when a recording is started.
 
 The app decodes the recording to 16 kHz mono float32 with external media references
 forbidden, then runs the bundled `StillnoteSpeechWorker <pcm> <model-dir> <language>
-<speaker-count> [<hot-words-json>]`. The model loader accepts a verified local directory;
+<speaker-count> [<hot-words-json> [<mode>]]`. The model loader accepts a verified local directory;
 no inference downloads or external executable dependencies are used. The worker emits
 `STILLNOTE_EVENT {json}` lines for progress, the raw transcript, or an actionable error;
 anything else on the pipe is ignored and never becomes meeting content. Cancellation
@@ -146,7 +146,7 @@ The transcript’s speaker sheet provides a profile dropdown and assignment/unli
 
 The per-user settings document stores `transcription.hot_words` as a string array;
 missing values default to an empty list. Jobs capture the saved list when queued.
-The worker accepts `<pcm> <model-dir> <language> <speaker-count> [<hot-words-json>]`.
+The worker accepts `<pcm> <model-dir> <language> <speaker-count> [<hot-words-json> [<mode>]]`.
 The optional argument is a JSON string array passed directly through `Process`
 (no shell); empty lists use the original four-argument protocol. The worker validates
 and appends nonempty lists to the existing diarized transcription prompt using

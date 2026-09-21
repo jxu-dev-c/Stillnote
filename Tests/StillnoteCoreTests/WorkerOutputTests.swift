@@ -43,10 +43,12 @@ struct WorkerFailureTests {
 
     @Test func abnormalExitIsNotASuccessfulTranscript() async throws {
         let service = TranscriptionService(modelDirectory: URL(fileURLWithPath: "/models"))
-        await #expect(throws: Error.self) {
-            try await service.runWorker(worker: URL(fileURLWithPath: "/usr/bin/false"),
-                pcmURL: URL(fileURLWithPath: "/unused"), model: SpeechCatalog.defaultModel,
-                language: "auto", speakerCount: nil, hotWords: []) { _, _ in }
+        for _ in 0..<20 {
+            await #expect(throws: Error.self) {
+                try await service.runWorker(worker: URL(fileURLWithPath: "/usr/bin/false"),
+                    pcmURL: URL(fileURLWithPath: "/unused"), model: SpeechCatalog.defaultModel,
+                    language: "auto", speakerCount: nil, hotWords: []) { _, _ in }
+            }
         }
     }
 }

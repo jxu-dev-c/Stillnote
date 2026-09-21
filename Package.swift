@@ -26,7 +26,8 @@ let package = Package(
         ),
         .testTarget(
             name: "StillnoteCoreTests",
-            dependencies: ["StillnoteCore", .product(name: "MossTranscribeDiarize", package: "MossTranscribeDiarize")],
+            dependencies: ["StillnoteCore", .product(name: "MossTranscribeDiarize", package: "MossTranscribeDiarize"),
+                           .product(name: "MLX", package: "mlx-swift")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

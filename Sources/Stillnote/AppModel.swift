@@ -268,6 +268,7 @@ final class AppModel {
         let language = language ?? (meeting.language.isEmpty ? settings.transcription.language : meeting.language)
         let count = speakerCount ?? meeting.speakerCount
         let hotWords = settings.transcription.hotWords
+        let mode = settings.transcription.mode
         guard let queued = await edit(id, { meeting in
             meeting.status = .transcribing
             meeting.progress = 0
@@ -283,7 +284,7 @@ final class AppModel {
         let task = await queue.enqueue { [weak self] in
             await self?.runTranscription(
                 id: id, service: service, audioURL: audioURL, model: model,
-                language: language, speakerCount: count, hotWords: hotWords
+                language: language, speakerCount: count, hotWords: hotWords, mode: mode
             )
         }
         transcriptions[id] = task
@@ -291,7 +292,7 @@ final class AppModel {
 
     private func runTranscription(
         id: String, service: TranscriptionService, audioURL: URL, model: String,
-        language: String, speakerCount: Int?, hotWords: [String]
+        language: String, speakerCount: Int?, hotWords: [String], mode: TranscriptionMode
     ) async {
         defer { transcriptions[id] = nil }
         if Task.isCancelled {
@@ -300,7 +301,7 @@ final class AppModel {
         }
         do {
             let result = try await service.transcribe(
-                audioURL: audioURL, model: model, language: language, speakerCount: speakerCount, hotWords: hotWords
+                audioURL: audioURL, model: model, language: language, speakerCount: speakerCount, hotWords: hotWords, mode: mode
             ) { [weak self] progress, stage in
                 Task { @MainActor in
                     guard let self, self.transcriptions[id] != nil else { return }
