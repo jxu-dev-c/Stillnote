@@ -2,6 +2,11 @@ import Foundation
 
 /// Structured output from a transcription run.
 public struct TranscribeResult: Sendable, Equatable {
+    public var contextCacheBytes: Int
+    public var pcmReadTime: TimeInterval
+    public var encodingTime: TimeInterval
+    public var prefillTime: TimeInterval
+    public var decodingTime: TimeInterval
     public var text: String
     public var segments: [TranscriptSegment]
     public var promptTokens: Int
@@ -21,8 +26,14 @@ public struct TranscribeResult: Sendable, Equatable {
         promptTokensPerSecond: Double = 0,
         generationTokensPerSecond: Double = 0,
         totalTime: TimeInterval = 0,
-        peakMemoryGB: Double = 0
+        peakMemoryGB: Double = 0, contextCacheBytes: Int = 0, pcmReadTime: TimeInterval = 0, encodingTime: TimeInterval = 0,
+        prefillTime: TimeInterval = 0, decodingTime: TimeInterval = 0
     ) {
+        self.contextCacheBytes = contextCacheBytes
+        self.pcmReadTime = pcmReadTime
+        self.encodingTime = encodingTime
+        self.prefillTime = prefillTime
+        self.decodingTime = decodingTime
         self.text = text
         self.segments = segments
         self.promptTokens = promptTokens
@@ -41,8 +52,16 @@ public enum TranscribeEvent: Sendable {
     case finished(TranscribeResult)
 }
 
-/// Parameters controlling generation (aligned with Python MLX CLI).
+/// Context storage precision. Four-bit mode protects the first/last two layers at eight bits.
+public enum ContextCache: Sendable, Equatable {
+    case original, eightBit, fourBit
+    public var bits: Int? { switch self { case .original: nil; case .eightBit: 8; case .fourBit: 4 } }
+}
+
+/// Parameters controlling generation. Memory budgets are bytes and apply per generation.
 public struct GenerateParameters: Sendable, Equatable {
+    public var contextCache: ContextCache
+    public var memoryBudget: Int?
     public var maxTokens: Int
     public var temperature: Float
     public var topP: Float
@@ -55,7 +74,7 @@ public struct GenerateParameters: Sendable, Equatable {
     public var hotwords: [String]
 
     public init(
-        maxTokens: Int = 2048,
+        maxTokens: Int = 2048, contextCache: ContextCache = .original, memoryBudget: Int? = nil,
         temperature: Float = 0.0,
         topP: Float = 1.0,
         topK: Int = 0,
@@ -66,6 +85,8 @@ public struct GenerateParameters: Sendable, Equatable {
         prompt: String? = nil,
         hotwords: [String] = []
     ) {
+        self.contextCache = contextCache
+        self.memoryBudget = memoryBudget
         self.maxTokens = maxTokens
         self.temperature = temperature
         self.topP = topP

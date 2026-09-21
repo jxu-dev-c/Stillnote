@@ -15,19 +15,33 @@ public enum ReasoningEffort: String, Codable, CaseIterable, Sendable {
     public var label: String { rawValue.capitalized }
 }
 
+public enum TranscriptionMode: String, Codable, CaseIterable, Sendable {
+    case quality, balanced
+    case lowMemory = "low-memory"
+    public var label: String { switch self { case .quality: "Quality"; case .balanced: "Balanced"; case .lowMemory: "Low Memory" } }
+    public var detail: String { switch self {
+    case .quality: "Prioritizes transcription accuracy and speaker consistency. Uses more memory."
+    case .balanced: "Uses less memory while keeping the whole meeting in context. Recognition may differ."
+    case .lowMemory: "Uses the least memory. Accuracy and speaker labels may differ."
+    } }
+    public var prefillStepSize: Int { switch self { case .quality: 512; case .balanced: 128; case .lowMemory: 64 } }
+}
+
 public struct TranscriptionSettings: Codable, Hashable, Sendable {
     public var model: String
     public var language: String
     public var speakerCount: Int?
     public var hotWords: [String]
+    public var mode: TranscriptionMode
 
     enum CodingKeys: String, CodingKey {
-        case model, language
+        case model, language, mode
         case speakerCount = "speaker_count"
         case hotWords = "hot_words"
     }
 
-    public init(model: String = SpeechCatalog.defaultModel, language: String = "auto", speakerCount: Int? = nil, hotWords: [String] = []) {
+    public init(model: String = SpeechCatalog.defaultModel, language: String = "auto", speakerCount: Int? = nil, hotWords: [String] = [], mode: TranscriptionMode = .quality) {
+        self.mode = mode
         self.model = model
         self.language = language
         self.speakerCount = speakerCount
@@ -46,7 +60,8 @@ public struct TranscriptionSettings: Codable, Hashable, Sendable {
             model: try values.decode(String.self, forKey: .model),
             language: try values.decode(String.self, forKey: .language),
             speakerCount: try values.decodeIfPresent(Int.self, forKey: .speakerCount),
-            hotWords: try values.decodeIfPresent([String].self, forKey: .hotWords) ?? []
+            hotWords: try values.decodeIfPresent([String].self, forKey: .hotWords) ?? [],
+            mode: (try values.decodeIfPresent(String.self, forKey: .mode)).flatMap(TranscriptionMode.init(rawValue:)) ?? .quality
         )
     }
 }
@@ -130,7 +145,8 @@ public struct AppSettings: Codable, Hashable, Sendable {
             model: model,
             language: transcription["language"] as? String ?? "auto",
             speakerCount: transcription["speaker_count"] as? Int,
-            hotWords: transcription["hot_words"] as? [String] ?? []
+            hotWords: transcription["hot_words"] as? [String] ?? [],
+            mode: (transcription["mode"] as? String).flatMap(TranscriptionMode.init(rawValue:)) ?? .quality
         )
 
         let summary = object["summary"] as? [String: Any] ?? [:]

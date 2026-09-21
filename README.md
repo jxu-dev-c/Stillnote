@@ -114,6 +114,20 @@ Bug reports, suggestions, and pull requests are welcome. Read the
 `./scripts/check.sh` before submitting a pull request. Use synthetic examples
 instead of private meeting content.
 
+### Transcription modes
+
+Choose a mode in **Settings → Transcription → Mode**. **Quality** is the default and
+preserves the model's original context precision. **Balanced** compresses context
+memory moderately. **Low Memory** compresses it further; recognition and speaker
+labels can differ. Every mode uses the same installed model and keeps the whole
+meeting in context. No additional downloads are required.
+
+The choice is saved automatically and applies to jobs queued afterward, including
+retranscriptions. If the selected mode cannot fit the Mac's memory budget, the job
+stops and suggests a lower-memory mode or shorter recording. Existing transcripts
+remain intact. Compression reduces context storage; it does not guarantee faster
+transcription. See [performance verification](docs/TRANSCRIPTION-PERFORMANCE.md).
+
 ### Transcription hot words
 
 In **Settings → Transcription → Hot words**, enter one word or phrase per line,

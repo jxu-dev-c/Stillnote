@@ -9,6 +9,13 @@ Local patches:
 - Remove unused CLI/demo products, SwiftUI views, session/pipeline wrappers, web studio,
   benchmark runner, FFmpeg/subtitle tools, and their dedicated tests. Keep the model
   configuration and transcript parser tests; both support retained inference code.
+- Read PCM files in bounded 30-second windows without retaining a complete waveform.
+- Skip vocabulary projection during intermediate prefill; evaluate KV state explicitly.
+- Pipeline greedy decoding; release prompt embeddings after prefill and synchronize on exit.
+- Use bounded allocation reuse, stage timings, and projected memory-budget guards.
+- Support 8-bit KV and 4-bit KV with the first/last two layers protected at 8-bit.
+  Uniform 4-bit KV returned an empty transcript on a real speech fixture.
+- Supply additive negative-infinity masks to the pinned quantized attention helper.
 - Encode 30-second windows sequentially, evaluating each before releasing intermediate
   tensors. Concatenate their embeddings into one decoder context for stable speakers.
 - Report encoding, prefill, and complete decoded prefixes during generation.

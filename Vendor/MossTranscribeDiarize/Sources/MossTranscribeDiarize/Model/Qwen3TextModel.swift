@@ -64,18 +64,24 @@ final class Qwen3TextAttention: Module {
         if let cache {
             queries = rope(queries, offset: cache.offset)
             keys = rope(keys, offset: cache.offset)
-            (keys, values) = cache.update(keys: keys, values: values)
         } else {
             queries = rope(queries)
             keys = rope(keys)
         }
 
-        let output = MLXFast.scaledDotProductAttention(
-            queries: queries,
-            keys: keys,
-            values: values,
-            scale: scale,
-            mask: mask
+        // The pinned quantized helper handles additive masks correctly; its
+        // boolean/causal branches use a positive sentinel instead of -infinity.
+        let effectiveMask: MLXFast.ScaledDotProductAttentionMaskMode
+        if cache is QuantizedKVCache, length > 1 {
+            let offset = cache?.offset ?? 0
+            let rows = MLXArray(0..<length) + offset
+            let columns = MLXArray(0..<(offset + length))
+            effectiveMask = .array(MLX.where(rows.expandedDimensions(axis: -1) .>= columns,
+                MLXArray(Float(0)), MLXArray(-Float.infinity)).asType(queries.dtype))
+        } else { effectiveMask = mask }
+        let output = attentionWithCacheUpdate(
+            queries: queries, keys: keys, values: values, cache: cache,
+            scale: scale, mask: effectiveMask
         )
         .transposed(0, 2, 1, 3)
         .reshaped(batch, length, -1)

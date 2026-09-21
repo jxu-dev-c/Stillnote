@@ -24,12 +24,17 @@ struct TranscriptionSettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var language = "auto"
     @State private var speakerCount: Int?
+    @State private var mode = TranscriptionMode.quality
     @State private var hotWordsText = ""
     @State private var savingHotWords = false
 
     var body: some View {
         Form {
             Section("Defaults") {
+                Picker("Mode", selection: $mode) {
+                    ForEach(TranscriptionMode.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                Text(mode.detail).font(.caption).foregroundStyle(.secondary)
                 TranscriptionOptionFields(language: $language, speakerCount: $speakerCount)
             }
 
@@ -102,10 +107,12 @@ struct TranscriptionSettingsView: View {
         }
         .formStyle(.grouped)
         .onAppear {
+            mode = model.settings.transcription.mode
             language = model.settings.transcription.language
             speakerCount = model.settings.transcription.speakerCount
             hotWordsText = model.settings.transcription.hotWords.joined(separator: "\n")
         }
+        .onChange(of: mode) { save() }
         .onChange(of: language) { save() }
         .onChange(of: speakerCount) { save() }
     }
@@ -121,8 +128,9 @@ struct TranscriptionSettingsView: View {
 
     private func save() {
         var updated = model.settings
-        guard updated.transcription.language != language || updated.transcription.speakerCount != speakerCount
+        guard updated.transcription.mode != mode || updated.transcription.language != language || updated.transcription.speakerCount != speakerCount
         else { return }
+        updated.transcription.mode = mode
         updated.transcription.language = language
         updated.transcription.speakerCount = speakerCount
         Task { await model.saveSettings(updated) }

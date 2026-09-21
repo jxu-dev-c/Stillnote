@@ -18,7 +18,7 @@ public struct TranscriptionService: Sendable {
     }
 
     public func transcribe(
-        audioURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String] = [],
+        audioURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String] = [], mode: TranscriptionMode = .quality,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> TranscriptionResult {
         _ = try SpeechCatalog.spec(model)
@@ -54,7 +54,7 @@ public struct TranscriptionService: Sendable {
 
         let text = try await runWorker(
             worker: worker, pcmURL: scratch, model: model, language: language,
-            speakerCount: speakerCount, hotWords: hotWords, progress: progress
+            speakerCount: speakerCount, hotWords: hotWords, mode: mode, progress: progress
         )
         let result = try MossParser.parse(text, duration: decoded.duration, language: language)
         progress(100, "Local transcription complete")
@@ -62,7 +62,7 @@ public struct TranscriptionService: Sendable {
     }
 
     func workerArguments(
-        pcmURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String]
+        pcmURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String], mode: TranscriptionMode = .quality
     ) throws -> [String] {
         var arguments = [
             pcmURL.path,
@@ -70,20 +70,21 @@ public struct TranscriptionService: Sendable {
             language.isEmpty ? "auto" : language, String(speakerCount ?? 0),
         ]
         let words = TranscriptionSettings.normalizeHotWords(hotWords)
-        if !words.isEmpty {
+        if !words.isEmpty || mode != .quality {
             arguments.append(String(decoding: try JSONEncoder().encode(words), as: UTF8.self))
         }
+        if mode != .quality { arguments.append(mode.rawValue) }
         return arguments
     }
 
     func runWorker(
-        worker: URL, pcmURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String],
+        worker: URL, pcmURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String], mode: TranscriptionMode = .quality,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> String {
         let process = Process()
         process.executableURL = worker
         process.arguments = try workerArguments(
-            pcmURL: pcmURL, model: model, language: language, speakerCount: speakerCount, hotWords: hotWords
+            pcmURL: pcmURL, model: model, language: language, speakerCount: speakerCount, hotWords: hotWords, mode: mode
         )
         var environment = ProcessInfo.processInfo.environment
         // Defense in depth: the helper only loads an already verified local directory.
@@ -98,16 +99,25 @@ public struct TranscriptionService: Sendable {
         process.standardInput = FileHandle.nullDevice
 
         let collector = WorkerOutput(progress: progress)
-        try process.run()
+        // Register before launch so even an immediately exiting worker is observed.
+        // waitUntilExit can strand a cooperative executor in a Foundation run loop.
+        let (exitEvents, exitContinuation) = AsyncStream<Int32>.makeStream()
+        process.terminationHandler = { ended in
+            exitContinuation.yield(ended.terminationStatus)
+            exitContinuation.finish()
+        }
+        do { try process.run() }
+        catch { exitContinuation.finish(); throw error }
 
         return try await withTaskCancellationHandler {
             await collector.read(from: output.fileHandleForReading)
-            process.waitUntilExit()
+            var exitCode: Int32?
+            for await code in exitEvents { exitCode = code; break }
             if Task.isCancelled { throw SpeechError.cancelled }
             if let message = await collector.error {
                 throw SpeechError.message(message)
             }
-            guard process.terminationStatus == 0, let text = await collector.text else {
+            guard exitCode == 0, let text = await collector.text else {
                 throw SpeechError.message(
                     "The local speech worker stopped unexpectedly. Your recording is saved. "
                         + "Try again, use a shorter recording, or reinstall Stillnote."
