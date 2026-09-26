@@ -54,5 +54,23 @@
         "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
       }
     }
+  },
+  "silero-vad": {
+    "repo": "mlx-community/silero-vad",
+    "revision": "7bc17f22d3c0451bd3a6cd71e759b009271ff49a",
+    "name": "Silero VAD",
+    "tier": "Silence detection",
+    "kind": "vad",
+    "directory": "silero-vad",
+    "files": {
+      "config.json": {
+        "size": 549,
+        "sha256": "f411ebae77d635372a636645fca4a4bb574b2da73e49b21bfef9685ae90e31bc"
+      },
+      "model.safetensors": {
+        "size": 2179454,
+        "sha256": "185e0bc3ee2c48ce425a37209fe917a1aca22ab6b85799430dd1b4894087a8b8"
+      }
+    }
   }
 }
