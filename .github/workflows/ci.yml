@@ -1,7 +1,19 @@
 name: Checks
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    # A branch push is covered by its pull request, and a tag push is covered by Release, which
+    # runs these same scripts. Without this filter every pull request commit ran twice and every
+    # release tag ran the checks a second time.
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  # head_ref is set only for a pull request, so its runs share a group and a new commit supersedes
+  # the one before it. A push to master falls back to its commit, so those never cancel or queue.
+  group: checks-${{ github.head_ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   checks:
     runs-on: macos-26
