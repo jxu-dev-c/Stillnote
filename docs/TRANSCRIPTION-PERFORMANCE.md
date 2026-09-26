@@ -21,6 +21,27 @@ The check runs before encoding and prefill and as output grows. It does not rese
 the maximum output-token allowance or silently change modes. This is an estimate,
 not an operating-system memory reservation or a guarantee against external pressure.
 
+## Recording cleanup
+
+Silence detection is Silero VAD in the worker (`StillnoteSpeechWorker vad`). Measured on an
+M5 MacBook Pro: about 10 seconds for a 55-minute recording, against roughly 310 seconds for
+MOSS on a 22-minute one, so detection costs a small fraction of what trimming saves. Trimming
+is where the time goes, because the token budget scales with duration
+(`SpeechWorkerRequest.tokenBudget(duration:)`): a recording left running after its meeting
+ended shrinks to its speech, and everything downstream shrinks with it.
+
+Gating non-speech did not measurably change recognition in local checks: across a set of
+private recordings, word counts moved by under one percent and vocabulary overlap stayed above
+90%, with the differences appearing as segmentation at pause boundaries, which gating
+necessarily moves. This is **not** WER and not a controlled comparison — it is a regression
+guard, and `cleanupPreservesARealTranscript` in the opt-in integration suite enforces it
+against whatever recording the operator supplies. Measurements were taken on private meeting
+audio that is not in source control; reproduce with your own recording.
+
+Speech is deliberately never filtered. Published results show speech enhancement ahead of a
+modern recognizer raising word error rate even when it improves perceptual quality, so only
+regions with no detected speech are touched.
+
 ## Reproduce
 
 Run `scripts/check.sh` for the unit suite, including GPU attention and PCM tests.
@@ -48,7 +69,18 @@ measurements on a physical 16 GB Mac.
 
 The app's existing opt-in integration suite accepts `STILLNOTE_INTEGRATION_AUDIO`
 and `STILLNOTE_TEST_WORKER`. It covers offline transcription, silence, and process
-cancellation without changing existing meeting transcripts.
+cancellation without changing existing meeting transcripts. `STILLNOTE_INTEGRATION_AUDIO`
+also drives `cleanupPreservesARealTranscript`, which transcribes the same recording with
+cleanup off and on and compares them; it needs the Silero VAD model installed.
+
+To check silence detection alone, run the worker directly:
+
+```sh
+StillnoteSpeechWorker vad /path/to/audio.f32 <models>/speech/silero-vad
+```
+
+It emits one `ranges` event in seconds, so a detector change can be inspected without
+spending a transcription run on it.
 
 To validate saved benchmark outputs with the app's actual transcript parser, set
 `STILLNOTE_BENCHMARK_RESULTS` to the result JSON when running

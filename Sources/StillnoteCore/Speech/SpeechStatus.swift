@@ -6,6 +6,9 @@ public struct SpeechStatus: Sendable, Equatable {
     public var downloadMegabytes: Int
     public var infoURL: URL?
     public var modelInstalled: Bool
+    /// The silence detection model is a separate, much smaller download. It is deliberately
+    /// not part of `ready`: an install that predates it must keep transcribing.
+    public var cleanupAvailable: Bool
     public var runtimeReady: Bool
     public var missingRequirements: [String]
     public var installing: Bool
@@ -21,7 +24,8 @@ public struct SpeechStatus: Sendable, Equatable {
     /// prompt that cannot be shown until the app has a window.
     public static let unknown = SpeechStatus(
         model: SpeechCatalog.defaultModel, modelName: "MOSS 0.9B", downloadMegabytes: 0, infoURL: nil,
-        modelInstalled: false, runtimeReady: false, missingRequirements: [], installing: false,
+        modelInstalled: false, cleanupAvailable: false, runtimeReady: false,
+        missingRequirements: [], installing: false,
         progress: 0, error: nil, detail: "Checking the local speech setup…"
     )
 
@@ -50,6 +54,9 @@ public struct SpeechStatus: Sendable, Equatable {
             downloadMegabytes: spec?.downloadMegabytes ?? 0,
             infoURL: spec?.infoURL,
             modelInstalled: installed,
+            cleanupAvailable: ModelInstaller.isInstalled(
+                modelDirectory: modelDirectory, model: SpeechCatalog.vadModel
+            ),
             runtimeReady: runtime,
             missingRequirements: missing,
             installing: installing,

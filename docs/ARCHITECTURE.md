@@ -19,8 +19,8 @@ Sources/StillnoteSpeechWorker  bundled native MLX executable; models download se
 | `Sources/StillnoteCore/Models/` | `Meeting`, `Segment`, `MeetingSummary`, `ContextLink`, `AppSettings`, input bounds, formatting. |
 | `Sources/StillnoteCore/Store/` | `Paths` (Application Support layout, checkout adoption) and the `Store` actor over SQLite. |
 | `Sources/StillnoteCore/Capture/` | ScreenCaptureKit session, device and permission discovery, session persistence and recovery. |
-| `Sources/StillnoteCore/Audio/` | Decoding to 16 kHz mono, bounded-memory mixing, MP4 muxing, extension resolution for stored media. |
-| `Sources/StillnoteCore/Speech/` | Model manifest, verified download, readiness, MOSS worker driver, transcript parsing. |
+| `Sources/StillnoteCore/Audio/` | Decoding to 16 kHz mono, bounded-memory mixing, silence trimming and non-speech suppression, MP4 muxing, extension resolution for stored media. |
+| `Sources/StillnoteCore/Speech/` | Model manifest, verified download, readiness, MOSS and silence-detection worker drivers, transcript parsing. |
 | `Sources/StillnoteCore/Summary/` | Headless Codex/Claude Code adapters over `posix_spawn`, chunking, validation, local merging. |
 | `Sources/StillnoteCore/Export/` | Markdown, plain text, SRT, and JSON exports. |
 | `Sources/Stillnote/` | `AppModel` (observable state, job orchestration) and the SwiftUI screens. |
@@ -45,7 +45,8 @@ Claude Code, dropping obsolete API credentials, without touching saved meetings.
 ```
 Meeting = {id,title,created_at,updated_at,duration,status:'ready'|'transcribing'|'transcribed'|'summarizing'|'complete'|'error',
   progress,stage,error,audio_name,audio_url,video_url,summary_include_video_path,language,speaker_count,
-  speakers:Record<string,string>,segments:Segment[],summary:Summary|null,notes,context_links:ContextLink[]}
+  speakers:Record<string,string>,segments:Segment[],summary:Summary|null,notes,context_links:ContextLink[],
+  cleanup:{original_duration,head,tail,applied_at}|null}
 Segment = {id,start,end,speaker,text}
 Summary = {overview,key_points[],decisions[],action_items:[{text,owner,due}],provider,model,generated_at}
 ContextLink = {url,title}
@@ -70,6 +71,17 @@ sample, so removed pauses stay aligned across sources and sparse gaps read as si
 Levels are reported every 200 ms. Capture stops if microphone callbacks cease for eight
 seconds or after 90 minutes of recorded time.
 
+Finishing trims silence before anything else reads the mix, because screen video takes its
+audio from that file and cutting afterwards would leave the two tracks a silence apart. The
+detector locates speech, and leading and trailing non-speech is removed from the saved
+recording — the case where a recording kept running after the meeting ended. The policy
+refuses to cut unless sustained speech was found, at least a minute would be removed, and ten
+seconds would remain; a stray keystroke cannot move the boundaries, and a recording the
+detector does not understand is kept whole. Sessions with screen video lose only their tail,
+since a compressed video passthrough cannot begin mid-GOP. What was removed is recorded on the
+meeting as `cleanup`, which is the only surviving record: the per-source captures are deleted
+when a session is saved, so a trim cannot be undone. A failure here never fails a save.
+
 Screen video is fragmented H.264 MP4 at up to 1920 pixels wide and 15 fps with frame
 reordering disabled, so pause/resume timestamps remain safe to finalize. Audio-only
 sessions attach no screen output and write no images. Finishing mixes the sources in
@@ -82,7 +94,24 @@ Capture permissions are requested only when a recording is started.
 ## Speech
 
 The app decodes the recording to 16 kHz mono float32 with external media references
-forbidden, then runs the bundled `StillnoteSpeechWorker <pcm> <model-dir> <language>
+forbidden. Before inference it silences every region the detector found no speech in and
+removes a silent head and tail, writing a separate copy so the stored recording and its
+playback keep whatever was captured. Speech samples pass through unaltered: filtering speech
+before recognition costs accuracy, so only audio with no speech in it is touched, with a 10 ms
+fade at each boundary so the gate cannot introduce a click. Timestamps come back relative to
+the audio the model saw and are shifted by the removed head, then clamped to the stored
+recording, so the player stays in sync. The pass is skipped — never fatal — when the detector
+is unavailable or fails.
+
+Silence detection is `StillnoteSpeechWorker vad <pcm> <vad-model-dir> [<threshold>]`, which
+emits one `ranges` event. It is Silero VAD through `MLXAudioVAD`, fed 512 samples at a time
+with the LSTM state carried across about 30-second reads, so a 90-minute meeting is never
+resident in memory. It runs in the worker because that is what keeps MLX and Metal out of the
+app process; it deliberately does not go through `JobQueue`, because saving a recording must
+not wait behind an unrelated transcription and a 2 MB detector is not the contention that
+queue exists to prevent.
+
+Inference then runs the bundled `StillnoteSpeechWorker <pcm> <model-dir> <language>
 <speaker-count> [<hot-words-json> [<mode>]]`. The model loader accepts a verified local directory;
 no inference downloads or external executable dependencies are used. The worker emits
 `STILLNOTE_EVENT {json}` lines for progress, the raw transcript, or an actionable error;
@@ -98,7 +127,11 @@ invalidate the previous summary; a failed retranscription preserves existing cor
 
 Model setup is an explicit action that downloads public files only, verifying each file's
 size and SHA-256 before an atomic rename, and recording the publisher revision in
-`.verified`. Inference requires complete local files.
+`.verified`. Inference requires complete local files. Setup installs the engine and the
+silence detector together; a manifest entry declares its `kind`, so a supporting model can
+never be selected as a transcription engine, and its `directory`, so MOSS keeps the install
+path it has always used. The detector is not part of `ready`: an install that predates it
+keeps transcribing, with cleanup skipped until it is downloaded.
 
 ## Summaries
 

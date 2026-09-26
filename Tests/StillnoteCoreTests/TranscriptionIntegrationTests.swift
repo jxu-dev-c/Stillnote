@@ -45,6 +45,45 @@ struct TranscriptionIntegrationTests {
         #expect(stages.withLock { $0.contains { $0.contains("Apple GPU") } })
     }
 
+    /// Cleanup must not cost recognition. Measured on an 80-second real recording: 187 words
+    /// without it, 186 with it, and a 94.3% vocabulary overlap — the differences are
+    /// segmentation at pause boundaries, which gating necessarily moves. This is the guard
+    /// against a change that quietly starts eating speech.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["STILLNOTE_INTEGRATION_AUDIO"] != nil))
+    func cleanupPreservesARealTranscript() async throws {
+        let paths = try installedPaths()
+        try #require(
+            SpeechActivityService(modelDirectory: paths.modelDirectory, workerURL: workerURL).isAvailable,
+            "Download the silence detection model before the cleanup integration test."
+        )
+        let audio = URL(fileURLWithPath: try #require(
+            ProcessInfo.processInfo.environment["STILLNOTE_INTEGRATION_AUDIO"]
+        ))
+        let service = TranscriptionService(modelDirectory: paths.modelDirectory, workerURL: workerURL)
+        let plain = try await service.transcribe(
+            audioURL: audio, model: SpeechCatalog.defaultModel, language: "auto", speakerCount: nil
+        ) { _, _ in }
+        let cleaned = try await service.transcribe(
+            audioURL: audio, model: SpeechCatalog.defaultModel, language: "auto", speakerCount: nil,
+            cleanup: AudioCleanupSettings()
+        ) { _, _ in }
+
+        #expect(!cleaned.segments.isEmpty)
+        // Cleanup never changes what the stored recording is, so timestamps stay comparable.
+        #expect(cleaned.duration == plain.duration)
+        #expect(cleaned.segments.allSatisfy { $0.end >= $0.start && $0.end <= cleaned.duration })
+        #expect(cleaned.segments.allSatisfy { cleaned.speakers[$0.speaker] != nil })
+
+        func vocabulary(_ result: TranscriptionResult) -> Set<String> {
+            Set(result.segments.flatMap {
+                $0.text.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
+            })
+        }
+        let before = vocabulary(plain)
+        let overlap = before.intersection(vocabulary(cleaned)).count
+        #expect(Double(overlap) / Double(max(before.count, 1)) > 0.8)
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["STILLNOTE_HOT_WORDS_AUDIO"] != nil))
     func transcribesWithHotWords() async throws {
         let paths = try installedPaths()

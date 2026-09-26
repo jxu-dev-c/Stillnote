@@ -27,6 +27,9 @@ struct TranscriptionSettingsView: View {
     @State private var mode = TranscriptionMode.quality
     @State private var hotWordsText = ""
     @State private var savingHotWords = false
+    @State private var trimRecording = true
+    @State private var suppressNonSpeech = true
+    @State private var sensitivity = CleanupSensitivity.balanced
 
     var body: some View {
         Form {
@@ -36,6 +39,24 @@ struct TranscriptionSettingsView: View {
                 }
                 Text(mode.detail).font(.caption).foregroundStyle(.secondary)
                 TranscriptionOptionFields(language: $language, speakerCount: $speakerCount)
+            }
+
+            Section("Recording cleanup") {
+                Toggle("Trim silence from saved recordings", isOn: $trimRecording)
+                Text("Removes leading and trailing silence when a recording is saved, for the times a recording kept running after the meeting ended. The recording file is rewritten, and only cuts longer than a minute are applied.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Silence background noise between speech", isOn: $suppressNonSpeech)
+                Text("Mutes typing, fans, and static wherever nobody is speaking, in the copy sent to transcription only. Speech itself is never filtered, so recognition accuracy is unaffected and playback keeps the original audio.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Picker("Sensitivity", selection: $sensitivity) {
+                    ForEach(CleanupSensitivity.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                .disabled(!trimRecording && !suppressNonSpeech)
+                Text(sensitivity.detail).font(.caption).foregroundStyle(.secondary)
+                if !model.speech.cleanupAvailable {
+                    Text("Download the speech models to enable cleanup. Until then recordings are saved and transcribed in full.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
 
             Section("Hot words") {
@@ -111,10 +132,16 @@ struct TranscriptionSettingsView: View {
             language = model.settings.transcription.language
             speakerCount = model.settings.transcription.speakerCount
             hotWordsText = model.settings.transcription.hotWords.joined(separator: "\n")
+            trimRecording = model.settings.cleanup.trimRecording
+            suppressNonSpeech = model.settings.cleanup.suppressNonSpeech
+            sensitivity = model.settings.cleanup.sensitivity
         }
         .onChange(of: mode) { save() }
         .onChange(of: language) { save() }
         .onChange(of: speakerCount) { save() }
+        .onChange(of: trimRecording) { save() }
+        .onChange(of: suppressNonSpeech) { save() }
+        .onChange(of: sensitivity) { save() }
     }
 
     private var normalizedHotWords: [String] {
@@ -128,11 +155,18 @@ struct TranscriptionSettingsView: View {
 
     private func save() {
         var updated = model.settings
-        guard updated.transcription.mode != mode || updated.transcription.language != language || updated.transcription.speakerCount != speakerCount
+        guard updated.transcription.mode != mode || updated.transcription.language != language
+            || updated.transcription.speakerCount != speakerCount
+            || updated.cleanup.trimRecording != trimRecording
+            || updated.cleanup.suppressNonSpeech != suppressNonSpeech
+            || updated.cleanup.sensitivity != sensitivity
         else { return }
         updated.transcription.mode = mode
         updated.transcription.language = language
         updated.transcription.speakerCount = speakerCount
+        updated.cleanup.trimRecording = trimRecording
+        updated.cleanup.suppressNonSpeech = suppressNonSpeech
+        updated.cleanup.sensitivity = sensitivity
         Task { await model.saveSettings(updated) }
     }
 }

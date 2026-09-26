@@ -18,7 +18,12 @@ private final class Latch: @unchecked Sendable {
 }
 
 public enum VideoMuxer {
-    public static func mux(screen: URL, audio: URL, to destination: URL) async throws {
+    /// `timeRange` limits both tracks to one span of the source timeline. Video stays a
+    /// compressed passthrough, so the range must start on a sync sample; callers that cannot
+    /// guarantee that pass a range starting at zero.
+    public static func mux(
+        screen: URL, audio: URL, to destination: URL, timeRange: CMTimeRange? = nil
+    ) async throws {
         try? FileManager.default.removeItem(at: destination)
         let screenAsset = AVURLAsset(url: screen)
         let audioAsset = AVURLAsset(url: audio)
@@ -30,12 +35,14 @@ public enum VideoMuxer {
         }
 
         let reader = try AVAssetReader(asset: screenAsset)
+        if let timeRange { reader.timeRange = timeRange }
         // A nil output setting hands back the original compressed samples.
         let videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: nil)
         videoOutput.alwaysCopiesSampleData = false
         reader.add(videoOutput)
 
         let audioReader = try AVAssetReader(asset: audioAsset)
+        if let timeRange { audioReader.timeRange = timeRange }
         let audioOutput = AVAssetReaderTrackOutput(
             track: audioTrack,
             outputSettings: [
@@ -70,7 +77,7 @@ public enum VideoMuxer {
         guard writer.startWriting() else {
             throw writer.error ?? AudioMixError.message("Could not start saving the screen recording.")
         }
-        writer.startSession(atSourceTime: .zero)
+        writer.startSession(atSourceTime: timeRange?.start ?? .zero)
         reader.startReading()
         audioReader.startReading()
 

@@ -76,6 +76,37 @@ public struct MeetingSummary: Codable, Hashable, Sendable {
     }
 }
 
+/// What a silence trim removed from a stored recording. The raw per-source captures are
+/// deleted when a session is saved, so this is the only record of the original length.
+public struct MeetingCleanup: Codable, Hashable, Sendable {
+    public var originalDuration: Double
+    public var head: Double
+    public var tail: Double
+    public var appliedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case head, tail
+        case originalDuration = "original_duration"
+        case appliedAt = "applied_at"
+    }
+
+    public init(originalDuration: Double, head: Double, tail: Double, appliedAt: String = Meeting.now()) {
+        self.originalDuration = originalDuration
+        self.head = head
+        self.tail = tail
+        self.appliedAt = appliedAt
+    }
+
+    public init(plan: CleanupPlan, appliedAt: String = Meeting.now()) {
+        self.init(
+            originalDuration: plan.originalDuration, head: plan.head, tail: plan.tail,
+            appliedAt: appliedAt
+        )
+    }
+
+    public var removedDuration: Double { head + tail }
+}
+
 public enum MeetingStatus: String, Codable, Sendable {
     case ready, transcribing, transcribed, summarizing, complete, error
 
@@ -107,9 +138,10 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     public var summary: MeetingSummary?
     public var notes: String
     public var contextLinks: [ContextLink]
+    public var cleanup: MeetingCleanup?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, duration, status, progress, stage, error, language, speakers, segments, summary, notes
+        case id, title, duration, status, progress, stage, error, language, speakers, segments, summary, notes, cleanup
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case audioName = "audio_name"
@@ -145,11 +177,13 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         summary = try values.decodeIfPresent(MeetingSummary.self, forKey: .summary)
         notes = try values.decodeIfPresent(String.self, forKey: .notes) ?? ""
         contextLinks = try values.decodeIfPresent([ContextLink].self, forKey: .contextLinks) ?? []
+        cleanup = try values.decodeIfPresent(MeetingCleanup.self, forKey: .cleanup)
     }
 
     public init(
         id: String, title: String, audioName: String, language: String, speakerCount: Int?,
-        duration: Double, videoName: String? = nil, error: String? = nil
+        duration: Double, videoName: String? = nil, error: String? = nil,
+        cleanup: MeetingCleanup? = nil
     ) {
         let timestamp = Meeting.now()
         self.id = id
@@ -173,6 +207,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         self.summary = nil
         self.notes = ""
         self.contextLinks = []
+        self.cleanup = cleanup
     }
 
     public var hasVideo: Bool { videoURL != nil }

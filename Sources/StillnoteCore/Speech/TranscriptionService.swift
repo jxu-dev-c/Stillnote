@@ -17,8 +17,12 @@ public struct TranscriptionService: Sendable {
         self.workerOverride = workerURL
     }
 
+    /// `cleanup` removes silent head and tail and silences non-speech regions in the copy
+    /// handed to the model. It never touches `audioURL`, so playback and exports keep whatever
+    /// was actually recorded, and `nil` skips the pass entirely.
     public func transcribe(
         audioURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String] = [], mode: TranscriptionMode = .quality,
+        cleanup: AudioCleanupSettings? = nil,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> TranscriptionResult {
         _ = try SpeechCatalog.spec(model)
@@ -50,15 +54,70 @@ public struct TranscriptionService: Sendable {
             )
         }
         try Task.checkCancellation()
+
+        let prepared = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stillnote-clean-\(UUID().uuidString).f32")
+        defer { try? FileManager.default.removeItem(at: prepared) }
+        let cleaned = try await prepare(
+            decoded: decoded, into: prepared, settings: cleanup, progress: progress
+        )
+
+        try Task.checkCancellation()
         progress(8, "Loading \(status.modelName) locally")
 
         let text = try await runWorker(
-            worker: worker, pcmURL: scratch, model: model, language: language,
+            worker: worker, pcmURL: cleaned.pcmURL, model: model, language: language,
             speakerCount: speakerCount, hotWords: hotWords, mode: mode, progress: progress
         )
-        let result = try MossParser.parse(text, duration: decoded.duration, language: language)
+        // Timestamps come back relative to the audio the model saw; the offset puts them
+        // back on the stored recording's timeline.
+        let result = try MossParser.parse(
+            text, duration: decoded.duration, language: language, offset: cleaned.offset
+        )
         progress(100, "Local transcription complete")
         return result
+    }
+
+    /// Applies the cleanup pass, falling back to the untouched audio whenever it cannot run.
+    /// A recording is worth transcribing even when silence detection is unavailable or fails,
+    /// so nothing here turns a working transcription into a failed one.
+    private func prepare(
+        decoded: DecodedAudio, into destination: URL, settings: AudioCleanupSettings?,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> (pcmURL: URL, offset: Double) {
+        let untouched = (pcmURL: decoded.pcmURL, offset: Double(0))
+        guard let settings, settings.trimRecording || settings.suppressNonSpeech else { return untouched }
+        let detector = workerOverride.map { SpeechActivityService(modelDirectory: modelDirectory, workerURL: $0) }
+            ?? SpeechActivityService(modelDirectory: modelDirectory)
+        guard detector.isAvailable else { return untouched }
+
+        do {
+            progress(3, "Detecting speech")
+            let ranges = try await detector.detect(pcmURL: decoded.pcmURL, settings: settings) { fraction, _ in
+                progress(3 + 0.03 * fraction, "Detecting speech")
+            }
+            try Task.checkCancellation()
+            let plan = settings.trimRecording
+                ? AudioCleanup.plan(
+                    ranges: ranges, duration: decoded.duration, settings: settings, allowHeadCut: true
+                )
+                : CleanupPlan.noTrim(duration: decoded.duration)
+            guard plan.trimsAnything || (settings.suppressNonSpeech && !ranges.isEmpty) else {
+                return untouched
+            }
+            progress(6, "Removing silence and background noise")
+            try AudioCleanup.preparePCM(
+                source: decoded.pcmURL, destination: destination, ranges: ranges, plan: plan,
+                suppressNonSpeech: settings.suppressNonSpeech
+            )
+            return (pcmURL: destination, offset: plan.head)
+        } catch is CancellationError {
+            throw SpeechError.cancelled
+        } catch SpeechError.cancelled {
+            throw SpeechError.cancelled
+        } catch {
+            return untouched
+        }
     }
 
     func workerArguments(
@@ -81,105 +140,18 @@ public struct TranscriptionService: Sendable {
         worker: URL, pcmURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String], mode: TranscriptionMode = .quality,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> String {
-        let process = Process()
-        process.executableURL = worker
-        process.arguments = try workerArguments(
-            pcmURL: pcmURL, model: model, language: language, speakerCount: speakerCount, hotWords: hotWords, mode: mode
+        let failed = "The local speech worker stopped unexpectedly. Your recording is saved. "
+            + "Try again, use a shorter recording, or reinstall Stillnote."
+        let collector = try await SpeechWorkerProcess.run(
+            worker: worker,
+            arguments: try workerArguments(
+                pcmURL: pcmURL, model: model, language: language, speakerCount: speakerCount,
+                hotWords: hotWords, mode: mode
+            ),
+            failureMessage: failed, progress: progress
         )
-        var environment = ProcessInfo.processInfo.environment
-        // Defense in depth: the helper only loads an already verified local directory.
-        environment["HF_HUB_OFFLINE"] = "1"
-        environment["HF_HUB_DISABLE_TELEMETRY"] = "1"
-        environment["TRANSFORMERS_OFFLINE"] = "1"
-        process.environment = environment
-
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
-
-        let collector = WorkerOutput(progress: progress)
-        // Register before launch so even an immediately exiting worker is observed.
-        // waitUntilExit can strand a cooperative executor in a Foundation run loop.
-        let (exitEvents, exitContinuation) = AsyncStream<Int32>.makeStream()
-        process.terminationHandler = { ended in
-            exitContinuation.yield(ended.terminationStatus)
-            exitContinuation.finish()
-        }
-        do { try process.run() }
-        catch { exitContinuation.finish(); throw error }
-
-        return try await withTaskCancellationHandler {
-            await collector.read(from: output.fileHandleForReading)
-            var exitCode: Int32?
-            for await code in exitEvents { exitCode = code; break }
-            if Task.isCancelled { throw SpeechError.cancelled }
-            if let message = await collector.error {
-                throw SpeechError.message(message)
-            }
-            guard exitCode == 0, let text = await collector.text else {
-                throw SpeechError.message(
-                    "The local speech worker stopped unexpectedly. Your recording is saved. "
-                        + "Try again, use a shorter recording, or reinstall Stillnote."
-                )
-            }
-            return text
-        } onCancel: {
-            guard process.isRunning else { return }
-            process.terminate()
-            // Give MLX two seconds to release the GPU before forcing the issue.
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-            }
-        }
-    }
-}
-
-/// Parses the worker's newline-delimited event stream. Native libraries may print
-/// diagnostics on the same pipe; anything without the event prefix is ignored and is
-/// never surfaced as meeting content or as an error message.
-actor WorkerOutput {
-    private static let prefix = "STILLNOTE_EVENT "
-    private let progress: @Sendable (Double, String) -> Void
-    private(set) var text: String?
-    private(set) var error: String?
-
-    init(progress: @escaping @Sendable (Double, String) -> Void) {
-        self.progress = progress
-    }
-
-    func read(from handle: FileHandle) async {
-        var buffer = Data()
-        while true {
-            // availableData returns as soon as pipe bytes arrive. A fixed-size
-            // read can wait for the entire buffer, hiding progress until exit.
-            let chunk = await Task.detached { handle.availableData }.value
-            guard !chunk.isEmpty else { break }
-            buffer.append(chunk)
-            while let newline = buffer.firstIndex(of: 0x0A) {
-                let line = String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self)
-                buffer.removeSubrange(buffer.startIndex...newline)
-                consume(line: line)
-            }
-        }
-        if !buffer.isEmpty { consume(line: String(decoding: buffer, as: UTF8.self)) }
-    }
-
-    private func consume(line: String) {
-        guard line.hasPrefix(Self.prefix),
-              let payload = try? JSONSerialization.jsonObject(
-                  with: Data(line.dropFirst(Self.prefix.count).utf8)
-              ) as? [String: Any]
-        else { return }
-        switch payload["type"] as? String {
-        case "progress":
-            progress(payload["progress"] as? Double ?? 0, payload["detail"] as? String ?? "")
-        case "result":
-            text = payload["text"] as? String ?? ""
-        case "error":
-            error = payload["message"] as? String
-        default:
-            break
-        }
+        // A zero exit with no result event is still a failure, not an empty transcript.
+        guard let text = await collector.text else { throw SpeechError.message(failed) }
+        return text
     }
 }

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Trim leading and trailing silence from a saved recording, for the times a recording kept
+  running after the meeting ended. Only cuts over a minute are applied, and a recording with
+  no detected speech is kept whole.
+- Silence typing, fans, and static wherever nobody is speaking in the audio sent to
+  transcription. Speech is never filtered, and playback keeps the original recording.
+- Add a Recording cleanup section to transcription settings with a sensitivity control.
+- Show on a meeting how much silence was trimmed and how long the recording originally was.
+- Download a 2.2 MB Silero VAD model alongside the speech engine to detect speech locally.
+
 ## 0.4.0
 
 - Add Quality, Balanced, and Low Memory transcription modes with device-aware memory checks.
