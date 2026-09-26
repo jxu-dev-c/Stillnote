@@ -38,7 +38,12 @@ public enum MossParser {
         }
     }
 
-    public static func parse(_ text: String, duration: Double, language: String) throws -> TranscriptionResult {
+    /// `offset` puts timestamps back on the stored recording's timeline when the audio the
+    /// model saw had its silent head removed. Clamping still uses the full `duration`, so
+    /// the result stays inside the recording the player seeks through.
+    public static func parse(
+        _ text: String, duration: Double, language: String, offset: Double = 0
+    ) throws -> TranscriptionResult {
         var labels: [String: String] = [:]
         var order: [String] = []
         var segments: [Segment] = []
@@ -56,8 +61,8 @@ public enum MossParser {
             segments.append(
                 Segment(
                     id: "segment_\(segments.count + 1)",
-                    start: (max(0, min(row.start, duration)) * 1000).rounded() / 1000,
-                    end: (max(0, min(row.end, duration)) * 1000).rounded() / 1000,
+                    start: (max(0, min(row.start + offset, duration)) * 1000).rounded() / 1000,
+                    end: (max(0, min(row.end + offset, duration)) * 1000).rounded() / 1000,
                     speaker: labels[row.speaker]!,
                     text: content
                 )

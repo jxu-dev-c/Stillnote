@@ -17,8 +17,12 @@ public struct TranscriptionService: Sendable {
         self.workerOverride = workerURL
     }
 
+    /// `cleanup` removes silent head and tail and silences non-speech regions in the copy
+    /// handed to the model. It never touches `audioURL`, so playback and exports keep whatever
+    /// was actually recorded, and `nil` skips the pass entirely.
     public func transcribe(
         audioURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String] = [], mode: TranscriptionMode = .quality,
+        cleanup: AudioCleanupSettings? = nil,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> TranscriptionResult {
         _ = try SpeechCatalog.spec(model)
@@ -50,15 +54,70 @@ public struct TranscriptionService: Sendable {
             )
         }
         try Task.checkCancellation()
+
+        let prepared = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stillnote-clean-\(UUID().uuidString).f32")
+        defer { try? FileManager.default.removeItem(at: prepared) }
+        let cleaned = try await prepare(
+            decoded: decoded, into: prepared, settings: cleanup, progress: progress
+        )
+
+        try Task.checkCancellation()
         progress(8, "Loading \(status.modelName) locally")
 
         let text = try await runWorker(
-            worker: worker, pcmURL: scratch, model: model, language: language,
+            worker: worker, pcmURL: cleaned.pcmURL, model: model, language: language,
             speakerCount: speakerCount, hotWords: hotWords, mode: mode, progress: progress
         )
-        let result = try MossParser.parse(text, duration: decoded.duration, language: language)
+        // Timestamps come back relative to the audio the model saw; the offset puts them
+        // back on the stored recording's timeline.
+        let result = try MossParser.parse(
+            text, duration: decoded.duration, language: language, offset: cleaned.offset
+        )
         progress(100, "Local transcription complete")
         return result
+    }
+
+    /// Applies the cleanup pass, falling back to the untouched audio whenever it cannot run.
+    /// A recording is worth transcribing even when silence detection is unavailable or fails,
+    /// so nothing here turns a working transcription into a failed one.
+    private func prepare(
+        decoded: DecodedAudio, into destination: URL, settings: AudioCleanupSettings?,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> (pcmURL: URL, offset: Double) {
+        let untouched = (pcmURL: decoded.pcmURL, offset: Double(0))
+        guard let settings, settings.trimRecording || settings.suppressNonSpeech else { return untouched }
+        let detector = workerOverride.map { SpeechActivityService(modelDirectory: modelDirectory, workerURL: $0) }
+            ?? SpeechActivityService(modelDirectory: modelDirectory)
+        guard detector.isAvailable else { return untouched }
+
+        do {
+            progress(3, "Detecting speech")
+            let ranges = try await detector.detect(pcmURL: decoded.pcmURL, settings: settings) { fraction, _ in
+                progress(3 + 0.03 * fraction, "Detecting speech")
+            }
+            try Task.checkCancellation()
+            let plan = settings.trimRecording
+                ? AudioCleanup.plan(
+                    ranges: ranges, duration: decoded.duration, settings: settings, allowHeadCut: true
+                )
+                : CleanupPlan.noTrim(duration: decoded.duration)
+            guard plan.trimsAnything || (settings.suppressNonSpeech && !ranges.isEmpty) else {
+                return untouched
+            }
+            progress(6, "Removing silence and background noise")
+            try AudioCleanup.preparePCM(
+                source: decoded.pcmURL, destination: destination, ranges: ranges, plan: plan,
+                suppressNonSpeech: settings.suppressNonSpeech
+            )
+            return (pcmURL: destination, offset: plan.head)
+        } catch is CancellationError {
+            throw SpeechError.cancelled
+        } catch SpeechError.cancelled {
+            throw SpeechError.cancelled
+        } catch {
+            return untouched
+        }
     }
 
     func workerArguments(
