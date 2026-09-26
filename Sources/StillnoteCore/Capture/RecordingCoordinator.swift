@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Observation
 
@@ -7,6 +8,19 @@ public struct RecordingSessionState: Codable, Hashable, Sendable {
     public var elapsed: Double
     public var error: String?
     public var options: CaptureOptions
+}
+
+/// What a coordinator needs to trim silence from a saved recording. Passing `nil` to
+/// `finish` keeps the whole capture, which is also what happens when the detector is
+/// unavailable or fails.
+public struct RecordingCleanup: Sendable {
+    public let settings: AudioCleanupSettings
+    public let detector: SpeechActivityService
+
+    public init(settings: AudioCleanupSettings, detector: SpeechActivityService) {
+        self.settings = settings
+        self.detector = detector
+    }
 }
 
 public enum RecordingError: LocalizedError {
@@ -148,23 +162,49 @@ public final class RecordingCoordinator {
         capture.resume()
     }
 
-    /// Stops capture, mixes the sources, muxes optional video, and stores the meeting.
-    /// Repeating a successful save returns the same meeting instead of duplicating it.
-    public func finish() async throws -> Meeting {
+    /// Stops capture, mixes the sources, trims silence, muxes optional video, and stores the
+    /// meeting. Repeating a successful save returns the same meeting instead of duplicating it.
+    public func finish(cleanup: RecordingCleanup? = nil) async throws -> Meeting {
         guard let state = session else { throw RecordingError.message("This recording session was not found.") }
         if let existing = try? await store.get(state.id) { return existing }
         await stopCapture()
         let directory = paths.recordingsDirectory.appendingPathComponent(state.id, isDirectory: true)
         let mixed = directory.appendingPathComponent("mixed.wav")
         try? FileManager.default.removeItem(at: mixed)
-        let duration = try AudioMixer.mix(sessionDirectory: directory, to: mixed)
+        var duration = try AudioMixer.mix(sessionDirectory: directory, to: mixed)
 
         var warning = session?.error
+
+        // Trim before muxing: video takes its audio from this file, and cutting afterwards
+        // would leave the two tracks a silence apart.
+        var record: MeetingCleanup?
+        var keptRange: CMTimeRange?
+        if let cleanup, cleanup.settings.trimRecording, cleanup.detector.isAvailable {
+            do {
+                let plan = try await Self.trimSilence(
+                    mixed: mixed, directory: directory, duration: duration, cleanup: cleanup,
+                    // A compressed video passthrough cannot start mid-GOP, so sessions with
+                    // video only ever lose their tail.
+                    allowHeadCut: !state.options.screenVideo
+                )
+                if let plan {
+                    duration = plan.keptDuration
+                    keptRange = plan.keptTimeRange
+                    record = MeetingCleanup(plan: plan)
+                }
+            } catch {
+                // A recording is worth far more than the seconds of silence on its end.
+                warning = warning ?? "Silence could not be trimmed. Your full recording was saved."
+            }
+        }
+
         var videoName: String?
         if state.options.screenVideo {
             let screen = directory.appendingPathComponent("screen.mp4")
             do {
-                try await VideoMuxer.mux(screen: screen, audio: mixed, to: paths.videoURL(state.id))
+                try await VideoMuxer.mux(
+                    screen: screen, audio: mixed, to: paths.videoURL(state.id), timeRange: keptRange
+                )
                 videoName = "screen.mp4"
             } catch {
                 try? FileManager.default.removeItem(at: paths.videoURL(state.id))
@@ -179,7 +219,7 @@ public final class RecordingCoordinator {
         let meeting = Meeting(
             id: state.id, title: state.options.title, audioName: "recording.wav",
             language: state.options.language, speakerCount: state.options.speakerCount,
-            duration: duration, videoName: videoName, error: warning
+            duration: duration, videoName: videoName, error: warning, cleanup: record
         )
         do {
             _ = try await store.insert(meeting)
@@ -214,6 +254,34 @@ public final class RecordingCoordinator {
     }
 
     // MARK: - Internals
+
+    /// Decodes the mix, locates the speech, and rewrites `mixed` without its silent head and
+    /// tail. Returns `nil` when the policy decides nothing should be removed.
+    ///
+    /// This is `nonisolated` on purpose: the decode, the detector process, and the sample copy
+    /// all run off the main actor. It deliberately does not go through `JobQueue` either —
+    /// saving a recording must not wait behind an unrelated transcription, and a 2 MB detector
+    /// is not the GPU contention that queue exists to prevent.
+    private nonisolated static func trimSilence(
+        mixed: URL, directory: URL, duration: Double, cleanup: RecordingCleanup, allowHeadCut: Bool
+    ) async throws -> CleanupPlan? {
+        let scratch = directory.appendingPathComponent("cleanup.f32")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let decoded = try await AudioDecoder.decode(mixed, to: scratch)
+        guard decoded.peak >= 1e-5 else { return nil }
+        let ranges = try await cleanup.detector.detect(pcmURL: scratch, settings: cleanup.settings)
+        let plan = AudioCleanup.plan(
+            ranges: ranges, duration: duration, settings: cleanup.settings, allowHeadCut: allowHeadCut
+        )
+        guard plan.trimsAnything else { return nil }
+
+        let trimmed = directory.appendingPathComponent("trimmed.wav")
+        try? FileManager.default.removeItem(at: trimmed)
+        _ = try AudioCleanup.trim(wav: mixed, to: trimmed, plan: plan)
+        try FileManager.default.removeItem(at: mixed)
+        try FileManager.default.moveItem(at: trimmed, to: mixed)
+        return plan
+    }
 
     private func stopCapture() async {
         if #available(macOS 15.0, *), let capture = capture as? CaptureSession {
