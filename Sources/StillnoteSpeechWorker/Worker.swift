@@ -20,6 +20,12 @@ struct Worker {
                 event(["type": "ready", "engine": "Native Swift MLX"])
                 return
             }
+            // A leading `vad` selects silence detection. The transcription protocol always
+            // passes a PCM path first, so the two can never be confused.
+            if args.first == "vad" {
+                try VoiceActivity.run(arguments: Array(args.dropFirst()))
+                return
+            }
             let request = try SpeechWorkerRequest(arguments: args)
             guard let recommended = GPU.maxRecommendedWorkingSetBytes() else {
                 throw NSError(domain: "Stillnote", code: 3, userInfo: [NSLocalizedDescriptionKey: "The Apple GPU is unavailable."])
