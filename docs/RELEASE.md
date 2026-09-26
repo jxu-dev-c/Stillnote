@@ -88,16 +88,30 @@ Before publication, macOS 15 and 26 jobs install the candidate cask, check nativ
 computation, upgrade/reinstall, and uninstall without deleting data. Real GPU transcription
 and Finder first-launch approval still require acceptance testing.
 
-Once the source release passes CI and is published, a maintainer with access to both
-repositories runs:
+Once the source release is published, the tag workflow's `tap` job advances the public
+tap by running `./scripts/publish-homebrew.sh` on the new tag. The tap is what
+`brew install` reads, so a source release without it ships a version nobody can install.
+
+That job needs the `HOMEBREW_TAP_TOKEN` Actions secret: a token with contents write access
+to `jxu-dev-c/homebrew-stillnote` and read access to this repository, because the workflow's
+own `github.token` is scoped to this repository alone. Without the secret the job fails
+rather than passing quietly.
+
+The same workflow is dispatchable on its own for an already published tag, which republishes
+or backfills the tap without rebuilding:
+
+```sh
+gh workflow run tap.yml -f tag=v0.2.0
+```
+
+A maintainer with `gh` access to both repositories can also run the script directly:
 
 ```sh
 ./scripts/publish-homebrew.sh v0.2.0
 ```
 
-This verifies release checksums, publishes only the named distributable assets to the
-public tap, and then commits the cask and installation notes. It uses the maintainer's existing
-`gh` credentials; no cross-repository token is stored in Actions. Existing published
+Either path verifies release checksums, publishes only the named distributable assets to the
+public tap, and then commits the cask and installation notes. Existing published
 assets are immutable, and reruns must match their checksums. Quit Stillnote before testing
 app upgrades. A failed candidate must not advance the public tap.
 
