@@ -11,7 +11,8 @@ remains subject to the gates below; publishing source history is a separate oper
 
 ## Required gates
 
-- [ ] Native worker, Metal library, and dependency licenses bundled and signed.
+- [ ] Native worker, `stillnote` command, Metal library, and dependency licenses bundled and signed.
+- [ ] `stillnote` reports the release version, and the published skill matches the command catalog.
 - [ ] Relocated app self-test and offline real-model inference pass.
 - [ ] Dependency/model license audit and redistribution notices complete.
 - [ ] Clean-account installation without developer tools on macOS 15 and 26.

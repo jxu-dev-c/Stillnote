@@ -5,12 +5,14 @@ public enum StoreError: LocalizedError {
     case open(String)
     case query(String)
     case notFound
+    case readOnly
 
     public var errorDescription: String? {
         switch self {
         case .open(let detail): return "Could not open the local database: \(detail)"
         case .query(let detail): return "The local database rejected a change: \(detail)"
         case .notFound: return "Meeting not found."
+        case .readOnly: return "This database was opened for reading only."
         }
     }
 }
@@ -21,22 +23,38 @@ private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 /// reusable speaker profiles live in an additional table.
 public actor Store {
     public let paths: Paths
+    /// Checkable without awaiting the actor, so a caller can branch before it queries.
+    public nonisolated let readOnly: Bool
     private var handle: OpaquePointer?
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    public init(paths: Paths) throws {
+    /// Opening read-only never creates a database, a directory, or a table, and rejects every
+    /// write. It exists for the `stillnote` CLI, which must be able to answer a question about
+    /// an existing library without conjuring an empty one at a mistaken path — and without
+    /// running the migrations or recovery that belong to the app.
+    public init(paths: Paths, readOnly: Bool = false) throws {
         self.paths = paths
-        try paths.createDirectories()
+        self.readOnly = readOnly
+        if readOnly {
+            guard FileManager.default.fileExists(atPath: paths.databaseURL.path) else {
+                throw StoreError.open("no meeting library was found at \(paths.databaseURL.path)")
+            }
+        } else {
+            try paths.createDirectories()
+        }
         var database: OpaquePointer?
-        guard sqlite3_open_v2(
-            paths.databaseURL.path, &database,
-            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil
-        ) == SQLITE_OK, let database else {
+        let flags = readOnly
+            ? SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
+            : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
+        guard sqlite3_open_v2(paths.databaseURL.path, &database, flags, nil) == SQLITE_OK,
+              let database
+        else {
             throw StoreError.open(String(cString: sqlite3_errmsg(database)))
         }
         handle = database
         sqlite3_busy_timeout(database, 30_000)
+        guard !readOnly else { return }
         try Store.run(database, "PRAGMA journal_mode=WAL")
         try Store.run(database, "CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
         try Store.run(database, "CREATE TABLE IF NOT EXISTS speaker_profiles (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
@@ -64,6 +82,7 @@ public actor Store {
     }
 
     private func execute(_ sql: String, _ bindings: [String]) throws {
+        guard !readOnly else { throw StoreError.readOnly }
         let database = try self.database()
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
@@ -277,7 +296,7 @@ public actor Store {
             return AppSettings()
         }
         let (settings, changed) = AppSettings.migrating(from: object)
-        if changed { try persist(settings) }
+        if changed, !readOnly { try persist(settings) }
         return settings
     }
 

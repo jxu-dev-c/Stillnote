@@ -15,6 +15,68 @@ func temporaryPaths() throws -> Paths {
 }
 
 @Suite struct StoreTests {
+    /// The `stillnote` CLI opens the library read-only when the app is closed. That must never
+    /// create an empty database at a mistaken path, and must never accept a write.
+    @Test func readOnlyOpenNeitherCreatesNorWrites() async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+
+        #expect(throws: StoreError.self) { try Store(paths: paths, readOnly: true) }
+        #expect(!FileManager.default.fileExists(atPath: paths.databaseURL.path))
+
+        let writable = try Store(paths: paths)
+        let meeting = Meeting(
+            id: "m1", title: "Kept", audioName: "a.wav", language: "en", speakerCount: nil, duration: 1
+        )
+        try await writable.insert(meeting)
+
+        let reader = try Store(paths: paths, readOnly: true)
+        #expect(reader.readOnly)
+        #expect(try await reader.list().map(\.id) == ["m1"])
+        #expect(try await reader.get("m1").title == "Kept")
+        await #expect(throws: StoreError.self) { try await reader.update("m1") { $0.title = "Changed" } }
+        await #expect(throws: StoreError.self) { try await reader.delete("m1") }
+        // Reading settings migrates in place on a writable handle; on this one it must not try.
+        #expect(try await reader.settings() == AppSettings())
+        #expect(try await writable.get("m1").title == "Kept")
+    }
+
+    /// `standard()` can move a checkout's data into Application Support. `resolve()` is the
+    /// same path arithmetic with none of that, which is what the CLI needs.
+    @Test func resolveAppliesOverridesWithoutTouchingTheFilesystem() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stillnote-resolve-\(UUID().uuidString)", isDirectory: true)
+        let paths = Paths.resolve(environment: [
+            "STILLNOTE_DATA_DIR": root.appendingPathComponent("data").path,
+            "STILLNOTE_MODEL_DIR": root.appendingPathComponent("models").path,
+        ])
+        #expect(paths.dataDirectory.lastPathComponent == "data")
+        #expect(paths.modelDirectory.lastPathComponent == "models")
+        #expect(paths.commandSocketURL == paths.dataDirectory.appendingPathComponent("cli.sock"))
+        #expect(!FileManager.default.fileExists(atPath: root.path))
+
+        let defaults = Paths.resolve(environment: [:])
+        #expect(defaults.dataDirectory.path.hasSuffix("Application Support/Stillnote/data"))
+        #expect(defaults.commandSocketURL.path.hasSuffix("Stillnote/data/cli.sock"))
+        // The default socket path has to fit sockaddr_un on a normal home directory.
+        #expect(defaults.commandSocketURL.path.utf8.count <= CommandSocket.maximumPathLength)
+    }
+
+    /// Older settings rows carry no `cli` block; the command interface defaults to on.
+    @Test func commandInterfaceSettingDefaultsOnAndPersistsOff() async throws {
+        #expect(AppSettings().cli.enabled)
+        #expect(AppSettings.migrating(from: [:]).settings.cli.enabled)
+        #expect(AppSettings.migrating(from: ["cli": ["enabled": false]]).settings.cli.enabled == false)
+        let legacy = Data(#"{"transcription":{"model":"moss-0.9b","language":"auto"},"summary":{"provider":"codex","model":"m","reasoning_effort":"high"}}"#.utf8)
+        #expect(try JSONDecoder().decode(AppSettings.self, from: legacy).cli.enabled)
+
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        try await store.saveSettings(AppSettings(cli: CLISettings(enabled: false)))
+        #expect(try await Store(paths: paths).settings().cli.enabled == false)
+    }
+
     @Test func permissionBypassDefaultsOnAndPersistsOff() async throws {
         let legacy = Data(#"{"provider":"codex","model":"custom","reasoning_effort":"low"}"#.utf8)
         #expect(try JSONDecoder().decode(SummarySettings.self, from: legacy).bypassPermissions)

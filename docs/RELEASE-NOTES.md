@@ -9,6 +9,27 @@ Local meeting recording and transcription for **Apple silicon Macs running macOS
 - **More efficient transcription:** windowed audio reads, smaller prefill batches, and optimized decoding reduce memory pressure. Device-aware memory checks help avoid workloads that exceed the estimated budget.
 - Existing speaker labels, personal hot words, progress reporting, and cancellation remain supported.
 
+### Command line and AI agents
+
+This release bundles a `stillnote` command. Homebrew puts it on your `PATH`; otherwise it is at
+`/Applications/Stillnote.app/Contents/Helpers/stillnote`.
+
+```sh
+stillnote search "product launch" --in summary
+stillnote transcript replace ANE AEM --all --dry-run
+stillnote record stop
+stillnote help
+```
+
+Reading meetings works whether or not the app is open. Corrections and recording need Stillnote
+running: it is the only writer, so a change made here appears in the open window, and capture
+permissions belong to the app rather than to your terminal. Add `--json` to any command for
+structured output, and switch the whole interface off in Settings → Advanced. Generating a summary
+still asks for consent, as `stillnote summarize <id> --allow-remote`.
+
+To let a coding agent drive it, install the published skill with
+`npx skills add jxu-dev-c/Stillnote`.
+
 ## Upgrading from 0.3.0
 
 Download the new pinned 8-bit speech model once in Settings (about 1.3 GB).
@@ -115,3 +136,5 @@ remove `stillnote-runtime`. Neither operation deletes meetings, settings, or mod
 - Speech models are downloaded separately in Settings.
 - Optional AI summaries use your configured Codex or Claude Code CLI and may send
   transcript text to hosted models after your confirmation.
+- The `stillnote` command reads meetings whether or not the app is open, but changing data and
+  starting or stopping a recording need Stillnote running.

@@ -192,20 +192,40 @@ public struct SummarySettings: Codable, Hashable, Sendable {
     }
 }
 
+/// Whether the running app accepts `stillnote` commands. Anything running as this macOS
+/// user could otherwise start a recording through the socket, so the surface that can switch
+/// on the microphone gets an explicit off switch.
+public struct CLISettings: Codable, Hashable, Sendable {
+    public var enabled: Bool
+
+    enum CodingKeys: String, CodingKey { case enabled }
+
+    public init(enabled: Bool = true) {
+        self.enabled = enabled
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(enabled: try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? true)
+    }
+}
+
 public struct AppSettings: Codable, Hashable, Sendable {
     public var transcription: TranscriptionSettings
     public var summary: SummarySettings
     public var cleanup: AudioCleanupSettings
+    public var cli: CLISettings
 
-    enum CodingKeys: String, CodingKey { case transcription, summary, cleanup }
+    enum CodingKeys: String, CodingKey { case transcription, summary, cleanup, cli }
 
     public init(
         transcription: TranscriptionSettings = .init(), summary: SummarySettings = .init(),
-        cleanup: AudioCleanupSettings = .init()
+        cleanup: AudioCleanupSettings = .init(), cli: CLISettings = .init()
     ) {
         self.transcription = transcription
         self.summary = summary
         self.cleanup = cleanup
+        self.cli = cli
     }
 
     public init(from decoder: Decoder) throws {
@@ -214,7 +234,9 @@ public struct AppSettings: Codable, Hashable, Sendable {
             transcription: try values.decode(TranscriptionSettings.self, forKey: .transcription),
             summary: try values.decode(SummarySettings.self, forKey: .summary),
             // Records written before recording cleanup existed carry no key.
-            cleanup: try values.decodeIfPresent(AudioCleanupSettings.self, forKey: .cleanup) ?? .init()
+            cleanup: try values.decodeIfPresent(AudioCleanupSettings.self, forKey: .cleanup) ?? .init(),
+            // Records written before the command interface existed carry no key either.
+            cli: try values.decodeIfPresent(CLISettings.self, forKey: .cli) ?? .init()
         )
     }
 
@@ -277,6 +299,9 @@ public struct AppSettings: Codable, Hashable, Sendable {
             }
         } else {
             changed = true
+        }
+        if let cli = object["cli"] as? [String: Any] {
+            settings.cli = CLISettings(enabled: cli["enabled"] as? Bool ?? true)
         }
 
         // Obsolete keys such as api_key and base_url are dropped by re-encoding.

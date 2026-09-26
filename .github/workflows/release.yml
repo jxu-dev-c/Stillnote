@@ -56,10 +56,21 @@ jobs:
           app="$extracted/Stillnote.app"
           codesign --verify --deep --strict "$app"
           "$app/Contents/MacOS/StillnoteSpeechWorker" --self-test
-          [[ "$(lipo -archs "$app/Contents/MacOS/Stillnote")" == arm64 ]] || exit 1
+          # The bundled CLI is what the Homebrew cask links onto PATH, and it reports the same
+          # version as the bundle it shipped in.
+          [[ "$("$app/Contents/Helpers/stillnote" --version)" == "stillnote $APP_VERSION" ]] || exit 1
+          "$app/Contents/Helpers/stillnote" help >/dev/null
+          for binary in MacOS/Stillnote MacOS/StillnoteSpeechWorker Helpers/stillnote; do
+            [[ "$(lipo -archs "$app/Contents/$binary")" == arm64 ]] || exit 1
+            test -x "$app/Contents/$binary"
+          done
+          # The CLI lives in Helpers because MacOS/stillnote and MacOS/Stillnote are the same file
+          # on a case-insensitive volume. If it ever moves back, the app binary is silently
+          # replaced by the CLI, so assert the two are genuinely different executables.
+          [[ "$(shasum -a 256 <"$app/Contents/MacOS/Stillnote" | cut -d" " -f1)" \
+             != "$(shasum -a 256 <"$app/Contents/Helpers/stillnote" | cut -d" " -f1)" ]] || exit 1
           [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")" == "$APP_VERSION" ]] || exit 1
           [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$app/Contents/Info.plist")" == "$GITHUB_RUN_NUMBER" ]] || exit 1
-          test -x "$app/Contents/MacOS/Stillnote"
           for resource in AppIcon.icns speech_models.json LICENSE THIRD_PARTY_NOTICES.md; do
             test -s "$app/Contents/Resources/$resource"
           done
