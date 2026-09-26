@@ -120,7 +120,9 @@ stillnote search "product launch" --in summary
 stillnote show latest --segments
 stillnote transcript replace ANE AEM --all --dry-run   # count first
 stillnote transcript replace ANE AEM --all --whole-word
-stillnote record start --title "Design review"
+stillnote speaker list
+stillnote speaker update Jackson --email jackson@example.com
+stillnote record start          # titled after its summary; or --title "Design review"
 stillnote record stop
 stillnote help
 ```

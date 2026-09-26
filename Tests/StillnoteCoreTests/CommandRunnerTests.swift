@@ -167,6 +167,10 @@ import Testing
             ["record", "start"],
             ["summarize", "aa11", "--allow-remote"],
             ["notes", "set", "aa11", "--text", "x"],
+            ["speaker", "add", "--name", "Ada"],
+            ["speaker", "update", "Ada", "--email", "ada@example.com"],
+            ["speaker", "delete", "Ada"],
+            ["speaker", "assign", "aa11", "--speaker", "speaker_1", "--none"],
         ] {
             let invocation = try CommandCatalog.parse(argv)
             #expect(invocation.spec.requiresApp, "\(invocation.spec.name) must require the app")
@@ -179,11 +183,12 @@ import Testing
     @Test func everyOfflineCommandIsActuallyServed() async throws {
         let (store, paths) = try await library()
         defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        try await store.saveProfile(SpeakerProfile(name: "Jackson"))
         for spec in CommandCatalog.commands where !spec.requiresApp {
             // `status` is the one read command the CLI answers itself, from the paths it resolved.
             guard spec.path != ["status"] else { continue }
             let argv = spec.path + spec.positionals.compactMap { name in
-                name.hasSuffix("?") ? nil : (name == "query" ? "ANE" : "latest")
+                name.hasSuffix("?") ? nil : ["query": "ANE", "profile": "Jackson"][name, default: "latest"]
             }
             let invocation = try CommandCatalog.parse(argv)
             let response = try await CommandRunner.read(invocation.request, store: store)

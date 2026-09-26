@@ -301,3 +301,58 @@ public struct HelpPayload: Codable, Hashable, Sendable {
         self.commands = commands
     }
 }
+
+/// One meeting a speaker profile is linked to, and which of that meeting's speakers it names.
+public struct SpeakerAppearance: Codable, Hashable, Sendable {
+    public var id: String
+    public var title: String
+    public var createdAt: String
+    public var speaker: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, speaker
+        case createdAt = "created_at"
+    }
+
+    public init(id: String, title: String, createdAt: String, speaker: String) {
+        self.id = id
+        self.title = title
+        self.createdAt = createdAt
+        self.speaker = speaker
+    }
+}
+
+public struct SpeakerProfilePayload: Codable, Hashable, Sendable {
+    public var id: String
+    public var name: String
+    /// Empty when not recorded.
+    public var email: String
+    public var phone: String
+    public var meetingCount: Int
+    /// Present on `speaker show` and on changes; omitted from `speaker list`.
+    public var meetings: [SpeakerAppearance]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, email, phone, meetings
+        case meetingCount = "meeting_count"
+    }
+
+    public init(_ profile: SpeakerProfile, appearances: [SpeakerAppearance], includeMeetings: Bool) {
+        id = profile.id
+        name = profile.name
+        email = profile.email
+        phone = profile.phone
+        meetingCount = Set(appearances.map(\.id)).count
+        meetings = includeMeetings ? appearances : nil
+    }
+}
+
+public struct SpeakerListPayload: Codable, Hashable, Sendable {
+    public var count: Int
+    public var speakers: [SpeakerProfilePayload]
+
+    public init(_ speakers: [SpeakerProfilePayload]) {
+        self.count = speakers.count
+        self.speakers = speakers
+    }
+}

@@ -100,6 +100,8 @@ struct MeetingDetailView: View {
                 .disabled(meeting.status.isBusy)
                 .onSubmit(commitTitle)
                 .onChange(of: meeting.id) { title = meeting.title }
+                // A summary can retitle a recording that was never named.
+                .onChange(of: meeting.title) { title = meeting.title }
 
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 16) {
@@ -296,7 +298,12 @@ struct MeetingDetailView: View {
             title = meeting.title
             return
         }
-        Task { await model.edit(meeting.id) { $0.title = cleaned } }
+        Task {
+            await model.edit(meeting.id) {
+                $0.title = cleaned
+                $0.automaticTitle = false
+            }
+        }
     }
 }
 

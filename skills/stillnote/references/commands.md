@@ -19,6 +19,8 @@ These read the library directly, read-only.
 | `stillnote export <meeting>` | `--format md\|txt\|srt\|json`, `--out <path>` |
 | `stillnote summary show <meeting>` | — |
 | `stillnote notes show <meeting>` | — |
+| `stillnote speaker list` | — |
+| `stillnote speaker show <profile>` | — |
 | `stillnote help [command]` | — |
 
 ## Needs Stillnote running
@@ -31,6 +33,10 @@ the signed app bundle, not to whatever launched the CLI.
 | `stillnote transcript replace <find> <replacement>` | `--meeting <id>` *or* `--all` (required), `--regex`, `--ignore-case`, `--whole-word`, `--dry-run` |
 | `stillnote transcript set <meeting>` | `--segment <id>` (required), `--text`, `--speaker` |
 | `stillnote speaker rename <meeting>` | `--speaker <id>`, `--name` |
+| `stillnote speaker add` | `--name` (required), `--email`, `--phone` |
+| `stillnote speaker update <profile>` | `--name`, `--email`, `--phone` (at least one; `""` clears email or phone) |
+| `stillnote speaker delete <profile>` | — |
+| `stillnote speaker assign <meeting>` | `--speaker <id>` (required), `--profile <profile>` *or* `--none` |
 | `stillnote summary set <meeting>` | `--overview <text>` *or* `--json-stdin` |
 | `stillnote notes set <meeting>` | `--text <notes>` *or* `--stdin` |
 | `stillnote transcribe <meeting>` | `--language`, `--speakers` |
@@ -45,6 +51,9 @@ the signed app bundle, not to whatever launched the CLI.
 
 **`<meeting>`** — a full id, a unique id prefix, `latest`, or an exact title. An ambiguous prefix
 is an error listing the candidates rather than a guess.
+
+**`<profile>`** — a speaker profile's full id, a unique id prefix, its exact name, or its exact
+email, ignoring case. Two profiles with the same name make the name ambiguous; use the id.
 
 **Dates** — `YYYY-MM-DD` or `YYYY-MM`, nothing else. A four-digit year is required. `--since` is
 the start of its unit and `--until` the end, so `--since 2026-05 --until 2026-05` is all of May.
@@ -68,7 +77,7 @@ both sides are literal: `$1` stays `$1` and `(a)` matches those three characters
 | 1 | The command failed |
 | 2 | Bad usage: an unknown option, a missing argument, an invalid value |
 | 3 | Stillnote is not running, is still opening, or has the command interface switched off |
-| 4 | No such meeting, segment, speaker, or device; or an ambiguous reference |
+| 4 | No such meeting, segment, speaker, speaker profile, or device; or an ambiguous reference |
 | 5 | That meeting is transcribing or summarizing |
 
 ## Defaults and limits
@@ -78,4 +87,8 @@ both sides are literal: `$1` stays `$1` and `(a)` matches those three characters
 - Commands wait 60 seconds for the app, except `record stop`, which waits 900: saving mixes both
   audio sources and runs the silence detector over the whole capture.
 - One recording at a time. Save it or discard it before starting another.
+- `record start` without `--title` names the meeting `Meeting · <date>`; its summary then
+  replaces that placeholder with a descriptive title. A title given with `--title`, or typed in
+  the app, is never replaced.
+- `speaker add` refuses a name another profile already has, so names stay usable references.
 - The user can switch the whole interface off in **Settings → Advanced**, which returns exit 3.

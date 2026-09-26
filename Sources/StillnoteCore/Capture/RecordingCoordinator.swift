@@ -219,7 +219,8 @@ public final class RecordingCoordinator {
         let meeting = Meeting(
             id: state.id, title: state.options.title, audioName: "recording.wav",
             language: state.options.language, speakerCount: state.options.speakerCount,
-            duration: duration, videoName: videoName, error: warning, cleanup: record
+            duration: duration, videoName: videoName, error: warning, cleanup: record,
+            automaticTitle: state.options.automaticTitle
         )
         do {
             _ = try await store.insert(meeting)

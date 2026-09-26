@@ -26,6 +26,10 @@ public enum CommandRunner {
             return try await summaryShow(request, store: store)
         case ["notes", "show"]:
             return try await notesShow(request, store: store)
+        case ["speaker", "list"]:
+            return try await speakerList(store: store)
+        case ["speaker", "show"]:
+            return try await speakerShow(request, store: store)
         default:
             return nil
         }
@@ -224,6 +228,63 @@ public enum CommandRunner {
             meeting.notes.isEmpty ? "\(meeting.title) has no notes." : meeting.notes,
             TextPayload(id: meeting.id, text: meeting.notes)
         )
+    }
+
+    // MARK: - Speaker profiles
+
+    static func speakerList(store: Store) async throws -> CLIResponse {
+        let meetings = try await store.list()
+        let speakers = try await store.profiles().map {
+            SpeakerProfilePayload(
+                $0, appearances: SpeakerQuery.appearances(of: $0.id, in: meetings), includeMeetings: false
+            )
+        }
+        var lines: [String]
+        if speakers.isEmpty {
+            lines = ["No speaker profiles yet. Add one with 'stillnote speaker add --name <name>'."]
+        } else {
+            lines = speakers.map { speaker in
+                var line = "\(speaker.id)  \(speaker.name)"
+                let contact = [speaker.email, speaker.phone].filter { !$0.isEmpty }
+                if !contact.isEmpty { line += " <\(contact.joined(separator: ", "))>" }
+                return line + " — \(speaker.meetingCount) meeting(s)"
+            }
+            lines.append("")
+            lines.append("\(speakers.count) speaker profile(s).")
+        }
+        return try .success(lines.joined(separator: "\n"), SpeakerListPayload(speakers))
+    }
+
+    static func speakerShow(_ request: CLIRequest, store: Store) async throws -> CLIResponse {
+        guard let reference = request.positionals.first else {
+            throw CLIError.usage("Name a speaker profile. 'stillnote speaker list' lists them.")
+        }
+        let profile = try SpeakerQuery.resolve(reference, in: try await store.profiles())
+        return try speakerResponse(nil, profile, meetings: try await store.list())
+    }
+
+    /// A profile's details with every meeting it is linked to, optionally led by what changed.
+    public static func speakerResponse(
+        _ message: String?, _ profile: SpeakerProfile, meetings: [Meeting]
+    ) throws -> CLIResponse {
+        let payload = SpeakerProfilePayload(
+            profile, appearances: SpeakerQuery.appearances(of: profile.id, in: meetings), includeMeetings: true
+        )
+        return try .success(([message].compactMap { $0 } + [render(payload)]).joined(separator: "\n\n"), payload)
+    }
+
+    public static func render(_ payload: SpeakerProfilePayload) -> String {
+        var lines = [payload.name, "Id: \(payload.id)"]
+        lines.append("Email: \(payload.email.isEmpty ? "—" : payload.email)")
+        lines.append("Phone: \(payload.phone.isEmpty ? "—" : payload.phone)")
+        let meetings = payload.meetings ?? []
+        if meetings.isEmpty {
+            lines.append("Not linked to any meeting.")
+        } else {
+            lines.append("Meetings (\(payload.meetingCount)):")
+            lines += meetings.map { "  \($0.id)  \($0.createdAt.prefix(10))  \($0.title) [\($0.speaker)]" }
+        }
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - Shared response builders for the commands only the app can run

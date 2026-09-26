@@ -44,6 +44,8 @@ public struct ActionItem: Codable, Hashable, Identifiable, Sendable {
 }
 
 public struct MeetingSummary: Codable, Hashable, Sendable {
+    /// A short title the agent suggested for the meeting. Older summaries have none.
+    public var title: String?
     public var overview: String
     public var keyPoints: [String]
     public var decisions: [String]
@@ -53,6 +55,7 @@ public struct MeetingSummary: Codable, Hashable, Sendable {
     public var generatedAt: String
 
     enum CodingKeys: String, CodingKey {
+        case title
         case overview
         case keyPoints = "key_points"
         case decisions
@@ -64,8 +67,9 @@ public struct MeetingSummary: Codable, Hashable, Sendable {
 
     public init(
         overview: String, keyPoints: [String], decisions: [String], actionItems: [ActionItem],
-        provider: String, model: String, generatedAt: String
+        provider: String, model: String, generatedAt: String, title: String? = nil
     ) {
+        self.title = title
         self.overview = overview
         self.keyPoints = keyPoints
         self.decisions = decisions
@@ -139,6 +143,9 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     public var notes: String
     public var contextLinks: [ContextLink]
     public var cleanup: MeetingCleanup?
+    /// True while the title is one Stillnote chose rather than one the user typed, so a summary
+    /// may replace it with a descriptive one.
+    public var automaticTitle: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, title, duration, status, progress, stage, error, language, speakers, segments, summary, notes, cleanup
@@ -151,6 +158,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         case speakerProfiles = "speaker_profiles"
         case speakerCount = "speaker_count"
         case contextLinks = "context_links"
+        case automaticTitle = "automatic_title"
     }
 
     public init(from decoder: Decoder) throws {
@@ -178,12 +186,13 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         notes = try values.decodeIfPresent(String.self, forKey: .notes) ?? ""
         contextLinks = try values.decodeIfPresent([ContextLink].self, forKey: .contextLinks) ?? []
         cleanup = try values.decodeIfPresent(MeetingCleanup.self, forKey: .cleanup)
+        automaticTitle = try values.decodeIfPresent(Bool.self, forKey: .automaticTitle) ?? false
     }
 
     public init(
         id: String, title: String, audioName: String, language: String, speakerCount: Int?,
         duration: Double, videoName: String? = nil, error: String? = nil,
-        cleanup: MeetingCleanup? = nil
+        cleanup: MeetingCleanup? = nil, automaticTitle: Bool = false
     ) {
         let timestamp = Meeting.now()
         self.id = id
@@ -208,6 +217,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         self.notes = ""
         self.contextLinks = []
         self.cleanup = cleanup
+        self.automaticTitle = automaticTitle
     }
 
     public var hasVideo: Bool { videoURL != nil }
@@ -233,4 +243,14 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     public func speakerName(_ id: String) -> String { speakers[id] ?? id }
 
     public func orderedSpeakerIDs() -> [String] { speakers.keys.sorted() }
+
+    /// Stores a summary, and adopts its suggested title while the meeting still carries the
+    /// placeholder a recording started with. A title the user typed is never replaced.
+    public mutating func applySummary(_ summary: MeetingSummary) {
+        self.summary = summary
+        guard automaticTitle, let suggested = summary.title,
+              let cleaned = try? Validation.title(suggested)
+        else { return }
+        title = cleaned
+    }
 }
