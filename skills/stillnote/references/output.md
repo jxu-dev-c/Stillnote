@@ -40,7 +40,7 @@ the app's own compatibility; the CLI does not expose them.
   "status": "complete", "stage": "Summary ready", "error": null,
   "language": "en", "has_video": false, "segment_count": 148,
   "speakers": [ { "id": "speaker_1", "name": "Jackson", "profile": true } ],
-  "summary": { "overview": "…", "key_points": ["…"], "decisions": ["…"],
+  "summary": { "title": "Launch readiness", "overview": "…", "key_points": ["…"], "decisions": ["…"],
                "action_items": [ { "text": "…", "owner": "Jackson", "due": "2026-09-20" } ],
                "provider": "codex", "model": "gpt-5-codex", "generated_at": "…" },
   "notes": "…",
@@ -52,12 +52,37 @@ the app's own compatibility; the CLI does not expose them.
 
 `segments` is present only with `--segments`, and is filtered when `--speaker` is given;
 `segment_count` is always the full count. `summary` is `null` until one is generated.
+`summary.title` is the title the agent suggested, absent from older summaries; a recording that
+was never named takes it as the meeting `title`.
 `speakers[].profile` is true when the name comes from a reusable speaker profile.
 `cleanup` is present only when silence was trimmed from the saved recording, and records what was
 removed — that trim cannot be undone.
 
 Use `segments[].id` as the `--segment` value for `transcript set`, and `speakers[].id` as the
-`--speaker` value for `speaker rename`.
+`--speaker` value for `speaker rename` and `speaker assign`.
+
+## `speaker list`, `speaker show`, and anything that changed a profile
+
+```json
+{ "count": 2,
+  "speakers": [ { "id": "3F2A…", "name": "Jackson", "email": "jackson@example.com",
+                  "phone": "", "meeting_count": 4 } ] }
+```
+
+`speaker show`, `speaker add`, `speaker update`, and `speaker delete` return one profile, with
+the meetings it is linked to:
+
+```json
+{ "id": "3F2A…", "name": "Jackson", "email": "jackson@example.com", "phone": "",
+  "meeting_count": 2,
+  "meetings": [ { "id": "aa11bb22cc33", "title": "Product launch planning",
+                  "created_at": "…", "speaker": "speaker_1" } ] }
+```
+
+`email` and `phone` are empty strings when not recorded. `meetings[].speaker` is the speaker id
+inside that meeting. After `speaker delete`, `meetings` lists the meetings it was unlinked from;
+they keep the name they showed. `speaker assign` changes a meeting, so it returns the meeting
+shape above.
 
 ## `search`
 

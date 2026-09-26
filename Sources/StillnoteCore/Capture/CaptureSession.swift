@@ -11,6 +11,8 @@ public struct CaptureOptions: Codable, Hashable, Sendable {
     public var displayID: UInt32?
     public var systemAudio: Bool
     public var screenVideo: Bool
+    /// True when nobody named the recording, so its summary may give it a better title.
+    public var automaticTitle: Bool
 
     enum CodingKeys: String, CodingKey {
         case title, language
@@ -19,11 +21,13 @@ public struct CaptureOptions: Codable, Hashable, Sendable {
         case displayID = "display_id"
         case systemAudio = "system_audio"
         case screenVideo = "screen_video"
+        case automaticTitle = "automatic_title"
     }
 
     public init(
         title: String, language: String = "auto", speakerCount: Int? = nil, microphoneID: String = "",
-        displayID: UInt32? = nil, systemAudio: Bool = true, screenVideo: Bool = false
+        displayID: UInt32? = nil, systemAudio: Bool = true, screenVideo: Bool = false,
+        automaticTitle: Bool = false
     ) {
         self.title = title
         self.language = language
@@ -32,6 +36,25 @@ public struct CaptureOptions: Codable, Hashable, Sendable {
         self.displayID = displayID
         self.systemAudio = systemAudio
         self.screenVideo = screenVideo
+        self.automaticTitle = automaticTitle
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        title = try values.decode(String.self, forKey: .title)
+        language = try values.decode(String.self, forKey: .language)
+        speakerCount = try values.decodeIfPresent(Int.self, forKey: .speakerCount)
+        microphoneID = try values.decode(String.self, forKey: .microphoneID)
+        displayID = try values.decodeIfPresent(UInt32.self, forKey: .displayID)
+        systemAudio = try values.decode(Bool.self, forKey: .systemAudio)
+        screenVideo = try values.decode(Bool.self, forKey: .screenVideo)
+        // Sessions interrupted before this field existed were always named by the user.
+        automaticTitle = try values.decodeIfPresent(Bool.self, forKey: .automaticTitle) ?? false
+    }
+
+    /// The placeholder a recording carries until its summary suggests something better.
+    public static func defaultTitle(for date: Date = Date()) -> String {
+        "Meeting · " + date.formatted(.dateTime.month(.abbreviated).day())
     }
 }
 

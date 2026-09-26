@@ -6,7 +6,6 @@ struct RecordingSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var selection: String?
 
-    @State private var title = ""
     @State private var microphoneID = ""
     @State private var displayID: UInt32?
     @State private var systemAudio = true
@@ -58,7 +57,6 @@ struct RecordingSheet: View {
             }
 
             Form {
-                TextField("Title", text: $title)
                 Picker("Microphone", selection: $microphoneID) {
                     Text("System default microphone").tag("")
                     ForEach(model.capabilities.microphones) { Text($0.name).tag($0.id) }
@@ -73,7 +71,7 @@ struct RecordingSheet: View {
                 TranscriptionOptionFields(language: $language, speakerCount: $speakerCount)
             }
             .formStyle(.grouped)
-            .frame(height: screenVideo ? 280 : 230)
+            .frame(height: screenVideo ? 245 : 195)
 
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle")
@@ -81,11 +79,12 @@ struct RecordingSheet: View {
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if !model.speech.ready {
-                Text("Recordings are saved now and can be transcribed once the speech model is installed.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text(model.speech.ready
+                ? "The meeting is titled after its summary. You can rename it any time."
+                : "Recordings are saved now and can be transcribed once the speech model is installed.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             HStack {
                 Button("Refresh Devices") { Task { await model.refreshEnvironment() } }
@@ -214,9 +213,6 @@ struct RecordingSheet: View {
             initialized = true
         }
         Task { await model.refreshEnvironment() }
-        if title.isEmpty {
-            title = "Meeting · " + Date().formatted(.dateTime.month(.abbreviated).day())
-        }
         displayID = displayID ?? model.capabilities.defaultDisplayID
     }
 
@@ -226,9 +222,10 @@ struct RecordingSheet: View {
         defer { starting = false }
         do {
             let options = CaptureOptions(
-                title: try Validation.title(title), language: try Validation.language(language),
+                title: CaptureOptions.defaultTitle(), language: try Validation.language(language),
                 speakerCount: try Validation.speakerCount(speakerCount), microphoneID: microphoneID,
-                displayID: displayID, systemAudio: systemAudio, screenVideo: screenVideo
+                displayID: displayID, systemAudio: systemAudio, screenVideo: screenVideo,
+                automaticTitle: true
             )
             try await model.recorder.start(options: options)
         } catch {

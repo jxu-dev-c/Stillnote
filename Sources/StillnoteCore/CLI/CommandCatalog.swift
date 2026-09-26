@@ -156,6 +156,42 @@ public enum CommandCatalog {
             requiresApp: true
         ),
         CommandSpec(
+            path: ["speaker", "list"],
+            summary: "List saved speaker profiles and how many meetings each appears in."
+        ),
+        CommandSpec(
+            path: ["speaker", "show"],
+            summary: "Show one speaker profile's contact details and the meetings it is linked to.",
+            positionals: ["profile"]
+        ),
+        CommandSpec(
+            path: ["speaker", "add"],
+            summary: "Save a new speaker profile.",
+            valueOptions: ["name", "email", "phone"],
+            requiresApp: true
+        ),
+        CommandSpec(
+            path: ["speaker", "update"],
+            summary: "Change a speaker profile's name, email, or phone. An empty value clears email or phone.",
+            positionals: ["profile"],
+            valueOptions: ["name", "email", "phone"],
+            requiresApp: true
+        ),
+        CommandSpec(
+            path: ["speaker", "delete"],
+            summary: "Delete a speaker profile. Meetings keep the names they show.",
+            positionals: ["profile"],
+            requiresApp: true
+        ),
+        CommandSpec(
+            path: ["speaker", "assign"],
+            summary: "Link a meeting's speaker to a saved profile, or unlink it with --none.",
+            positionals: ["meeting"],
+            valueOptions: ["speaker", "profile"],
+            booleanOptions: ["none"],
+            requiresApp: true
+        ),
+        CommandSpec(
             path: ["transcribe"],
             summary: "Queue local transcription for one meeting.",
             positionals: ["meeting"],
@@ -216,10 +252,17 @@ public enum CommandCatalog {
     }
 
     public static func help(command: String? = nil) -> String {
-        if let command, let spec = commands.first(where: { $0.name == command || $0.path.first == command }) {
-            var lines = [spec.summary, "", spec.usage]
-            if !spec.requiresApp { lines += ["", "Works while Stillnote is closed (reads the library directly)."] }
-            return lines.joined(separator: "\n")
+        if let command {
+            let group = commands.filter { $0.path.first == command }
+            if let spec = commands.first(where: { $0.name == command }) ?? (group.count == 1 ? group.first : nil) {
+                var lines = [spec.summary, "", spec.usage]
+                if !spec.requiresApp { lines += ["", "Works while Stillnote is closed (reads the library directly)."] }
+                return lines.joined(separator: "\n")
+            }
+            // A group such as `speaker` or `record`: show each subcommand's usage.
+            if !group.isEmpty {
+                return group.map { "\($0.summary)\n  \($0.usage)" }.joined(separator: "\n\n")
+            }
         }
         var lines = [
             "stillnote — read and correct your Stillnote meetings, and drive recording.",

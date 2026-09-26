@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Add a menu bar icon to start and stop a recording, open Stillnote, and open Settings. It
+  shows the elapsed time while recording.
+- Stop asking for a title when starting a recording. It is named `Meeting · <date>` until its
+  summary suggests a descriptive title; a title you type yourself is never replaced.
+- Manage speaker profiles from the command line: `stillnote speaker list`, `show`, `add`,
+  `update`, `delete`, and `assign`.
+
 ## 0.5.0
 
 - Trim leading and trailing silence from a saved recording, for the times a recording kept

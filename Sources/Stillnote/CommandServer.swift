@@ -113,6 +113,14 @@ final class CommandServer {
             return try await setSegment(request, model: model)
         case ["speaker", "rename"]:
             return try await renameSpeaker(request, model: model)
+        case ["speaker", "add"]:
+            return try await addSpeaker(request, model: model)
+        case ["speaker", "update"]:
+            return try await updateSpeaker(request, model: model)
+        case ["speaker", "delete"]:
+            return try await deleteSpeaker(request, model: model)
+        case ["speaker", "assign"]:
+            return try await assignSpeaker(request, model: model)
         case ["summary", "set"]:
             return try await setSummary(request, model: model)
         case ["notes", "set"]:
@@ -291,6 +299,114 @@ final class CommandServer {
         )
     }
 
+    // MARK: - Speaker profiles
+
+    private func profile(_ request: CLIRequest, model: AppModel) throws -> SpeakerProfile {
+        guard let reference = request.positionals.first else {
+            throw CLIError.usage("Name a speaker profile. 'stillnote speaker list' lists them.")
+        }
+        return try SpeakerQuery.resolve(reference, in: model.speakerProfiles)
+    }
+
+    /// Profile validation speaks to whoever typed the value, so it is a usage error, not a failure.
+    private func saving<Value>(_ body: () async throws -> Value) async throws -> Value {
+        do {
+            return try await body()
+        } catch let error as ValidationError {
+            throw CLIError.usage(error.message)
+        }
+    }
+
+    private func addSpeaker(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
+        guard let name = request.value("name") else {
+            throw CLIError.usage("Give the new speaker a --name.")
+        }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Resolving by name must stay unambiguous, so a second profile with the same name is refused.
+        if let existing = model.speakerProfiles.first(where: { $0.name.lowercased() == trimmed.lowercased() }) {
+            throw CLIError.usage(
+                "A speaker profile called '\(existing.name)' already exists (\(existing.id)). "
+                    + "Change it with 'stillnote speaker update \(existing.id)'."
+            )
+        }
+        let draft = SpeakerProfile(
+            name: name, email: request.value("email") ?? "", phone: request.value("phone") ?? ""
+        )
+        let saved = try await saving { try await model.saveSpeakerProfile(draft) }
+        return try CommandRunner.speakerResponse(
+            "Saved speaker profile '\(saved.name)'.", saved, meetings: model.meetings
+        )
+    }
+
+    private func updateSpeaker(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
+        var profile = try profile(request, model: model)
+        let name = request.value("name"), email = request.value("email"), phone = request.value("phone")
+        guard name != nil || email != nil || phone != nil else {
+            throw CLIError.usage("Give --name, --email, --phone, or any of them. An empty value clears email or phone.")
+        }
+        if let name {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let clash = model.speakerProfiles.first(where: {
+                $0.id != profile.id && $0.name.lowercased() == trimmed.lowercased()
+            }) {
+                throw CLIError.usage("Another speaker profile is already called '\(clash.name)' (\(clash.id)).")
+            }
+            profile.name = name
+        }
+        if let email { profile.email = email }
+        if let phone { profile.phone = phone }
+        let saved = try await saving { try await model.saveSpeakerProfile(profile) }
+        var message = "Updated speaker profile '\(saved.name)'."
+        if name != nil {
+            // Matches the settings screen: meetings keep the names they were saved with.
+            message += " Meetings keep the speaker names they already show; "
+                + "'stillnote speaker assign' relinks one to pick up the new name."
+        }
+        return try CommandRunner.speakerResponse(message, saved, meetings: model.meetings)
+    }
+
+    private func deleteSpeaker(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
+        let profile = try profile(request, model: model)
+        let unlinked = try await model.deleteSpeakerProfile(profile.id)
+        var message = "Deleted speaker profile '\(profile.name)'."
+        if !unlinked.isEmpty {
+            message += " It was unlinked from \(unlinked.count) meeting(s), which keep the name '\(profile.name)'."
+        }
+        let payload = SpeakerProfilePayload(
+            profile, appearances: SpeakerQuery.appearances(of: profile.id, in: unlinked), includeMeetings: true
+        )
+        return try .success(message, payload)
+    }
+
+    private func assignSpeaker(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
+        let meeting = try resolve(request, model: model)
+        try requireIdle(meeting)
+        guard let speakerID = request.value("speaker") else {
+            throw CLIError.usage("Give --speaker <id>. 'stillnote show <id>' lists a meeting's speakers.")
+        }
+        guard meeting.speakers[speakerID] != nil else {
+            let known = meeting.orderedSpeakerIDs().joined(separator: ", ")
+            throw CLIError.notFound("'\(speakerID)' is not a speaker in this meeting. Known speakers: \(known).")
+        }
+        let reference = request.value("profile")
+        guard (reference != nil) != request.has("none") else {
+            throw CLIError.usage("Give either --profile <profile> to link a saved profile, or --none to unlink.")
+        }
+        let profile = try reference.map { try SpeakerQuery.resolve($0, in: model.speakerProfiles) }
+        try await saving {
+            try await model.assignSpeakerProfile(profile?.id, meetingID: meeting.id, speakerID: speakerID)
+        }
+        guard let saved = model.meeting(meeting.id) else {
+            throw CLIError.failed("The speaker change could not be read back.")
+        }
+        var message = profile.map { "Linked \(speakerID) in '\(saved.title)' to '\($0.name)'." }
+            ?? "Unlinked \(speakerID) in '\(saved.title)' from its speaker profile. It keeps the name '\(saved.speakerName(speakerID))'."
+        if meeting.summary != nil, saved.summary == nil {
+            message += " Its summary was cleared; run 'stillnote summarize \(saved.id) --allow-remote' to rebuild one."
+        }
+        return try CommandRunner.meetingResponse(message, saved)
+    }
+
     // MARK: - Summary and notes
 
     private func setSummary(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
@@ -309,7 +425,7 @@ final class CommandServer {
                 )
             }
             let saved = try edited(
-                await model.edit(meeting.id) { $0.summary = replacement; $0.status = .complete },
+                await model.edit(meeting.id) { $0.applySummary(replacement); $0.status = .complete },
                 "The summary"
             )
             return try CommandRunner.meetingResponse("Replaced the summary of '\(saved.title)'.", saved)
@@ -407,8 +523,11 @@ final class CommandServer {
                     + "'stillnote record discard'."
             )
         }
-        let title = try Validation.title(request.value("title") ?? defaultRecordingTitle())
-        var options = CaptureOptions(title: String(title.prefix(Validation.maxRecordingTitleLength)))
+        let named = request.value("title")
+        let title = try Validation.title(named ?? CaptureOptions.defaultTitle())
+        var options = CaptureOptions(
+            title: String(title.prefix(Validation.maxRecordingTitleLength)), automaticTitle: named == nil
+        )
         options.language = try Validation.language(request.value("language") ?? model.settings.transcription.language)
         options.speakerCount = try Validation.speakerCount(
             try request.integer("speakers") ?? model.settings.transcription.speakerCount
@@ -489,11 +608,5 @@ final class CommandServer {
     private func matchDevice(_ reference: String, in devices: [CaptureDevice]) -> CaptureDevice? {
         devices.first { $0.id == reference }
             ?? devices.first { $0.name.lowercased().contains(reference.lowercased()) }
-    }
-
-    private func defaultRecordingTitle() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return "Recording \(formatter.string(from: Date()))"
     }
 }

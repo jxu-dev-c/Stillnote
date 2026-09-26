@@ -12,11 +12,15 @@ struct StillnoteApp: App {
         }
     }
 
+    /// A single main window, so the menu bar's Open Stillnote brings it forward rather than
+    /// opening another. The menu bar extra keeps the app running once it is closed.
+    static let mainWindowID = "main"
+
     @State private var model = AppModel()
     @State private var sheet: RootSheet?
 
     var body: some Scene {
-        WindowGroup {
+        Window("Stillnote", id: Self.mainWindowID) {
             RootView(sheet: $sheet)
                 .environment(model)
                 .task { await model.load() }
@@ -36,6 +40,14 @@ struct StillnoteApp: App {
             CommandGroup(replacing: .help) {
                 Link("MOSS speech model", destination: URL(string: "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize")!)
             }
+        }
+
+        MenuBarExtra {
+            MenuBarMenu()
+                .environment(model)
+        } label: {
+            MenuBarLabel()
+                .environment(model)
         }
 
         Settings {

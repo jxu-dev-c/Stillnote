@@ -131,15 +131,20 @@ final class AppModel {
         alertMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
-    func deleteSpeakerProfile(_ id: String) async throws {
+    /// Returns the meetings the profile was unlinked from.
+    @discardableResult
+    func deleteSpeakerProfile(_ id: String) async throws -> [Meeting] {
         let changed = try await store.deleteProfile(id)
         changed.forEach { apply($0) }
         speakerProfiles.removeAll { $0.id == id }
+        return changed
     }
 
-    func saveSpeakerProfile(_ profile: SpeakerProfile) async throws {
+    @discardableResult
+    func saveSpeakerProfile(_ profile: SpeakerProfile) async throws -> SpeakerProfile {
         let saved = try await store.saveProfile(profile)
         rememberProfile(saved)
+        return saved
     }
 
     private func rememberProfile(_ profile: SpeakerProfile) {
@@ -243,6 +248,38 @@ final class AppModel {
             report(error)
             return nil
         }
+    }
+
+    // MARK: - Recording
+
+    var isRecording: Bool { isReady && recorder.session != nil }
+
+    /// Starts a recording with the saved transcription defaults, the default microphone, system
+    /// audio, and no screen video: the one-click path the menu bar offers.
+    @discardableResult
+    func startQuickRecording() async -> Bool {
+        guard isReady, recorder.session == nil else { return false }
+        do {
+            let options = CaptureOptions(
+                title: CaptureOptions.defaultTitle(),
+                language: try Validation.language(settings.transcription.language),
+                speakerCount: try Validation.speakerCount(settings.transcription.speakerCount),
+                automaticTitle: true
+            )
+            try await recorder.start(options: options)
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// Saves the current recording and queues transcription when the speech model is ready.
+    @discardableResult
+    func stopRecording() async -> Meeting? {
+        guard isReady, recorder.session != nil, let meeting = await finishRecording() else { return nil }
+        if speech.ready { await transcribe(meeting.id) }
+        return meeting
     }
 
     func finishRecording() async -> Meeting? {
@@ -444,7 +481,7 @@ final class AppModel {
                 )
             }.value
             await edit(id) {
-                $0.summary = summary
+                $0.applySummary(summary)
                 $0.status = .complete
                 $0.progress = 100
                 $0.stage = "Summary ready"

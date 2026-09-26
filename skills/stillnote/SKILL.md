@@ -1,6 +1,6 @@
 ---
 name: stillnote
-description: Read, search, and correct meeting transcripts and summaries in Stillnote, the local macOS meeting notebook, and start or stop a recording. Use when the user asks about their meetings, calls, or recordings — what was decided, who said what, what happened in a conversation with someone, or a date range of meetings — or asks to fix a recurring mis-transcription such as an acronym the model heard wrong, edit a summary or notes, or begin, pause, or stop recording.
+description: Read, search, and correct meeting transcripts and summaries in Stillnote, the local macOS meeting notebook, and start or stop a recording. Use when the user asks about their meetings, calls, or recordings — what was decided, who said what, what happened in a conversation with someone, or a date range of meetings — or asks to fix a recurring mis-transcription such as an acronym the model heard wrong, edit a summary or notes, manage saved speaker profiles and their contact details, or begin, pause, or stop recording.
 ---
 
 # Stillnote
@@ -86,6 +86,26 @@ stillnote speaker rename <id> --speaker speaker_1 --name Jackson --json
 drawn from the old text. `summary_invalidated: true` says it happened. Tell the user, and offer
 to regenerate — do not regenerate unasked.
 
+## Speaker profiles
+
+A speaker profile is a person saved across meetings, with an optional email and phone. Linking a
+meeting's speaker to a profile gives that speaker the profile's name.
+
+```bash
+stillnote speaker list --json
+stillnote speaker show Jackson --json            # contact details and linked meetings
+stillnote speaker add --name "Jackson Lee" --email jackson@example.com --json
+stillnote speaker update Jackson --phone "+1 555 0100" --json
+stillnote speaker update Jackson --email "" --json   # clear a field
+stillnote speaker assign <id> --speaker speaker_1 --profile Jackson --json
+stillnote speaker assign <id> --speaker speaker_1 --none --json   # unlink; keeps the name
+stillnote speaker delete Jackson --json          # confirm first
+```
+
+Renaming a profile does not rename meetings already linked to it; each keeps the name it shows
+until you `speaker assign` it again. Linking a profile whose name differs from the one a meeting
+shows clears that meeting's summary, as any speaker correction does.
+
 ## Summaries and notes
 
 ```bash
@@ -111,7 +131,8 @@ one from a transcript you already read, prefer that and say what you did.
 
 ```bash
 stillnote record status --json
-stillnote record start --title "Design review" --json
+stillnote record start --json                          # titled after its summary
+stillnote record start --title "Design review" --json  # a fixed title
 stillnote record pause --json
 stillnote record resume --json
 stillnote record stop --json               # saves, then queues transcription

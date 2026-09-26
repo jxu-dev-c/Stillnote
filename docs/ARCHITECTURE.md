@@ -50,11 +50,16 @@ Claude Code, dropping obsolete API credentials, without touching saved meetings.
 Meeting = {id,title,created_at,updated_at,duration,status:'ready'|'transcribing'|'transcribed'|'summarizing'|'complete'|'error',
   progress,stage,error,audio_name,audio_url,video_url,summary_include_video_path,language,speaker_count,
   speakers:Record<string,string>,segments:Segment[],summary:Summary|null,notes,context_links:ContextLink[],
-  cleanup:{original_duration,head,tail,applied_at}|null}
+  cleanup:{original_duration,head,tail,applied_at}|null,automatic_title}
 Segment = {id,start,end,speaker,text}
-Summary = {overview,key_points[],decisions[],action_items:[{text,owner,due}],provider,model,generated_at}
+Summary = {title?,overview,key_points[],decisions[],action_items:[{text,owner,due}],provider,model,generated_at}
 ContextLink = {url,title}
 ```
+
+`automatic_title` is true while a recording still carries the `Meeting · <date>` placeholder it
+started with (older documents decode it as false). Storing a summary through
+`Meeting.applySummary` then adopts the summary's suggested `title`; renaming the meeting clears
+the flag, so a title the user typed is never replaced.
 
 ## Concurrency
 
@@ -208,7 +213,9 @@ and SF Symbols, so it follows the viewer's appearance, accent color, and contras
 rather than carrying its own palette. `NavigationSplitView` hosts the sidebar and either
 the meeting `Table` or a meeting's detail view; playback uses AVKit's `VideoPlayer` for
 recordings with screen video and a compact transport otherwise. Settings live in the
-standard Settings scene. Notes autosave after a 700 ms pause, with an unsaved draft kept in
+standard Settings scene. The main window is a single `Window` scene; a `MenuBarExtra` starts and
+stops a recording with the saved transcription defaults, shows the elapsed time while capturing,
+and opens the window or Settings, which keeps the app running after the window closes. Notes autosave after a 700 ms pause, with an unsaved draft kept in
 `UserDefaults` until it matches what was saved.
 
 ### Reusable speaker profiles
@@ -216,6 +223,8 @@ standard Settings scene. Notes autosave after a 700 ms pause, with an unsaved dr
 Speaker profiles are local JSON records in SQLite’s `speaker_profiles` table, keyed by UUID. Each stores a name and one optional email and phone number. Meetings map local diarization labels to profile IDs through `speaker_profiles`; older meeting documents default to an empty mapping. Assignment is manual; diarization labels do not imply identity across recordings.
 
 Meeting `speakers` values remain name snapshots used by transcripts, summaries, and exports. Profile edits affect future assignments, while shared contact details stay solely in the profile store and are excluded from summary prompts and exports. Assignments that change a displayed name invalidate that meeting’s summary. Local renaming unlinks the identity; unlinking alone retains the snapshot. Retranscription clears assignments on successful transcript replacement, and deleting a meeting retains profiles. Creation with initial assignment uses a SQLite transaction. Store operations reject assignments to processing meetings.
+
+The `stillnote speaker` commands cover the same ground from a terminal: `list` and `show` read the profile table directly (so they work with the app closed), while `add`, `update`, `delete`, and `assign` go through `AppModel` like every other change. `speaker add` refuses a duplicate name so a name stays a usable `<profile>` reference.
 
 The transcript’s speaker sheet provides a profile dropdown and assignment/unlink actions. Edit Profile opens Settings → Speakers with the selected profile. Settings uses a macOS list with plus/minus controls and inline detail fields; there is no separate profile-editing sheet. A transactional, one-time migration converts existing custom speaker names into distinct profiles without merging matching names or changing meeting snapshots or summaries. Generic diarization labels are excluded. Contact fields are trimmed; nonempty emails receive basic format validation, while phone formatting is preserved. Failed saves remain visible in the editor.
 

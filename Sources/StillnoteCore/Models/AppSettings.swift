@@ -278,13 +278,19 @@ public struct AppSettings: Codable, Hashable, Sendable {
             resetModel = true
             changed = true
         }
+        var storedPrompt = summary["agent_prompt"] as? String
+        if storedPrompt == Summarizer.legacyAgentPrompt {
+            // Saving settings stores the default prompt verbatim; nobody chose that text.
+            storedPrompt = Summarizer.defaultAgentPrompt
+            changed = true
+        }
         let storedModel = resetModel ? nil : (summary["model"] as? String)
         let storedEffort = resetModel ? nil : (summary["reasoning_effort"] as? String)
         settings.summary = SummarySettings(
             provider: provider,
             model: (storedModel?.isEmpty == false) ? storedModel : provider.defaultModel,
             reasoningEffort: storedEffort.flatMap(ReasoningEffort.init(rawValue:)) ?? .high,
-            agentPrompt: summary["agent_prompt"] as? String ?? Summarizer.defaultAgentPrompt,
+            agentPrompt: storedPrompt ?? Summarizer.defaultAgentPrompt,
             inheritShellEnvironment: summary["inherit_shell_environment"] as? Bool ?? true,
             shellPath: summary["shell_path"] as? String ?? "",
             bypassPermissions: summary["bypass_permissions"] as? Bool ?? true
