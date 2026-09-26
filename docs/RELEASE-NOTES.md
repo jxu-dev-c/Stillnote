@@ -2,12 +2,14 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
-## What's new in 0.4.0
+## What's new in 0.5.0
 
-- **Bundled native speech engine:** transcription now runs through Swift MLX. Python and the separate Homebrew speech runtime are no longer required.
-- **Transcription memory modes:** choose Quality, Balanced, or Low Memory in Settings → Transcription. Balanced uses 8-bit context storage; Low Memory reduces it further and can change wording, timestamps, or speaker assignments.
-- **More efficient transcription:** windowed audio reads, smaller prefill batches, and optimized decoding reduce memory pressure. Device-aware memory checks help avoid workloads that exceed the estimated budget.
-- Existing speaker labels, personal hot words, progress reporting, and cancellation remain supported.
+### Recording cleanup
+
+- Trim leading and trailing silence from saved recordings when the cut exceeds a minute. Recordings with no detected speech are kept whole.
+- Silence non-speech audio in the copy sent to transcription, while keeping playback audio unchanged by this filter.
+- Adjust cleanup sensitivity in Settings → Transcription and see how much silence was trimmed on each meeting.
+- Detect speech locally with a small Silero VAD model (about 2.2 MB), downloaded alongside the speech model.
 
 ### Command line and AI agents
 
@@ -30,7 +32,12 @@ still asks for consent, as `stillnote summarize <id> --allow-remote`.
 To let a coding agent drive it, install the published skill with
 `npx skills add jxu-dev-c/Stillnote`.
 
-## Upgrading from 0.3.0
+## Upgrading from 0.4.0
+
+Existing meetings and settings are preserved. Download the supporting Silero VAD model
+in Settings to use recording cleanup. Homebrew also links the new `stillnote` command.
+
+## Upgrading from 0.3.0 or earlier
 
 Download the new pinned 8-bit speech model once in Settings (about 1.3 GB).
 Existing meetings, settings, and older model files are preserved. The legacy

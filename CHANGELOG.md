@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
 - Trim leading and trailing silence from a saved recording, for the times a recording kept
   running after the meeting ended. Only cuts over a minute are applied, and a recording with
