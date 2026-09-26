@@ -39,7 +39,7 @@ and generated/private local content, then creates one commit on main with the Gi
 noreply identity. The destination must not exist. Inspect the exported tree before publishing.
 The existing private repository and remote remain untouched.
 
-## Automatic GitHub releases
+## Releasing
 
 Releases use numeric `MAJOR.MINOR.PATCH` versions and `vMAJOR.MINOR.PATCH` Git tags,
 following [Semantic Versioning](https://semver.org/). Major version zero denotes
@@ -47,73 +47,63 @@ initial development. Use patch increments for fixes and minor increments for new
 features; reserve 1.0.0 for a stable public compatibility contract. Do not reuse or
 move published tags, or add `dev` suffixes to release versions.
 
-To release, update `CFBundleShortVersionString` in `Resources/Info.plist`, commit
-that change with the intended release contents, then create and push a matching
-annotated tag (for example, `git tag -a v0.1.1 -m "Release v0.1.1"` followed by
-`git push origin v0.1.1`). Choose a new version for each release.
+`CFBundleShortVersionString` in `Resources/Info.plist` is the release trigger. A release is
+one pull request that bumps it, closes the changelog's Unreleased section, and updates
+`docs/RELEASE-NOTES.md`. Merging that pull request to `master` publishes the release end to
+end; no tag is created by hand. A merge that leaves the version alone only runs the checks.
 
-Only tag pushes publish releases. Ordinary branch pushes still run CI checks.
-The release workflow validates that the tag is numeric and matches the app version,
-runs checks on macOS 26, builds an ad-hoc-signed Apple silicon app, and verifies the
-extracted ZIP and checksum. The app's build number is the workflow run number;
-the app version and archive filename use the numeric version from the tag.
+The Release workflow on a `master` push:
+
+1. Validates the version, and decides whether `v$version` is already released.
+2. Runs `./scripts/check.sh`, builds an ad-hoc-signed Apple silicon app with
+   `./scripts/package-app.sh`, generates the cask, and runs `./scripts/verify-candidate.sh`
+   against the extracted ZIP and its checksums.
+3. Installs, upgrades, and uninstalls the candidate cask on macOS 15 and 26
+   (`./scripts/check-homebrew.sh`).
+4. Publishes the GitHub release, which creates the tag on the released commit, then advances
+   the public Homebrew tap.
+
+Steps 3 and 4 run only for a new version. Failed checks prevent publication, and the tap is
+never advanced for a candidate that did not pass. The app version and archive filename come
+from `Resources/Info.plist`; the build number is the workflow run number. Releases are titled
+with their tag (for example, `v0.1.1`), without the prerelease flag, so GitHub determines the
+latest release automatically. Only the publication job receives `contents: write`. No Apple
+account, signing secret, or notarization is required.
 
 Find downloads under [GitHub Releases](https://github.com/jxu-dev-c/Stillnote/releases).
-Each release contains the app ZIP, `Install-Stillnote.sh`, `SHA256SUMS`, license, third-party notices, and
-these release notes. Assets are uploaded to a draft first, then the complete release
-is published automatically. Failed checks prevent publication. Reruns can finish an
-incomplete draft; already published releases and their assets stay unchanged.
+Each release contains the app ZIP, `Install-Stillnote.sh`, `SHA256SUMS`, license,
+third-party notices, and the release notes. Checksums remain part of automated release
+verification; users are not required to run checksum commands or rebuild the downloaded app.
 
-Releases are published with the tag as their title (for example, `v0.1.1`), without
-the prerelease flag. GitHub determines the latest release automatically. Numeric
-versioning does not remove the runtime requirements or distribution gates above.
-No Apple account, signing secret, or notarization is required by this workflow.
-Only the publication job receives `contents: write`.
-
+Numeric versioning does not remove the runtime requirements or distribution gates above.
 For end-user installation and runtime setup, see [RELEASE-NOTES.md](RELEASE-NOTES.md).
-Checksums remain part of automated release verification; users are not required to
-run checksum commands or rebuild the downloaded app.
 
 ## Homebrew releases
 
 The source repository is private. Public binary downloads live in
 `jxu-dev-c/homebrew-stillnote` releases; never point public formula URLs at private assets.
+The tap is what `brew install` reads, so a source release without it ships a version nobody
+can install, and the publication job fails rather than skipping the tap quietly.
 
-The tag workflow builds the app and a `Stillnote-homebrew.tar.gz` containing the app cask.
-Full Xcode and its Metal toolchain build the worker and `mlx.metallib`; no Python runtime
-archive is produced. The archive carries upstream licenses and `Package.resolved` pins
-the Swift dependency graph.
+Packaging builds `Stillnote-homebrew.tar.gz` containing the app cask. Full Xcode and its Metal
+toolchain build the worker and `mlx.metallib`; no Python runtime archive is produced. The
+archive carries upstream licenses and `Package.resolved` pins the Swift dependency graph.
+The cask, its URLs, and the tap README come from `packaging/homebrew/`.
 
-Before publication, macOS 15 and 26 jobs install the candidate cask, check native worker
-computation, upgrade/reinstall, and uninstall without deleting data. Real GPU transcription
-and Finder first-launch approval still require acceptance testing.
-
-Once the source release is published, the tag workflow's `tap` job advances the public
-tap by running `./scripts/publish-homebrew.sh` on the new tag. The tap is what
-`brew install` reads, so a source release without it ships a version nobody can install.
-
-That job needs the `HOMEBREW_TAP_TOKEN` Actions secret: a token with contents write access
+Publication needs the `HOMEBREW_TAP_TOKEN` Actions secret: a token with contents write access
 to `jxu-dev-c/homebrew-stillnote` and read access to this repository, because the workflow's
-own `github.token` is scoped to this repository alone. Without the secret the job fails
-rather than passing quietly.
+own `github.token` is scoped to this repository alone.
 
-The same workflow is dispatchable on its own for an already published tag, which republishes
-or backfills the tap without rebuilding:
-
-```sh
-gh workflow run tap.yml -f tag=v0.2.0
-```
-
-A maintainer with `gh` access to both repositories can also run the script directly:
+A maintainer with `gh` access to both repositories can republish or backfill the tap for an
+already published tag without rebuilding, which downloads that release's own assets:
 
 ```sh
-./scripts/publish-homebrew.sh v0.2.0
+./scripts/publish-homebrew.sh v0.6.0
 ```
 
-Either path verifies release checksums, publishes only the named distributable assets to the
-public tap, and then commits the cask and installation notes. Existing published
-assets are immutable, and reruns must match their checksums. Quit Stillnote before testing
-app upgrades. A failed candidate must not advance the public tap.
+Existing published assets are immutable, and reruns must match their checksums. Real GPU
+transcription and Finder first-launch approval still require acceptance testing. Quit
+Stillnote before testing app upgrades.
 
 To package locally, use full Xcode with the Metal toolchain; cask generation uses Python 3:
 

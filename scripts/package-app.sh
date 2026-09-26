@@ -9,7 +9,7 @@ mkdir -p "$staging"
 cp LICENSE THIRD_PARTY_NOTICES.md build/Stillnote.app/Contents/Resources/
 codesign --force --sign "${STILLNOTE_SIGNING_IDENTITY:--}" --identifier local.stillnote.app build/Stillnote.app
 codesign --verify --deep --strict build/Stillnote.app
-archive="Stillnote-${STILLNOTE_RELEASE_VERSION:-$version}-macos-arm64.zip"
+archive="Stillnote-$version-macos-arm64.zip"
 ditto -c -k --keepParent build/Stillnote.app "$staging/$archive"
 cp scripts/install-app.sh "$staging/Install-Stillnote.sh"
 (cd "$staging" && shasum -a 256 "$archive" Install-Stillnote.sh > SHA256SUMS)
