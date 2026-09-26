@@ -66,6 +66,83 @@ public struct TranscriptionSettings: Codable, Hashable, Sendable {
     }
 }
 
+public enum CleanupSensitivity: String, Codable, CaseIterable, Sendable {
+    case conservative, balanced, aggressive
+
+    public var label: String { rawValue.capitalized }
+    public var detail: String { switch self {
+    case .conservative: "Keeps more audio. Quiet or distant speech is less likely to be cut."
+    case .balanced: "The recommended balance between removing silence and keeping quiet speech."
+    case .aggressive: "Removes the most silence. Very quiet speech may be cut."
+    } }
+    /// Silero's speech probability threshold. A higher value demands clearer speech.
+    public var threshold: Double { switch self {
+    case .conservative: 0.35
+    case .balanced: 0.5
+    case .aggressive: 0.65
+    } }
+}
+
+/// Controls the silence trim applied when a recording is saved and the non-speech
+/// suppression applied to the copy handed to the speech model. Speech itself is never
+/// filtered: enhancing speech before recognition is known to cost accuracy, so the only
+/// audio this touches is audio the detector found no speech in.
+public struct AudioCleanupSettings: Codable, Hashable, Sendable {
+    /// Rewrites a saved recording to drop leading and trailing silence.
+    public var trimRecording: Bool
+    /// Silences non-speech regions in the audio handed to the speech model.
+    public var suppressNonSpeech: Bool
+    public var sensitivity: CleanupSensitivity
+    /// Audio kept before the first and after the last detected speech.
+    public var leadPadding: Double
+    public var trailPadding: Double
+    /// A recording is only rewritten when at least this much would be removed.
+    public var minimumTrimSeconds: Double
+    /// Speech runs shorter than this do not move the trim boundaries, so a stray
+    /// keystroke near the end of a file cannot defeat the trim.
+    public var minimumSpeechRunSeconds: Double
+
+    enum CodingKeys: String, CodingKey {
+        case sensitivity
+        case trimRecording = "trim_recording"
+        case suppressNonSpeech = "suppress_non_speech"
+        case leadPadding = "lead_padding"
+        case trailPadding = "trail_padding"
+        case minimumTrimSeconds = "minimum_trim_seconds"
+        case minimumSpeechRunSeconds = "minimum_speech_run_seconds"
+    }
+
+    public init(
+        trimRecording: Bool = true, suppressNonSpeech: Bool = true,
+        sensitivity: CleanupSensitivity = .balanced,
+        leadPadding: Double = 2, trailPadding: Double = 3,
+        minimumTrimSeconds: Double = 60, minimumSpeechRunSeconds: Double = 0.5
+    ) {
+        self.trimRecording = trimRecording
+        self.suppressNonSpeech = suppressNonSpeech
+        self.sensitivity = sensitivity
+        self.leadPadding = max(0, leadPadding)
+        self.trailPadding = max(0, trailPadding)
+        self.minimumTrimSeconds = max(0, minimumTrimSeconds)
+        self.minimumSpeechRunSeconds = max(0, minimumSpeechRunSeconds)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = AudioCleanupSettings()
+        self.init(
+            trimRecording: try values.decodeIfPresent(Bool.self, forKey: .trimRecording) ?? fallback.trimRecording,
+            suppressNonSpeech: try values.decodeIfPresent(Bool.self, forKey: .suppressNonSpeech) ?? fallback.suppressNonSpeech,
+            sensitivity: (try values.decodeIfPresent(String.self, forKey: .sensitivity))
+                .flatMap(CleanupSensitivity.init(rawValue:)) ?? fallback.sensitivity,
+            leadPadding: try values.decodeIfPresent(Double.self, forKey: .leadPadding) ?? fallback.leadPadding,
+            trailPadding: try values.decodeIfPresent(Double.self, forKey: .trailPadding) ?? fallback.trailPadding,
+            minimumTrimSeconds: try values.decodeIfPresent(Double.self, forKey: .minimumTrimSeconds) ?? fallback.minimumTrimSeconds,
+            minimumSpeechRunSeconds: try values.decodeIfPresent(Double.self, forKey: .minimumSpeechRunSeconds) ?? fallback.minimumSpeechRunSeconds
+        )
+    }
+}
+
 public struct SummarySettings: Codable, Hashable, Sendable {
     public var provider: SummaryProvider
     public var model: String
@@ -118,10 +195,27 @@ public struct SummarySettings: Codable, Hashable, Sendable {
 public struct AppSettings: Codable, Hashable, Sendable {
     public var transcription: TranscriptionSettings
     public var summary: SummarySettings
+    public var cleanup: AudioCleanupSettings
 
-    public init(transcription: TranscriptionSettings = .init(), summary: SummarySettings = .init()) {
+    enum CodingKeys: String, CodingKey { case transcription, summary, cleanup }
+
+    public init(
+        transcription: TranscriptionSettings = .init(), summary: SummarySettings = .init(),
+        cleanup: AudioCleanupSettings = .init()
+    ) {
         self.transcription = transcription
         self.summary = summary
+        self.cleanup = cleanup
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            transcription: try values.decode(TranscriptionSettings.self, forKey: .transcription),
+            summary: try values.decode(SummarySettings.self, forKey: .summary),
+            // Records written before recording cleanup existed carry no key.
+            cleanup: try values.decodeIfPresent(AudioCleanupSettings.self, forKey: .cleanup) ?? .init()
+        )
     }
 
     /// Speech models retired before MOSS became the only supported engine.
@@ -137,7 +231,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
 
         let transcription = object["transcription"] as? [String: Any] ?? [:]
         var model = transcription["model"] as? String ?? SpeechCatalog.defaultModel
-        if retiredSpeechModels.contains(model) || SpeechCatalog.models[model] == nil {
+        if retiredSpeechModels.contains(model) || SpeechCatalog.transcriptionModels[model] == nil {
             model = SpeechCatalog.defaultModel
             changed = true
         }
@@ -173,6 +267,18 @@ public struct AppSettings: Codable, Hashable, Sendable {
             shellPath: summary["shell_path"] as? String ?? "",
             bypassPermissions: summary["bypass_permissions"] as? Bool ?? true
         )
+        if let cleanup = object["cleanup"] as? [String: Any] {
+            // Reuse the Codable path so the per-field defaults live in one place.
+            if let data = try? JSONSerialization.data(withJSONObject: cleanup),
+               let decoded = try? JSONDecoder().decode(AudioCleanupSettings.self, from: data) {
+                settings.cleanup = decoded
+            } else {
+                changed = true
+            }
+        } else {
+            changed = true
+        }
+
         // Obsolete keys such as api_key and base_url are dropped by re-encoding.
         if summary["agent_prompt"] as? String == nil || (summary.keys.contains { !["provider", "model", "reasoning_effort", "agent_prompt", "inherit_shell_environment", "shell_path", "bypass_permissions"].contains($0) }) {
             changed = true
