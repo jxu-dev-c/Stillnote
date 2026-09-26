@@ -34,6 +34,7 @@ final class AppModel {
     var recorder: RecordingCoordinator { workspace!.recorder }
 
     private let queue = JobQueue()
+    private let commands = CommandServer()
     private var transcriptions: [String: Task<Void, Never>] = [:]
     private var installTask: Task<Void, Never>?
     private var installProgress = 0.0
@@ -82,6 +83,8 @@ final class AppModel {
             startupStage = "Recovering interrupted recordings…"
             await recorder.recover()
             isReady = true
+            // Only now is there a store and a recorder for a command to reach.
+            commands.start(model: self)
         } catch {
             startupError = error.localizedDescription
             return
@@ -171,20 +174,26 @@ final class AppModel {
         }
     }
 
-    /// Transcript and speaker corrections invalidate the summary they were drawn from.
+    /// Transcript and speaker corrections invalidate the summary they were drawn from. The
+    /// policy itself lives in `TranscriptEdit` so the `stillnote` CLI applies the same one.
     func editTranscript(_ id: String, _ mutate: @escaping (inout Meeting) -> Void) async {
+        await editTranscriptReturning(id, mutate)
+    }
+
+    @discardableResult
+    func editTranscriptReturning(
+        _ id: String, _ mutate: @escaping (inout Meeting) -> Void
+    ) async -> Meeting? {
         await edit(id) { meeting in
             mutate(&meeting)
-            for segment in meeting.segments where meeting.speakers[segment.speaker] == nil {
-                meeting.speakers[segment.speaker] = segment.speaker
-            }
-            let hasTranscript = !meeting.segments.isEmpty
-            meeting.summary = nil
-            meeting.status = hasTranscript ? .transcribed : .ready
-            meeting.error = nil
-            meeting.progress = hasTranscript ? 100 : 0
-            meeting.stage = hasTranscript ? "Transcript ready" : "Ready to transcribe"
+            TranscriptEdit.finish(&meeting)
         }
+    }
+
+    /// Drops the window's unsaved notes draft for a meeting whose notes were replaced elsewhere,
+    /// so a stale draft cannot overwrite the new text on the next autosave.
+    func discardNotesDraft(_ id: String) {
+        UserDefaults.standard.removeObject(forKey: "stillnote:notes:\(id)")
     }
 
     func delete(_ id: String) async {
@@ -198,7 +207,7 @@ final class AppModel {
         do {
             try await store.delete(id)
             meetings.removeAll { $0.id == id }
-            UserDefaults.standard.removeObject(forKey: "stillnote:notes:\(id)")
+            discardNotesDraft(id)
         } catch {
             report(error)
         }
@@ -457,6 +466,7 @@ final class AppModel {
     func saveSettings(_ updated: AppSettings) async {
         do {
             settings = try await store.saveSettings(updated)
+            syncCommandServer()
             await refreshEnvironment()
         } catch {
             report(error)
@@ -515,7 +525,18 @@ final class AppModel {
     }
 
     func shutdown() async {
+        commands.stop()
         for task in transcriptions.values { task.cancel() }
         await workspace?.recorder.shutdown()
+    }
+
+    /// Settings → Advanced can switch the command interface on and off without a relaunch.
+    private func syncCommandServer() {
+        guard isReady else { return }
+        if settings.cli.enabled {
+            commands.start(model: self)
+        } else {
+            commands.stop()
+        }
     }
 }

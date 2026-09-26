@@ -10,6 +10,13 @@
 - Add a Recording cleanup section to transcription settings with a sensitivity control.
 - Show on a meeting how much silence was trimmed and how long the recording originally was.
 - Download a 2.2 MB Silero VAD model alongside the speech engine to detect speech locally.
+- Bundle a `stillnote` command for reading, searching, and correcting meetings and for starting
+  and stopping a recording. Homebrew puts it on your PATH.
+- Replace text across every transcript in one step, with a dry run that counts the matches first.
+- Read meetings, search, and export while the app is closed; changes and recording need it open.
+- Add a Settings → Advanced switch for the command interface, on by default.
+- Publish a `stillnote` agent skill under `skills/`, installable with
+  `npx skills add jxu-dev-c/Stillnote`.
 
 ## 0.4.0
 

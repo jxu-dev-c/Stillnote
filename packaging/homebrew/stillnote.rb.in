@@ -11,10 +11,14 @@ cask "stillnote" do
   depends_on macos: :sequoia
 
   app "Stillnote.app"
+  # The bundled command-line interface. It talks to the running app over a local socket.
+  binary "#{appdir}/Stillnote.app/Contents/Helpers/stillnote"
 
   caveats <<~EOS
     Download the speech model once in Stillnote Settings.
     This app is ad-hoc signed. macOS may require approval in Privacy & Security.
+    The stillnote command reads and corrects meetings and controls recording while the
+    app is open; it can be switched off in Settings > Advanced.
     Meetings and models are preserved when uninstalling.
   EOS
 end

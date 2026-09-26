@@ -107,6 +107,46 @@ of the converted 8-bit model in Settings. Existing meetings and old model files 
 Uninstall with `brew uninstall --cask jxu-dev-c/stillnote/stillnote`. These preserve your meetings,
 settings, and models. Avoid `--zap` or deleting Application Support to keep your data.
 
+## Command line and AI agents
+
+Stillnote bundles a `stillnote` command for reading and correcting meetings and for driving
+recording. Homebrew puts it on your `PATH`; otherwise call it at
+`/Applications/Stillnote.app/Contents/Helpers/stillnote`, or symlink it somewhere on your `PATH`.
+
+```bash
+stillnote status
+stillnote list --speaker Jackson --since 2026-05 --until 2026-05
+stillnote search "product launch" --in summary
+stillnote show latest --segments
+stillnote transcript replace ANE AEM --all --dry-run   # count first
+stillnote transcript replace ANE AEM --all --whole-word
+stillnote record start --title "Design review"
+stillnote record stop
+stillnote help
+```
+
+Reading works whether or not the app is open. Changing data and recording need Stillnote running:
+it is the only writer, so a correction made here shows up in the open window, and capture
+permissions belong to the app rather than to your terminal. Add `--json` to any command for
+structured output. Turn the whole interface off in **Settings → Advanced**.
+
+Generating a summary sends the transcript to your configured agent CLI, so it asks for consent
+explicitly: `stillnote summarize <id> --allow-remote`.
+
+### Agent skill
+
+To let a coding agent use all of this, install the published skill with the
+[skills CLI](https://github.com/vercel-labs/skills):
+
+```bash
+npx skills add jxu-dev-c/Stillnote
+```
+
+It teaches the agent the commands, the JSON shapes, and the care they call for — to count the
+matches of a library-wide replacement before applying it, to tell you when a correction cleared a
+summary, and never to send a transcript to a provider unless you asked. The source is in
+[skills/stillnote](skills/stillnote/SKILL.md).
+
 ## Contributing
 
 Bug reports, suggestions, and pull requests are welcome. Read the

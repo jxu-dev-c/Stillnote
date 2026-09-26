@@ -31,6 +31,12 @@ let package = Package(
             dependencies: ["StillnoteCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // Ships inside the app bundle as `stillnote`, beside StillnoteSpeechWorker.
+        .executableTarget(
+            name: "StillnoteCLI",
+            dependencies: ["StillnoteCore"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .testTarget(
             name: "StillnoteCoreTests",
             dependencies: ["StillnoteCore", .product(name: "MossTranscribeDiarize", package: "MossTranscribeDiarize"),

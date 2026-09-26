@@ -12,6 +12,9 @@ their details here.
 - Build targets and dependencies: [Package.swift](Package.swift).
 - App state and UI entry points: [AppModel.swift](Sources/Stillnote/AppModel.swift)
   and [StillnoteApp.swift](Sources/Stillnote/StillnoteApp.swift).
+- Command interface and the published agent skill: the Command interface section of
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [skills/README.md](skills/README.md), and
+  [scripts/check-skill.sh](scripts/check-skill.sh).
 - Speech changes and benchmarks: [docs/TRANSCRIPTION-PERFORMANCE.md](docs/TRANSCRIPTION-PERFORMANCE.md)
   and [Vendor/MossTranscribeDiarize/UPSTREAM.md](Vendor/MossTranscribeDiarize/UPSTREAM.md).
 - Privacy and security: [docs/PRIVACY.md](docs/PRIVACY.md) and [SECURITY.md](SECURITY.md).

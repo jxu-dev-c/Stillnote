@@ -8,6 +8,11 @@ build/
 *.xcodeproj
 .swiftpm/
 
+# Where the skills CLI installs skills for local testing; the sources live in skills/
+.agents/
+.claude/
+skills-lock.json
+
 # MOSS inference runtime and local data
 .venv-moss/
 __pycache__/
