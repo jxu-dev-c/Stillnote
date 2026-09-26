@@ -238,7 +238,12 @@ final class AppModel {
 
     func finishRecording() async -> Meeting? {
         do {
-            let meeting = try await recorder.finish()
+            let meeting = try await recorder.finish(
+                cleanup: RecordingCleanup(
+                    settings: settings.cleanup,
+                    detector: SpeechActivityService(modelDirectory: paths.modelDirectory)
+                )
+            )
             apply(meeting)
             return meeting
         } catch {
@@ -269,6 +274,7 @@ final class AppModel {
         let count = speakerCount ?? meeting.speakerCount
         let hotWords = settings.transcription.hotWords
         let mode = settings.transcription.mode
+        let cleanup = settings.cleanup
         guard let queued = await edit(id, { meeting in
             meeting.status = .transcribing
             meeting.progress = 0
@@ -284,7 +290,8 @@ final class AppModel {
         let task = await queue.enqueue { [weak self] in
             await self?.runTranscription(
                 id: id, service: service, audioURL: audioURL, model: model,
-                language: language, speakerCount: count, hotWords: hotWords, mode: mode
+                language: language, speakerCount: count, hotWords: hotWords, mode: mode,
+                cleanup: cleanup
             )
         }
         transcriptions[id] = task
@@ -292,7 +299,8 @@ final class AppModel {
 
     private func runTranscription(
         id: String, service: TranscriptionService, audioURL: URL, model: String,
-        language: String, speakerCount: Int?, hotWords: [String], mode: TranscriptionMode
+        language: String, speakerCount: Int?, hotWords: [String], mode: TranscriptionMode,
+        cleanup: AudioCleanupSettings
     ) async {
         defer { transcriptions[id] = nil }
         if Task.isCancelled {
@@ -301,7 +309,8 @@ final class AppModel {
         }
         do {
             let result = try await service.transcribe(
-                audioURL: audioURL, model: model, language: language, speakerCount: speakerCount, hotWords: hotWords, mode: mode
+                audioURL: audioURL, model: model, language: language, speakerCount: speakerCount, hotWords: hotWords, mode: mode,
+                cleanup: cleanup
             ) { [weak self] progress, stage in
                 Task { @MainActor in
                     guard let self, self.transcriptions[id] != nil else { return }
@@ -468,9 +477,19 @@ final class AppModel {
         let installer = workspace!.installer
         installTask = await queue.enqueue { [self] in
             do {
+                // The detector is 2 MB against the engine's 1.26 GB, so it downloads first
+                // and its progress occupies only the first slice of the bar.
+                try await installer.install(model: SpeechCatalog.vadModel) { update in
+                    Task { @MainActor [self] in
+                        self.installProgress = update.fraction * 2
+                        self.installDetail = update.detail
+                        self.speech.progress = self.installProgress
+                        self.speech.detail = update.detail
+                    }
+                }
                 try await installer.install(model: model) { update in
                     Task { @MainActor [self] in
-                        self.installProgress = update.fraction * 100
+                        self.installProgress = 2 + update.fraction * 98
                         self.installDetail = update.detail
                         self.speech.progress = self.installProgress
                         self.speech.detail = update.detail
