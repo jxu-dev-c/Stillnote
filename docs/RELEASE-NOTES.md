@@ -2,18 +2,35 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
-## What's new in 0.5.0
+## What's new in 0.6.0
 
-### Recording cleanup
+### A menu bar icon
 
-- Trim leading and trailing silence from saved recordings when the cut exceeds a minute. Recordings with no detected speech are kept whole.
-- Silence non-speech audio in the copy sent to transcription, while keeping playback audio unchanged by this filter.
-- Adjust cleanup sensitivity in Settings → Transcription and see how much silence was trimmed on each meeting.
-- Detect speech locally with a small Silero VAD model (about 2.2 MB), downloaded alongside the speech model.
+- Start, pause, resume, and stop a recording from the menu bar, without bringing the window
+  forward. The icon shows the elapsed time while a recording is open, so capture is never
+  running unnoticed.
+- Open Stillnote or its Settings from the same menu.
 
-### Command line and AI agents
+### Recordings that name themselves
 
-This release bundles a `stillnote` command. Homebrew puts it on your `PATH`; otherwise it is at
+- Starting a recording no longer asks for a title. It is called `Meeting · <date>` until its
+  summary suggests a descriptive one.
+- A title you typed yourself, or passed with `--title`, is never replaced.
+
+### Speaker profiles from the command line
+
+```sh
+stillnote speaker list
+stillnote speaker add --name "Jackson Lee" --email jackson@example.com
+stillnote speaker update Jackson --email jackson@example.com
+stillnote speaker assign <meeting-id> --speaker "Speaker 1" --profile Jackson
+```
+
+`stillnote speaker show`, `delete`, and `--json` work the same way as the rest of the command.
+
+## The `stillnote` command and AI agents
+
+Stillnote bundles a `stillnote` command. Homebrew puts it on your `PATH`; otherwise it is at
 `/Applications/Stillnote.app/Contents/Helpers/stillnote`.
 
 ```sh
@@ -31,6 +48,12 @@ still asks for consent, as `stillnote summarize <id> --allow-remote`.
 
 To let a coding agent drive it, install the published skill with
 `npx skills add jxu-dev-c/Stillnote`.
+
+## Upgrading from 0.5.0
+
+Existing meetings, settings, and downloaded models are preserved, and no new download is
+needed. Homebrew relinks the updated `stillnote` command. The menu bar icon appears as soon
+as the app is running.
 
 ## Upgrading from 0.4.0
 
