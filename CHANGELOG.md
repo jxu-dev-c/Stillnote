@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 - Add a menu bar icon to start and stop a recording, open Stillnote, and open Settings. It
   shows the elapsed time while recording.
