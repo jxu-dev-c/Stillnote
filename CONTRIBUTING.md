@@ -1,7 +1,7 @@
 # Contributing
 
 Stillnote targets Apple silicon, macOS 15+, and the macOS 26 SDK. End-user installation is documented in README.md.
-Run `./scripts/check.sh` before proposing a change. Keep changes focused and include
+Run `./scripts/check.sh` before proposing a change; it builds, tests, and validates the published skills under `skills/`. Keep changes focused and include
 regression coverage for behavior changes. Use synthetic recordings and transcripts in
 issues, tests, screenshots, and pull requests; never include private meeting content.
 

@@ -15,6 +15,9 @@ struct SettingsView: View {
             SummarySettingsView()
                 .tabItem { Label("Summaries", systemImage: "sparkles") }
                 .tag("summaries")
+            AdvancedSettingsView()
+                .tabItem { Label("Advanced", systemImage: "terminal") }
+                .tag("advanced")
         }
         .frame(height: 420)
     }
@@ -287,5 +290,34 @@ struct SummarySettingsView: View {
             inheritShellEnvironment: inheritShellEnvironment, shellPath: shellPath, bypassPermissions: bypassPermissions
         )
         Task { await model.saveSettings(updated) }
+    }
+}
+
+/// The command interface: a local socket the bundled `stillnote` CLI talks to.
+struct AdvancedSettingsView: View {
+    @Environment(AppModel.self) private var model
+    @State private var enabled = true
+
+    var body: some View {
+        Form {
+            Section("Command line") {
+                Toggle("Allow the stillnote command to control this app", isOn: $enabled)
+                Text("Stillnote listens on a socket inside your library folder so the bundled stillnote command, and any agent you point at it, can read and correct meetings and start or stop a recording. It is a file only your macOS account can open; nothing is sent anywhere and no network port is used.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("Turn this off to refuse every command, including starting a recording. Summaries still need their own per-request consent.")
+                    .font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Socket", value: model.paths.commandSocketURL.path)
+                    .font(.caption)
+                    .textSelection(.enabled)
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { enabled = model.settings.cli.enabled }
+        .onChange(of: enabled) { _, value in
+            guard value != model.settings.cli.enabled else { return }
+            var updated = model.settings
+            updated.cli.enabled = value
+            Task { await model.saveSettings(updated) }
+        }
     }
 }

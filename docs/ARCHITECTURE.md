@@ -2,7 +2,8 @@
 
 A native macOS 15+ app for Apple silicon: SwiftUI interface, SwiftPM package with a pinned native MLX dependency. Capture, storage, decoding, summaries, and exports are Swift and run
 in process. MOSS 0.9B inference runs in a short-lived bundled Swift worker using the vendored MOSS package. Nothing listens on
-a network port. No recording or transcription leaves the computer. Summaries can send
+a network port; the bundled `stillnote` command reaches the app through a Unix domain socket
+inside the library folder. No recording or transcription leaves the computer. Summaries can send
 transcript text to a provider only after per-request consent.
 
 ## Layout
@@ -12,6 +13,7 @@ Stillnote.app
 ├── StillnoteCore   library target, no SwiftUI, fully unit-tested
 └── Stillnote       executable target: SwiftUI views + AppModel
 Sources/StillnoteSpeechWorker  bundled native MLX executable; models download separately
+Sources/StillnoteCLI           bundled `stillnote` command; a client of the running app
 ```
 
 | Module | Responsibility |
@@ -23,7 +25,9 @@ Sources/StillnoteSpeechWorker  bundled native MLX executable; models download se
 | `Sources/StillnoteCore/Speech/` | Model manifest, verified download, readiness, MOSS and silence-detection worker drivers, transcript parsing. |
 | `Sources/StillnoteCore/Summary/` | Headless Codex/Claude Code adapters over `posix_spawn`, chunking, validation, local merging. |
 | `Sources/StillnoteCore/Export/` | Markdown, plain text, SRT, and JSON exports. |
-| `Sources/Stillnote/` | `AppModel` (observable state, job orchestration) and the SwiftUI screens. |
+| `Sources/StillnoteCore/CLI/` | Command catalog and parser, wire protocol, socket transport, transcript replacement, and library search. Every result and its rendering, so both processes answer identically. |
+| `Sources/Stillnote/` | `AppModel` (observable state, job orchestration), `CommandServer`, and the SwiftUI screens. |
+| `Sources/StillnoteCLI/` | The `stillnote` executable: argument handling, transport choice, and output. |
 
 ## Data
 
@@ -156,6 +160,46 @@ resolves paths, adopts a development checkout's data on first launch, opens the 
 probes the model, MOSS runtime, agent CLIs, and capture devices — the last four off the
 main actor. Until that finishes the window shows a progress view, so a slow or blocked
 read degrades into a visible wait rather than an app that never draws.
+
+## Command interface
+
+`stillnote` ships inside the bundle at `Contents/Helpers/stillnote` — not `Contents/MacOS`, where
+a case-insensitive volume would make `stillnote` and `Stillnote` the same file and the CLI would
+overwrite the app. The Homebrew cask links it onto `PATH`. It reads the app's version from the
+bundle's `Info.plist` relative to its own path, since `Bundle.main` is not the app from `Helpers`.
+
+The running app is the only writer and the only process that can record. Both follow from the
+existing design rather than preference: `Store.update` is a read-modify-write over a whole meeting
+document, so a second writer would silently drop concurrent edits, and `AppModel.meetings` is the
+interface's only source of truth with no file watcher, so an external write would stay invisible
+until relaunch. Capture is harder still — TCC grants belong to the signed bundle, device discovery
+needs the window server, and `RecordingCoordinator` is `@MainActor` with a single-session
+invariant — so a CLI launched from a terminal inherits the terminal's permissions, not Stillnote's.
+
+`CommandServer` therefore binds `<data>/cli.sock` once `load()` has a store and a recorder, and
+dispatches through `AppModel`, so a correction typed in a terminal appears in the open window.
+Requests are one newline-delimited JSON object each way. A socket is a filesystem object, not a
+network port: the directory is already `0700` and the socket is `0600`, so only this macOS user can
+reach it. `AppSettings.cli.enabled` (Settings → Advanced) refuses every command when off, because
+the surface can switch on a microphone. Binding is exclusive, so a second instance finds the
+library already served and leaves it alone; a socket file left by a crash or a quit is reclaimed
+only after a connection proves nothing is listening.
+
+Commands that only read are implemented once, in `CommandRunner`, against `Store`. The app answers
+them from its live store, and the CLI answers them itself — through `Store(readOnly:)`, which
+creates nothing and rejects writes — when the app is closed. Write and record commands then report
+that the app must be open rather than opening a second writer. The CLI resolves paths with
+`Paths.resolve`, never `Paths.standard`, which can adopt a development checkout's data.
+
+Transcript replacement, search, date ranges, and meeting references live in Core so they are
+covered by tests, which can reach neither the app nor the CLI target. The policy that a transcript
+correction invalidates the summary drawn from it is `TranscriptEdit.finish`, called by both the
+window's segment editor and the CLI, so the two cannot diverge. `summarize` requires
+`--allow-remote`, which is the CLI's form of the per-request consent the window asks for.
+
+`skills/stillnote` publishes this as an agent skill. `scripts/check-skill.sh`, run by
+`scripts/check.sh`, validates its frontmatter and proves the commands it documents and the commands
+the catalog provides are the same set in both directions.
 
 ## Interface
 

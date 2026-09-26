@@ -10,6 +10,11 @@ public struct Paths: Sendable {
     public var recordingsDirectory: URL { dataDirectory.appendingPathComponent("recordings", isDirectory: true) }
     public var databaseURL: URL { dataDirectory.appendingPathComponent("stillnote.sqlite3") }
 
+    /// Where the running app accepts `stillnote` commands. It lives beside the database so
+    /// the CLI reaches whichever library the app actually opened, including one redirected
+    /// by `STILLNOTE_DATA_DIR`.
+    public var commandSocketURL: URL { dataDirectory.appendingPathComponent("cli.sock") }
+
     public func audioURL(_ meetingID: String) -> URL { audioDirectory.appendingPathComponent(meetingID) }
     public func videoURL(_ meetingID: String) -> URL { videoDirectory.appendingPathComponent(meetingID) }
 
@@ -19,17 +24,27 @@ public struct Paths: Sendable {
     }
 
     public static func standard(environment: [String: String] = ProcessInfo.processInfo.environment) throws -> Paths {
-        let support = try FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        ).appendingPathComponent("Stillnote", isDirectory: true)
+        let paths = resolve(environment: environment)
+        try paths.adoptCheckoutContentsIfNeeded()
+        try paths.createDirectories()
+        return paths
+    }
+
+    /// Applies the same environment overrides and defaults as `standard()` without touching
+    /// the filesystem. The CLI must use this: `standard()` can *move* a development
+    /// checkout's `data/` and `models/` into Application Support, and `enclosingCheckout()`
+    /// searches upward from the running binary, so a CLI built into `.build/` would trigger
+    /// that adoption against the wrong library.
+    public static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment) -> Paths {
+        let support = (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Library/Application Support", isDirectory: true))
+            .appendingPathComponent("Stillnote", isDirectory: true)
         let data = environment["STILLNOTE_DATA_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? support.appendingPathComponent("data", isDirectory: true)
         let models = environment["STILLNOTE_MODEL_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? support.appendingPathComponent("models", isDirectory: true)
-        let paths = Paths(dataDirectory: data, modelDirectory: models)
-        try paths.adoptCheckoutContentsIfNeeded()
-        try paths.createDirectories()
-        return paths
+        return Paths(dataDirectory: data, modelDirectory: models)
     }
 
     public func createDirectories() throws {
