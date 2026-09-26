@@ -1,80 +1,56 @@
 name: Release
 on:
   push:
-    tags: ['v*']
+    branches: [master]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: release-${{ github.ref }}-${{ github.sha }}
+  # Releases must never run concurrently on master, and a queued run must not be cancelled
+  # halfway through publishing.
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   build:
     runs-on: macos-26
     outputs:
-      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Resolve release and validate toolchain
-        id: release
+      - name: Resolve the version
+        id: version
         env:
-          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || '' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
-          RELEASE_TAG="${RELEASE_TAG:-v$version}"
-          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo 'Expected a vMAJOR.MINOR.PATCH tag.' >&2; exit 1; }
-          [[ "$RELEASE_TAG" == "v$version" ]] || { echo 'Tag must match CFBundleShortVersionString.' >&2; exit 1; }
-          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+            || { echo "Resources/Info.plist must hold MAJOR.MINOR.PATCH, not '$version'." >&2; exit 1; }
+          # The version in Resources/Info.plist is the release trigger: a merge that bumps it to an
+          # unreleased number publishes, any other merge only runs the checks below.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" >/dev/null 2>&1; then
+            release=false
+            echo "v$version is already released; this run only validates master." >> "$GITHUB_STEP_SUMMARY"
+          else
+            release=true
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "archive_version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          # The build number is the run number, so every build of a version is distinguishable.
           /usr/libexec/PlistBuddy -c "Set CFBundleVersion $GITHUB_RUN_NUMBER" Resources/Info.plist
-          [[ "$(uname -m)" == arm64 ]] || exit 1
-          xcode_version=$(xcodebuild -version | awk '/^Xcode / {print $2}')
-          [[ "${xcode_version%%.*}" -ge 26 ]] || exit 1
       - name: Install Metal toolchain
         run: xcodebuild -downloadComponent MetalToolchain
       - name: Run checks
         run: ./scripts/check.sh
-      - name: Package development candidate
-        env:
-          STILLNOTE_SIGNING_IDENTITY: '-'
-          STILLNOTE_RELEASE_VERSION: ${{ steps.release.outputs.archive_version }}
-        run: ./scripts/package-app.sh
-      - name: Prepare Homebrew cask
-        run: python3 scripts/prepare-homebrew.py
-      - name: Verify archive
-        env:
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          APP_VERSION: ${{ steps.release.outputs.version }}
+      - name: Package the app and the Homebrew cask
         run: |
-          set -euo pipefail
-          (cd build/candidate && shasum -a 256 -c SHA256SUMS)
-          extracted=$(mktemp -d)
-          trap 'rm -rf "$extracted"' EXIT
-          ditto -x -k "build/candidate/Stillnote-${RELEASE_TAG#v}-macos-arm64.zip" "$extracted"
-          app="$extracted/Stillnote.app"
-          codesign --verify --deep --strict "$app"
-          "$app/Contents/MacOS/StillnoteSpeechWorker" --self-test
-          # The bundled CLI is what the Homebrew cask links onto PATH, and it reports the same
-          # version as the bundle it shipped in.
-          [[ "$("$app/Contents/Helpers/stillnote" --version)" == "stillnote $APP_VERSION" ]] || exit 1
-          "$app/Contents/Helpers/stillnote" help >/dev/null
-          for binary in MacOS/Stillnote MacOS/StillnoteSpeechWorker Helpers/stillnote; do
-            [[ "$(lipo -archs "$app/Contents/$binary")" == arm64 ]] || exit 1
-            test -x "$app/Contents/$binary"
-          done
-          # The CLI lives in Helpers because MacOS/stillnote and MacOS/Stillnote are the same file
-          # on a case-insensitive volume. If it ever moves back, the app binary is silently
-          # replaced by the CLI, so assert the two are genuinely different executables.
-          [[ "$(shasum -a 256 <"$app/Contents/MacOS/Stillnote" | cut -d" " -f1)" \
-             != "$(shasum -a 256 <"$app/Contents/Helpers/stillnote" | cut -d" " -f1)" ]] || exit 1
-          [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")" == "$APP_VERSION" ]] || exit 1
-          [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$app/Contents/Info.plist")" == "$GITHUB_RUN_NUMBER" ]] || exit 1
-          for resource in AppIcon.icns speech_models.json LICENSE THIRD_PARTY_NOTICES.md; do
-            test -s "$app/Contents/Resources/$resource"
-          done
+          ./scripts/package-app.sh
+          python3 scripts/prepare-homebrew.py
+      - name: Verify the candidate
+        run: ./scripts/verify-candidate.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.version.outputs.release == 'true'
         with:
           name: release-candidate
           path: build/candidate/
@@ -82,6 +58,7 @@ jobs:
           retention-days: 14
   homebrew:
     needs: build
+    if: needs.build.outputs.release == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -97,48 +74,49 @@ jobs:
         run: ./scripts/check-homebrew.sh
   publish:
     needs: [build, homebrew]
-    if: github.event_name == 'push'
+    if: needs.build.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: release-candidate
           path: candidate
-      - name: Publish release
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.build.outputs.tag }}
-        shell: bash
+          TAG: v${{ needs.build.outputs.version }}
         run: |
           set -euo pipefail
           cd candidate
-          sha256sum -c SHA256SUMS
-          # Listing must succeed: authentication/network errors must not mean "absent".
-          releases=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .draft")
-          if [[ -n "$releases" ]]; then
-            if [[ "$releases" == false ]]; then
-              echo "Release $RELEASE_TAG is already published; leaving its assets unchanged."
-              exit 0
-            fi
+          shasum -a 256 -c SHA256SUMS
+          # --target tags the released commit, so no tag is pushed by hand. Assets are uploaded
+          # with the release, so a half-published version is never visible.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Rerunning this job after the tap step failed must not repoint published assets.
+            echo "Release $TAG already exists; leaving its assets unchanged."
           else
-            gh release create "$RELEASE_TAG" --verify-tag --draft \
-              --title "$RELEASE_TAG" --notes-file RELEASE-NOTES.md
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes-file RELEASE-NOTES.md \
+              "Stillnote-${TAG#v}-macos-arm64.zip" Stillnote-homebrew.tar.gz \
+              Install-Stillnote.sh SHA256SUMS LICENSE THIRD_PARTY_NOTICES.md RELEASE-NOTES.md
           fi
-          [[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" == true ]] || exit 1
-          gh release upload "$RELEASE_TAG" --clobber \
-            "Stillnote-${RELEASE_TAG#v}-macos-arm64.zip" \
-            Stillnote-homebrew.tar.gz \
-            Install-Stillnote.sh SHA256SUMS LICENSE THIRD_PARTY_NOTICES.md RELEASE-NOTES.md
-          gh release edit "$RELEASE_TAG" --draft=false --prerelease=false
-  tap:
-    needs: [build, publish]
-    if: github.event_name == 'push'
-    # The public tap is what `brew install` reads, so publishing the source release without it
-    # ships a version no user can install. Same workflow the maintainer can dispatch by hand.
-    uses: ./.github/workflows/tap.yml
-    with:
-      tag: ${{ needs.build.outputs.tag }}
-    secrets: inherit
+      - name: Publish the Homebrew tap
+        env:
+          # github.token cannot write to jxu-dev-c/homebrew-stillnote, so the tap needs a token
+          # with contents write there and read on this repository.
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: v${{ needs.build.outputs.version }}
+          GIT_AUTHOR_NAME: stillnote-release
+          GIT_AUTHOR_EMAIL: stillnote-release@users.noreply.github.com
+          GIT_COMMITTER_NAME: stillnote-release
+          GIT_COMMITTER_EMAIL: stillnote-release@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo 'HOMEBREW_TAP_TOKEN is not set, so brew users would keep the previous version.' >&2
+            exit 1
+          fi
+          gh auth setup-git
+          ./scripts/publish-homebrew.sh "$TAG" candidate
