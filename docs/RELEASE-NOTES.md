@@ -2,31 +2,24 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
-## What's new in 0.6.0
+## What's new in 0.7.0
 
-### A menu bar icon
+### A reminder to record when a meeting starts
 
-- Start, pause, resume, and stop a recording from the menu bar, without bringing the window
-  forward. The icon shows the elapsed time while a recording is open, so capture is never
-  running unnoticed.
-- Open Stillnote or its Settings from the same menu.
+- When Teams, Zoom, Webex, Slack, FaceTime, Discord, or a web browser (for Google Meet or Teams
+  on the web) starts using the microphone, a small reminder at the top right of the screen asks
+  "Record this meeting?". **Start Recording** starts it in one click.
+- Close it with its **×**, or it goes away by itself when the call ends, when a recording starts,
+  or after a minute. Muting and unmuting during the same call doesn't bring it back.
+- Reminders are off until you turn them on in **Settings → Transcription → Meeting reminders**.
+  Stillnote only checks which apps are using the microphone, never their audio, and needs no
+  new macOS permission.
 
-### Recordings that name themselves
+### Fixes
 
-- Starting a recording no longer asks for a title. It is called `Meeting · <date>` until its
-  summary suggests a descriptive one.
-- A title you typed yourself, or passed with `--title`, is never replaced.
-
-### Speaker profiles from the command line
-
-```sh
-stillnote speaker list
-stillnote speaker add --name "Jackson Lee" --email jackson@example.com
-stillnote speaker update Jackson --email jackson@example.com
-stillnote speaker assign <meeting-id> --speaker "Speaker 1" --profile Jackson
-```
-
-`stillnote speaker show`, `delete`, and `--json` work the same way as the rest of the command.
+- A transcript's speaker chips stay on one row that scrolls sideways when there are more
+  speakers than fit, instead of stacking and pushing the transcript down.
+- Recent meetings in the sidebar no longer draw behind the Settings button.
 
 ## The `stillnote` command and AI agents
 
@@ -48,6 +41,11 @@ still asks for consent, as `stillnote summarize <id> --allow-remote`.
 
 To let a coding agent drive it, install the published skill with
 `npx skills add jxu-dev-c/Stillnote`.
+
+## Upgrading from 0.6.0
+
+Existing meetings, settings, and downloaded models are preserved, and no new download is
+needed. Meeting reminders stay off until you turn them on.
 
 ## Upgrading from 0.5.0
 
