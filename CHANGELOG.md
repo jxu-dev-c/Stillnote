@@ -1,12 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
 - Offer to record when a meeting starts. When Teams, Zoom, Webex, Slack, FaceTime, Discord, or a
   web browser starts using the microphone, a small reminder at the top right of the screen offers
   to start recording. Close it with its × button, or it goes away by itself when the call ends or
   after a minute. The feature is opt-in and is off until you turn it on in Settings →
   Transcription.
+- Keep a transcript's speaker chips on one row that scrolls sideways when there are more speakers
+  than fit, instead of stacking them and pushing the transcript down.
+- Stop recent meetings in the sidebar from drawing behind the Settings button.
 
 ## 0.6.0
 
