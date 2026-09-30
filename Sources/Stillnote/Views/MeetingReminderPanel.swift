@@ -9,10 +9,10 @@ import SwiftUI
 final class MeetingReminderPanel {
     private var panel: NSPanel?
 
-    func show(app: MeetingApp, onStart: @escaping () -> Void) {
+    func show(app: MeetingApp, onStart: @escaping () -> Void, onClose: @escaping () -> Void) {
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        let host = NSHostingView(rootView: MeetingReminderView(app: app, onStart: onStart))
+        let host = NSHostingView(rootView: MeetingReminderView(app: app, onStart: onStart, onClose: onClose))
         panel.contentView = host
         let size = host.fittingSize
         let screen = NSScreen.screens.first ?? NSScreen.main
@@ -74,6 +74,7 @@ private final class ReminderPanel: NSPanel {
 private struct MeetingReminderView: View {
     let app: MeetingApp
     let onStart: () -> Void
+    let onClose: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -93,6 +94,17 @@ private struct MeetingReminderView: View {
             Button("Start Recording", action: onStart)
                 .buttonStyle(ReminderButtonStyle())
                 .fixedSize()
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+                    .background(.quaternary, in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Close")
+            .accessibilityLabel("Close")
         }
         .padding(.leading, 12)
         .padding(.trailing, 10)

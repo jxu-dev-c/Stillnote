@@ -80,7 +80,11 @@ final class MeetingReminder {
         )
         switch policy.update(active: active, now: Date(), context: context) {
         case .show(let app):
-            panel.show(app: app) { [weak self] in self?.startRecording() }
+            panel.show(
+                app: app,
+                onStart: { [weak self] in self?.startRecording() },
+                onClose: { [weak self] in self?.close() }
+            )
         case .hide:
             panel.hide()
         case nil:
@@ -103,10 +107,15 @@ final class MeetingReminder {
         }
     }
 
-    private func startRecording() {
+    /// Closing only hides this reminder; the call it was about will not prompt again.
+    private func close() {
         policy.dismiss()
         panel.hide()
         scheduleDeadline()
+    }
+
+    private func startRecording() {
+        close()
         guard let model else { return }
         Task {
             await model.refreshEnvironment()

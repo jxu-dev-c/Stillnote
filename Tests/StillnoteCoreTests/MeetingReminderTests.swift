@@ -97,8 +97,11 @@ import Testing
         var policy = MeetingReminderPolicy()
         _ = policy.update(active: [teams], now: at(0), context: on)
         #expect(policy.update(active: [teams], now: at(2), context: on) == .show(teams))
+        // Closing the reminder, like answering it, handles this meeting.
         policy.dismiss()
+        #expect(policy.showing == nil)
         #expect(policy.nextDeadline == nil)
+        #expect(policy.update(active: [teams], now: at(10), context: on) == nil)
         // Muting and unmuting briefly releases the microphone; that is the same meeting.
         #expect(policy.update(active: [], now: at(30), context: on) == nil)
         #expect(policy.update(active: [teams], now: at(40), context: on) == nil)

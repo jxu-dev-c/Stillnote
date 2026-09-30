@@ -242,6 +242,7 @@ once, and a session ends only after 60 s off the microphone. A reminder is withd
 - its app releases the microphone
 - a recording starts from any path
 - reminders are turned off
+- the user closes it, which also counts as the reminder for that session
 - 60 s pass without an answer
 
 `MeetingReminder` wakes at the policy's next deadline instead of ticking. The reminder is a
