@@ -14,6 +14,7 @@ Transcription and speaker detection are powered by [OpenMOSS's MOSS-Transcribe-D
 
 - **Local transcription.** Transcription and Speaker Detection entirely stay on your Mac.
 - **AI Agent summaries.** Use **Codex or Claude Code CLI** for summaries, without needing extra API configurations. 
+- **Meeting reminders (opt-in).** When Teams, Zoom, Google Meet, or another meeting app starts using the microphone, Stillnote can offer to start recording. Turn it on in **Settings → Transcription**.
 
 ## Installation
 

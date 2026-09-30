@@ -35,6 +35,7 @@ final class AppModel {
 
     private let queue = JobQueue()
     private let commands = CommandServer()
+    @ObservationIgnored let meetingReminder = MeetingReminder()
     private var transcriptions: [String: Task<Void, Never>] = [:]
     private var installTask: Task<Void, Never>?
     private var installProgress = 0.0
@@ -85,6 +86,7 @@ final class AppModel {
             isReady = true
             // Only now is there a store and a recorder for a command to reach.
             commands.start(model: self)
+            meetingReminder.sync(model: self)
         } catch {
             startupError = error.localizedDescription
             return
@@ -504,6 +506,7 @@ final class AppModel {
         do {
             settings = try await store.saveSettings(updated)
             syncCommandServer()
+            meetingReminder.sync(model: self)
             await refreshEnvironment()
         } catch {
             report(error)

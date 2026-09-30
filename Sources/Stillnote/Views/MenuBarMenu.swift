@@ -6,8 +6,18 @@ import SwiftUI
 /// recording is open, so capture is never running unnoticed.
 struct MenuBarLabel: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
+        content
+            // The meeting reminder lives outside any scene and borrows this one to open the window.
+            .onAppear {
+                model.meetingReminder.openMainWindow = { openWindow(id: StillnoteApp.mainWindowID) }
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if model.isRecording, let session = model.recorder.session {
             HStack(spacing: 4) {
                 Image(systemName: session.status == .paused ? "pause.circle.fill" : "record.circle.fill")

@@ -1,0 +1,131 @@
+import Foundation
+import Testing
+
+@testable import StillnoteCore
+
+@Suite struct MeetingReminderTests {
+    let teams = MeetingApps.match(bundleID: "com.microsoft.teams2")!
+    let chrome = MeetingApps.match(bundleID: "com.google.Chrome")!
+    let start = Date(timeIntervalSinceReferenceDate: 0)
+    let on = MeetingReminderPolicy.Context(enabled: true, isRecording: false, mutedApps: [])
+
+    private func at(_ seconds: TimeInterval) -> Date { start.addingTimeInterval(seconds) }
+
+    @Test func catalogMatchesHelpersAndIgnoresOtherApps() {
+        #expect(teams.name == "Microsoft Teams")
+        #expect(MeetingApps.match(bundleID: "com.microsoft.teams2.helper") == teams)
+        #expect(MeetingApps.match(bundleID: "com.google.Chrome.helper") == chrome)
+        #expect(MeetingApps.match(bundleID: "company.thebrowser.browser.helper")?.name == "Arc")
+        #expect(MeetingApps.match(bundleID: "com.apple.WebKit.GPU")?.id == "com.apple.Safari")
+        #expect(MeetingApps.match(bundleID: "us.zoom.xos")?.name == "Zoom")
+        // A shared prefix is not a nested identifier.
+        #expect(MeetingApps.match(bundleID: "com.google.Chromecast") == nil)
+        #expect(MeetingApps.match(bundleID: "com.apple.VoiceMemos") == nil)
+        #expect(MeetingApps.match(bundleID: "") == nil)
+        #expect(MeetingApps.name(for: "com.google.Chrome") == "Google Chrome")
+        #expect(MeetingApps.name(for: "unknown.app") == "unknown.app")
+    }
+
+    @Test func waitsForTheMicrophoneToSettleBeforeShowing() {
+        var policy = MeetingReminderPolicy()
+        #expect(policy.update(active: [teams], now: at(0), context: on) == nil)
+        #expect(policy.nextDeadline == at(MeetingReminderPolicy.settleDelay))
+        #expect(policy.update(active: [teams], now: at(1), context: on) == nil)
+        #expect(policy.update(active: [teams], now: at(2), context: on) == .show(teams))
+        #expect(policy.showing == teams)
+        #expect(policy.nextDeadline == at(2 + MeetingReminderPolicy.displayDuration))
+    }
+
+    @Test func aBriefProbeNeverShows() {
+        var policy = MeetingReminderPolicy()
+        #expect(policy.update(active: [teams], now: at(0), context: on) == nil)
+        #expect(policy.update(active: [], now: at(1), context: on) == nil)
+        #expect(policy.update(active: [], now: at(5), context: on) == nil)
+        #expect(policy.nextDeadline == nil)
+    }
+
+    @Test func neverShowsWhileRecordingDisabledOrMuted() {
+        var recording = MeetingReminderPolicy()
+        let busy = MeetingReminderPolicy.Context(enabled: true, isRecording: true, mutedApps: [])
+        #expect(recording.update(active: [teams], now: at(0), context: busy) == nil)
+        #expect(recording.update(active: [teams], now: at(5), context: busy) == nil)
+        // A meeting that was already being recorded does not prompt once recording stops.
+        #expect(recording.update(active: [teams], now: at(10), context: on) == nil)
+        #expect(recording.nextDeadline == nil)
+
+        var disabled = MeetingReminderPolicy()
+        let off = MeetingReminderPolicy.Context(enabled: false, isRecording: false, mutedApps: [])
+        #expect(disabled.update(active: [teams], now: at(0), context: off) == nil)
+        #expect(disabled.update(active: [teams], now: at(5), context: off) == nil)
+
+        var muted = MeetingReminderPolicy()
+        let mutedTeams = MeetingReminderPolicy.Context(enabled: true, isRecording: false, mutedApps: [teams.id])
+        #expect(muted.update(active: [teams], now: at(0), context: mutedTeams) == nil)
+        #expect(muted.update(active: [teams], now: at(5), context: mutedTeams) == nil)
+        #expect(muted.nextDeadline == nil)
+        // Another app still reminds.
+        #expect(muted.update(active: [teams, chrome], now: at(6), context: mutedTeams) == nil)
+        #expect(muted.update(active: [teams, chrome], now: at(8), context: mutedTeams) == .show(chrome))
+    }
+
+    @Test func hidesWhenTheMeetingEndsARecordingStartsOrItExpires() {
+        var released = MeetingReminderPolicy()
+        _ = released.update(active: [teams], now: at(0), context: on)
+        #expect(released.update(active: [teams], now: at(2), context: on) == .show(teams))
+        #expect(released.update(active: [], now: at(3), context: on) == .hide)
+        #expect(released.showing == nil)
+
+        var recording = MeetingReminderPolicy()
+        _ = recording.update(active: [teams], now: at(0), context: on)
+        #expect(recording.update(active: [teams], now: at(2), context: on) == .show(teams))
+        let busy = MeetingReminderPolicy.Context(enabled: true, isRecording: true, mutedApps: [])
+        #expect(recording.update(active: [teams], now: at(3), context: busy) == .hide)
+
+        var muted = MeetingReminderPolicy()
+        _ = muted.update(active: [teams], now: at(0), context: on)
+        #expect(muted.update(active: [teams], now: at(2), context: on) == .show(teams))
+        let mutedTeams = MeetingReminderPolicy.Context(enabled: true, isRecording: false, mutedApps: [teams.id])
+        #expect(muted.update(active: [teams], now: at(3), context: mutedTeams) == .hide)
+
+        var expiring = MeetingReminderPolicy()
+        _ = expiring.update(active: [teams], now: at(0), context: on)
+        #expect(expiring.update(active: [teams], now: at(2), context: on) == .show(teams))
+        #expect(expiring.update(active: [teams], now: at(61), context: on) == nil)
+        #expect(expiring.update(active: [teams], now: at(62), context: on) == .hide)
+        #expect(expiring.update(active: [teams], now: at(200), context: on) == nil)
+        #expect(expiring.nextDeadline == nil)
+    }
+
+    @Test func remindsOncePerMeetingAndAgainAfterALongBreak() {
+        var policy = MeetingReminderPolicy()
+        _ = policy.update(active: [teams], now: at(0), context: on)
+        #expect(policy.update(active: [teams], now: at(2), context: on) == .show(teams))
+        policy.dismiss()
+        #expect(policy.nextDeadline == nil)
+        // Muting and unmuting briefly releases the microphone; that is the same meeting.
+        #expect(policy.update(active: [], now: at(30), context: on) == nil)
+        #expect(policy.update(active: [teams], now: at(40), context: on) == nil)
+        #expect(policy.update(active: [teams], now: at(45), context: on) == nil)
+        // A minute away from the microphone makes the next use a new meeting.
+        #expect(policy.update(active: [], now: at(100), context: on) == nil)
+        #expect(policy.update(active: [teams], now: at(160), context: on) == nil)
+        #expect(policy.update(active: [teams], now: at(162), context: on) == .show(teams))
+    }
+
+    @Test func settingsAreOptInAndPersist() async throws {
+        #expect(AppSettings().meetingReminders.enabled == false)
+        #expect(AppSettings.migrating(from: [:]).settings.meetingReminders == MeetingReminderSettings())
+        let migrated = AppSettings.migrating(from: ["meeting_reminders": ["enabled": true, "muted_apps": ["us.zoom.xos"]]])
+        #expect(migrated.settings.meetingReminders == MeetingReminderSettings(enabled: true, mutedApps: ["us.zoom.xos"]))
+        let legacy = Data(#"{"transcription":{"model":"moss-0.9b","language":"auto"},"summary":{"provider":"codex","model":"m","reasoning_effort":"high"}}"#.utf8)
+        #expect(try JSONDecoder().decode(AppSettings.self, from: legacy).meetingReminders.enabled == false)
+        let encoded = String(decoding: try JSONEncoder().encode(AppSettings()), as: UTF8.self)
+        #expect(encoded.contains("meeting_reminders") && encoded.contains("muted_apps"))
+
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let settings = AppSettings(meetingReminders: MeetingReminderSettings(enabled: true, mutedApps: ["com.google.Chrome"]))
+        try await Store(paths: paths).saveSettings(settings)
+        #expect(try await Store(paths: paths).settings() == settings)
+    }
+}
