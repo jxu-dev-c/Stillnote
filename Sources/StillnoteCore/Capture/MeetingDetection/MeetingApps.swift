@@ -2,7 +2,7 @@ import Foundation
 
 /// An app whose use of the microphone suggests a meeting has started.
 public struct MeetingApp: Hashable, Sendable, Identifiable {
-    /// The app's canonical bundle identifier, which is what a muted app is saved as.
+    /// The app's canonical bundle identifier.
     public let id: String
     public let name: String
 
@@ -56,10 +56,5 @@ public enum MeetingApps {
                 return candidate == identifier || candidate.hasPrefix(identifier + ".")
             }
         }?.app
-    }
-
-    /// A display name for a saved app identifier, falling back to the identifier itself.
-    public static func name(for id: String) -> String {
-        entries.first { $0.app.id == id }?.app.name ?? id
     }
 }

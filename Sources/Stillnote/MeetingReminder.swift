@@ -75,13 +75,12 @@ final class MeetingReminder {
 
     private func evaluate() {
         guard listening != nil, let model else { return }
-        let settings = model.settings.meetingReminders
         let context = MeetingReminderPolicy.Context(
-            enabled: settings.enabled, isRecording: model.isRecording, mutedApps: Set(settings.mutedApps)
+            enabled: model.settings.meetingReminders.enabled, isRecording: model.isRecording
         )
         switch policy.update(active: active, now: Date(), context: context) {
         case .show(let app):
-            panel.show(app: app) { [weak self] choice in self?.handle(choice, for: app) }
+            panel.show(app: app) { [weak self] in self?.startRecording() }
         case .hide:
             panel.hide()
         case nil:
@@ -104,30 +103,15 @@ final class MeetingReminder {
         }
     }
 
-    private func handle(_ choice: MeetingReminderPanel.Choice, for app: MeetingApp) {
+    private func startRecording() {
         policy.dismiss()
         panel.hide()
         scheduleDeadline()
         guard let model else { return }
-        switch choice {
-        case .record:
-            Task {
-                await model.refreshEnvironment()
-                // The main window is where a failure, or a macOS permission problem, is explained.
-                if await !model.startQuickRecording() { showMainWindow() }
-            }
-        case .dismiss:
-            break
-        case .mute:
-            var updated = model.settings
-            if !updated.meetingReminders.mutedApps.contains(app.id) {
-                updated.meetingReminders.mutedApps.append(app.id)
-            }
-            Task { await model.saveSettings(updated) }
-        case .turnOff:
-            var updated = model.settings
-            updated.meetingReminders.enabled = false
-            Task { await model.saveSettings(updated) }
+        Task {
+            await model.refreshEnvironment()
+            // The main window is where a failure, or a macOS permission problem, is explained.
+            if await !model.startQuickRecording() { showMainWindow() }
         }
     }
 

@@ -7,14 +7,12 @@ import SwiftUI
 /// the meeting app frontmost.
 @MainActor
 final class MeetingReminderPanel {
-    enum Choice { case record, dismiss, mute, turnOff }
-
     private var panel: NSPanel?
 
-    func show(app: MeetingApp, onChoice: @escaping (Choice) -> Void) {
+    func show(app: MeetingApp, onStart: @escaping () -> Void) {
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        let host = NSHostingView(rootView: MeetingReminderView(app: app, onChoice: onChoice))
+        let host = NSHostingView(rootView: MeetingReminderView(app: app, onStart: onStart))
         panel.contentView = host
         let size = host.fittingSize
         let screen = NSScreen.screens.first ?? NSScreen.main
@@ -67,14 +65,15 @@ final class MeetingReminderPanel {
     }
 }
 
-/// Borderless panels refuse key status by default, which would leave the button's menu inert.
+/// Borderless panels refuse key status by default; accepting it lets the first click reach the
+/// button. The panel is non-activating, so the meeting app stays frontmost.
 private final class ReminderPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
 private struct MeetingReminderView: View {
     let app: MeetingApp
-    let onChoice: (MeetingReminderPanel.Choice) -> Void
+    let onStart: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -91,20 +90,9 @@ private struct MeetingReminderView: View {
             }
             .fixedSize()
             Spacer(minLength: 8)
-            Menu {
-                Button("Not Now") { onChoice(.dismiss) }
-                Button("Don’t Remind Me for \(app.name)") { onChoice(.mute) }
-                Divider()
-                Button("Turn Off Meeting Reminders") { onChoice(.turnOff) }
-            } label: {
-                Text("Start Recording")
-            } primaryAction: {
-                onChoice(.record)
-            }
-            .menuStyle(.button)
-            .primaryActionStyle()
-            .controlSize(.large)
-            .fixedSize()
+            Button("Start Recording", action: onStart)
+                .buttonStyle(ReminderButtonStyle())
+                .fixedSize()
         }
         .padding(.leading, 12)
         .padding(.trailing, 10)
@@ -113,5 +101,20 @@ private struct MeetingReminderView: View {
         .overlay(Capsule().strokeBorder(.separator, lineWidth: 0.5))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Meeting reminder")
+    }
+}
+
+/// The system's prominent styles fade to plain text in an inactive window, and this panel is
+/// never the active one, so the button draws its own accent-filled capsule.
+private struct ReminderButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.body.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(Color.accentColor, in: Capsule())
+            .opacity(configuration.isPressed ? 0.75 : 1)
+            .contentShape(Capsule())
     }
 }

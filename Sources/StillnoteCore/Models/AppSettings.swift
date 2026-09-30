@@ -214,25 +214,16 @@ public struct CLISettings: Codable, Hashable, Sendable {
 /// It is opt-in: watching which apps use the microphone is off until the user turns it on.
 public struct MeetingReminderSettings: Codable, Hashable, Sendable {
     public var enabled: Bool
-    /// Canonical `MeetingApp.id` values the user asked never to be reminded about.
-    public var mutedApps: [String]
 
-    enum CodingKeys: String, CodingKey {
-        case enabled
-        case mutedApps = "muted_apps"
-    }
+    enum CodingKeys: String, CodingKey { case enabled }
 
-    public init(enabled: Bool = false, mutedApps: [String] = []) {
+    public init(enabled: Bool = false) {
         self.enabled = enabled
-        self.mutedApps = mutedApps
     }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(
-            enabled: try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? false,
-            mutedApps: try values.decodeIfPresent([String].self, forKey: .mutedApps) ?? []
-        )
+        self.init(enabled: try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? false)
     }
 }
 
@@ -344,10 +335,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
             settings.cli = CLISettings(enabled: cli["enabled"] as? Bool ?? true)
         }
         if let reminders = object["meeting_reminders"] as? [String: Any] {
-            settings.meetingReminders = MeetingReminderSettings(
-                enabled: reminders["enabled"] as? Bool ?? false,
-                mutedApps: reminders["muted_apps"] as? [String] ?? []
-            )
+            settings.meetingReminders = MeetingReminderSettings(enabled: reminders["enabled"] as? Bool ?? false)
         }
 
         // Obsolete keys such as api_key and base_url are dropped by re-encoding.

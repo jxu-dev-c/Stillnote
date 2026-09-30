@@ -176,41 +176,24 @@ struct TranscriptionSettingsView: View {
     }
 }
 
-/// Opt-in reminders to record when a meeting app or browser starts using the microphone. It
-/// binds to the saved settings directly, because the reminder itself can mute an app or turn
-/// reminders off while this window is open.
+/// Opt-in reminders to record when a meeting app or browser starts using the microphone.
 struct MeetingReminderSettingsSection: View {
     @Environment(AppModel.self) private var model
-
-    private var reminders: MeetingReminderSettings { model.settings.meetingReminders }
 
     var body: some View {
         Section("Meeting reminders") {
             Toggle("Offer to record when a meeting starts", isOn: Binding(
-                get: { reminders.enabled },
-                set: { value in update { $0.enabled = value } }
+                get: { model.settings.meetingReminders.enabled },
+                set: { value in
+                    guard value != model.settings.meetingReminders.enabled else { return }
+                    var updated = model.settings
+                    updated.meetingReminders.enabled = value
+                    Task { await model.saveSettings(updated) }
+                }
             ))
             Text("Off by default. When on, Stillnote notices when Teams, Zoom, Webex, Slack, FaceTime, Discord, or a web browser starts using the microphone and offers to start recording. It sees only which app is using the microphone, never its audio, and nothing leaves your Mac.")
                 .font(.caption).foregroundStyle(.secondary)
-            if !reminders.mutedApps.isEmpty {
-                ForEach(reminders.mutedApps, id: \.self) { id in
-                    LabeledContent(MeetingApps.name(for: id)) {
-                        Button("Remind Again") {
-                            update { $0.mutedApps.removeAll { $0 == id } }
-                        }
-                    }
-                }
-                Text("You asked not to be reminded about these apps.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
         }
-    }
-
-    private func update(_ change: (inout MeetingReminderSettings) -> Void) {
-        var updated = model.settings
-        change(&updated.meetingReminders)
-        guard updated != model.settings else { return }
-        Task { await model.saveSettings(updated) }
     }
 }
 

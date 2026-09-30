@@ -220,7 +220,7 @@ and opens the window or Settings, which keeps the app running after the window c
 
 ### Meeting reminders
 
-`AppSettings.meeting_reminders` (`{enabled, muted_apps}`) is opt-in: new installs and older
+`AppSettings.meeting_reminders` (`{enabled}`) is opt-in: new installs and older
 settings records decode with `enabled` false. While it is false, `MeetingReminder` doesn't start
 the monitor, so nothing observes microphone use.
 
@@ -241,7 +241,7 @@ once, and a session ends only after 60 s off the microphone. A reminder is withd
 
 - its app releases the microphone
 - a recording starts from any path
-- reminders are turned off, or that app is muted
+- reminders are turned off
 - 60 s pass without an answer
 
 `MeetingReminder` wakes at the policy's next deadline instead of ticking. The reminder is a

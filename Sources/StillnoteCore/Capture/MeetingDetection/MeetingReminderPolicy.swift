@@ -8,17 +8,15 @@ import Foundation
 /// - Each microphone session prompts at most once. It counts as a new session only after the app
 ///   has left the microphone for `rearmDelay`, so muting and unmuting does not prompt again.
 /// - A reminder is withdrawn when its app releases the microphone, when a recording starts, when
-///   reminders are turned off or the app muted, and after `displayDuration` without an answer.
+///   reminders are turned off, and after `displayDuration` without an answer.
 public struct MeetingReminderPolicy: Sendable {
     public struct Context: Sendable {
         public var enabled: Bool
         public var isRecording: Bool
-        public var mutedApps: Set<String>
 
-        public init(enabled: Bool, isRecording: Bool, mutedApps: Set<String>) {
+        public init(enabled: Bool, isRecording: Bool) {
             self.enabled = enabled
             self.isRecording = isRecording
-            self.mutedApps = mutedApps
         }
     }
 
@@ -40,7 +38,7 @@ public struct MeetingReminderPolicy: Sendable {
     private var releasedAt: [String: Date] = [:]
     /// Apps whose current microphone session has been handled already.
     private var handled: Set<String> = []
-    private var context = Context(enabled: false, isRecording: false, mutedApps: [])
+    private var context = Context(enabled: false, isRecording: false)
 
     public init() {}
 
@@ -65,8 +63,7 @@ public struct MeetingReminderPolicy: Sendable {
 
         if let app = showing {
             let expired = shownAt.map { now.timeIntervalSince($0) >= Self.displayDuration } ?? true
-            if !context.enabled || context.isRecording || context.mutedApps.contains(app.id)
-                || !ids.contains(app.id) || expired {
+            if !context.enabled || context.isRecording || !ids.contains(app.id) || expired {
                 dismiss()
                 return .hide
             }
@@ -97,7 +94,7 @@ public struct MeetingReminderPolicy: Sendable {
 
     private var pending: [(id: String, since: Date)] {
         activeSince
-            .filter { !handled.contains($0.key) && !context.mutedApps.contains($0.key) }
+            .filter { !handled.contains($0.key) }
             .map { (id: $0.key, since: $0.value) }
     }
 }

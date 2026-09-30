@@ -15,9 +15,8 @@ account policies apply. No cloud transcription fallback is used.
 
 Meeting reminders are off until turned on in **Settings → Transcription**. While they are on,
 Stillnote asks Core Audio which processes are capturing from an input device. It reads only their
-bundle identifiers and never their audio, needs no macOS permission, and keeps nothing: the only
-thing saved is the list of apps you asked not to be reminded about. Turning reminders off stops the
-observation entirely.
+bundle identifiers and never their audio, needs no macOS permission, and saves nothing about what
+it sees. Turning reminders off stops the observation entirely.
 
 ## The stillnote command
 
