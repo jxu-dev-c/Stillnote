@@ -81,6 +81,16 @@ struct RootView: View {
     }
 
     private var sidebar: some View {
+        VStack(spacing: 0) {
+            sidebarList
+            Divider()
+            sidebarFooter
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
+    }
+
+    private var sidebarList: some View {
         List(selection: sidebarSelection) {
             Section {
                 NavigationLink(value: Self.libraryID) {
@@ -123,23 +133,25 @@ struct RootView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
-        .safeAreaInset(edge: .bottom) {
-            if !model.speech.ready {
-                SetupNotice()
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-            } else {
-                SettingsLink {
-                    Label("Settings", systemImage: "gearshape")
-                        .font(StillnoteTheme.detailSupportingFont)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16)
-                }
-                .buttonStyle(.plain)
-                .help("Open Settings")
+        .frame(maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var sidebarFooter: some View {
+        if !model.speech.ready {
+            SetupNotice()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+        } else {
+            SettingsLink {
+                Label("Settings", systemImage: "gearshape")
+                    .font(StillnoteTheme.detailSupportingFont)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
             }
+            .buttonStyle(.plain)
+            .help("Open Settings")
         }
     }
 }

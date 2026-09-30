@@ -81,10 +81,12 @@ struct TranscriptTab: View {
     /// Speakers sit above the transcript as renameable chips: a panel would have to be
     /// the window's inspector, which belongs to the whole meeting, not this one tab.
     private var speakerChips: some View {
-        ViewThatFits(in: .horizontal) {
+        ScrollView(.horizontal) {
             HStack(spacing: 8) { chips }
-            VStack(alignment: .leading, spacing: 6) { chips }
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.vertical, 4)
         }
+        .accessibilityLabel("Transcript speakers")
     }
 
     @ViewBuilder
