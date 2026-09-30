@@ -210,22 +210,45 @@ public struct CLISettings: Codable, Hashable, Sendable {
     }
 }
 
+/// Whether Stillnote offers to record when a meeting app or browser starts using the microphone.
+/// It is opt-in: watching which apps use the microphone is off until the user turns it on.
+public struct MeetingReminderSettings: Codable, Hashable, Sendable {
+    public var enabled: Bool
+
+    enum CodingKeys: String, CodingKey { case enabled }
+
+    public init(enabled: Bool = false) {
+        self.enabled = enabled
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(enabled: try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? false)
+    }
+}
+
 public struct AppSettings: Codable, Hashable, Sendable {
     public var transcription: TranscriptionSettings
     public var summary: SummarySettings
     public var cleanup: AudioCleanupSettings
     public var cli: CLISettings
+    public var meetingReminders: MeetingReminderSettings
 
-    enum CodingKeys: String, CodingKey { case transcription, summary, cleanup, cli }
+    enum CodingKeys: String, CodingKey {
+        case transcription, summary, cleanup, cli
+        case meetingReminders = "meeting_reminders"
+    }
 
     public init(
         transcription: TranscriptionSettings = .init(), summary: SummarySettings = .init(),
-        cleanup: AudioCleanupSettings = .init(), cli: CLISettings = .init()
+        cleanup: AudioCleanupSettings = .init(), cli: CLISettings = .init(),
+        meetingReminders: MeetingReminderSettings = .init()
     ) {
         self.transcription = transcription
         self.summary = summary
         self.cleanup = cleanup
         self.cli = cli
+        self.meetingReminders = meetingReminders
     }
 
     public init(from decoder: Decoder) throws {
@@ -236,7 +259,9 @@ public struct AppSettings: Codable, Hashable, Sendable {
             // Records written before recording cleanup existed carry no key.
             cleanup: try values.decodeIfPresent(AudioCleanupSettings.self, forKey: .cleanup) ?? .init(),
             // Records written before the command interface existed carry no key either.
-            cli: try values.decodeIfPresent(CLISettings.self, forKey: .cli) ?? .init()
+            cli: try values.decodeIfPresent(CLISettings.self, forKey: .cli) ?? .init(),
+            // Meeting reminders are opt-in, so records written before them decode as off.
+            meetingReminders: try values.decodeIfPresent(MeetingReminderSettings.self, forKey: .meetingReminders) ?? .init()
         )
     }
 
@@ -308,6 +333,9 @@ public struct AppSettings: Codable, Hashable, Sendable {
         }
         if let cli = object["cli"] as? [String: Any] {
             settings.cli = CLISettings(enabled: cli["enabled"] as? Bool ?? true)
+        }
+        if let reminders = object["meeting_reminders"] as? [String: Any] {
+            settings.meetingReminders = MeetingReminderSettings(enabled: reminders["enabled"] as? Bool ?? false)
         }
 
         // Obsolete keys such as api_key and base_url are dropped by re-encoding.

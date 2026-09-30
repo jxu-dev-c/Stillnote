@@ -218,6 +218,38 @@ stops a recording with the saved transcription defaults, shows the elapsed time 
 and opens the window or Settings, which keeps the app running after the window closes. Notes autosave after a 700 ms pause, with an unsaved draft kept in
 `UserDefaults` until it matches what was saved.
 
+### Meeting reminders
+
+`AppSettings.meeting_reminders` (`{enabled}`) is opt-in: new installs and older
+settings records decode with `enabled` false. While it is false, `MeetingReminder` doesn't start
+the monitor, so nothing observes microphone use.
+
+`MicrophoneActivityMonitor` (Core) reads Core Audio's process objects: each process's
+`IsRunningInput`, PID, and bundle ID. It never reads audio and needs no TCC grant. Core Audio
+does not notify when a process's input flag changes, so the monitor listens for:
+
+- `DeviceIsRunningSomewhere` on every device
+- the process and device lists changing
+
+It rereads the process list when one of these fires, and once more 750 ms later, since a process's
+flag can trail its device starting. `MeetingApps` maps bundle IDs, including nested helper IDs, to
+a fixed set of meeting apps and browsers. Stillnote's own process is excluded.
+
+`MeetingReminderPolicy` is a clock-free value that sets the timing rules, and it is unit-tested.
+An app must hold the microphone for 2 s before a reminder shows. Each microphone session reminds
+once, and a session ends only after 60 s off the microphone. A reminder is withdrawn when:
+
+- its app releases the microphone
+- a recording starts from any path
+- reminders are turned off
+- the user closes it, which also counts as the reminder for that session
+- 60 s pass without an answer
+
+`MeetingReminder` wakes at the policy's next deadline instead of ticking. The reminder is a
+non-activating `NSPanel` at the top right of the menu-bar screen, so answering it leaves the
+meeting app frontmost. Its Start Recording action is `AppModel.startQuickRecording`, which is the
+menu bar's path.
+
 ### Reusable speaker profiles
 
 Speaker profiles are local JSON records in SQLite’s `speaker_profiles` table, keyed by UUID. Each stores a name and one optional email and phone number. Meetings map local diarization labels to profile IDs through `speaker_profiles`; older meeting documents default to an empty mapping. Assignment is manual; diarization labels do not imply identity across recordings.

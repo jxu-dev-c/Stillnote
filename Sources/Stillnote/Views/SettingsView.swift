@@ -62,6 +62,8 @@ struct TranscriptionSettingsView: View {
                 }
             }
 
+            MeetingReminderSettingsSection()
+
             Section("Hot words") {
                 Text("Enter one word or phrase per line. Names, acronyms, and specialized terms help guide recognition; they are not guaranteed replacements.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -171,6 +173,27 @@ struct TranscriptionSettingsView: View {
         updated.cleanup.suppressNonSpeech = suppressNonSpeech
         updated.cleanup.sensitivity = sensitivity
         Task { await model.saveSettings(updated) }
+    }
+}
+
+/// Opt-in reminders to record when a meeting app or browser starts using the microphone.
+struct MeetingReminderSettingsSection: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Section("Meeting reminders") {
+            Toggle("Offer to record when a meeting starts", isOn: Binding(
+                get: { model.settings.meetingReminders.enabled },
+                set: { value in
+                    guard value != model.settings.meetingReminders.enabled else { return }
+                    var updated = model.settings
+                    updated.meetingReminders.enabled = value
+                    Task { await model.saveSettings(updated) }
+                }
+            ))
+            Text("Off by default. When on, Stillnote notices when Teams, Zoom, Webex, Slack, FaceTime, Discord, or a web browser starts using the microphone and offers to start recording. It sees only which app is using the microphone, never its audio, and nothing leaves your Mac.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
 

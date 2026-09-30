@@ -11,6 +11,13 @@ Summaries require confirmation and send transcript text and speaker labels to th
 provider; optionally they include the local video path as text. Provider retention and
 account policies apply. No cloud transcription fallback is used.
 
+## Meeting reminders
+
+Meeting reminders are off until turned on in **Settings → Transcription**. While they are on,
+Stillnote asks Core Audio which processes are capturing from an input device. It reads only their
+bundle identifiers and never their audio, needs no macOS permission, and saves nothing about what
+it sees. Turning reminders off stops the observation entirely.
+
 ## The stillnote command
 
 While Stillnote is open it accepts commands on a Unix domain socket at
