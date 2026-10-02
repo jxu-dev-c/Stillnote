@@ -225,7 +225,9 @@ func temporaryPaths() throws -> Paths {
     }
 
     @Test func reasoningEffortFallsBackToALevelTheProviderAccepts() throws {
-        #expect(SummarySettings(provider: .codex, reasoningEffort: .max).resolvedReasoningEffort == .xhigh)
+        #expect(SummarySettings(provider: .codex, reasoningEffort: .max).resolvedReasoningEffort == .max)
+        #expect(SummarySettings(provider: .codex, reasoningEffort: .noReasoning).resolvedReasoningEffort == .noReasoning)
+        #expect(SummarySettings(provider: .claudeCode, reasoningEffort: .noReasoning).resolvedReasoningEffort == .low)
         #expect(SummarySettings(provider: .claudeCode, reasoningEffort: .minimal).resolvedReasoningEffort == .low)
         #expect(SummarySettings(provider: .claudeCode, reasoningEffort: .max).resolvedReasoningEffort == .max)
         #expect(SummarySettings(provider: .codex, reasoningEffort: .minimal).resolvedReasoningEffort == .minimal)
