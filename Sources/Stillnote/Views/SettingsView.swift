@@ -220,6 +220,7 @@ struct SummarySettingsView: View {
                         guard newValue != provider else { return }
                         provider = newValue
                         summaryModel = newValue.defaultModel
+                        effort = effort.supported(by: newValue)
                         save()
                     }
                 )) {
@@ -228,7 +229,7 @@ struct SummarySettingsView: View {
                 .pickerStyle(.radioGroup)
                 TextField("Model", text: $summaryModel, prompt: Text(provider.defaultModel))
                 Picker("Thinking effort", selection: $effort) {
-                    ForEach(ReasoningEffort.allCases, id: \.self) { Text($0.label).tag($0) }
+                    ForEach(provider.reasoningEfforts, id: \.self) { Text($0.label).tag($0) }
                 }
             }
 
@@ -284,7 +285,7 @@ struct SummarySettingsView: View {
         .onAppear {
             provider = model.settings.summary.provider
             summaryModel = model.settings.summary.model
-            effort = model.settings.summary.reasoningEffort
+            effort = model.settings.summary.resolvedReasoningEffort
             agentPrompt = model.settings.summary.agentPrompt
             inheritShellEnvironment = model.settings.summary.inheritShellEnvironment
             shellPath = model.settings.summary.shellPath

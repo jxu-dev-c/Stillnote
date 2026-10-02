@@ -223,6 +223,15 @@ func temporaryPaths() throws -> Paths {
         let saved = try await store.saveSettings(settings)
         #expect(saved.summary.model == SummaryProvider.claudeCode.defaultModel)
     }
+
+    @Test func reasoningEffortFallsBackToALevelTheProviderAccepts() throws {
+        #expect(SummarySettings(provider: .codex, reasoningEffort: .max).resolvedReasoningEffort == .xhigh)
+        #expect(SummarySettings(provider: .claudeCode, reasoningEffort: .minimal).resolvedReasoningEffort == .low)
+        #expect(SummarySettings(provider: .claudeCode, reasoningEffort: .max).resolvedReasoningEffort == .max)
+        #expect(SummarySettings(provider: .codex, reasoningEffort: .minimal).resolvedReasoningEffort == .minimal)
+        let stored = Data(#"{"provider":"claude-code","model":"m","reasoning_effort":"xhigh"}"#.utf8)
+        #expect(try JSONDecoder().decode(SummarySettings.self, from: stored).reasoningEffort == .xhigh)
+    }
 }
 
 private func escaped(_ json: String) -> String { json.replacingOccurrences(of: "'", with: "''") }
