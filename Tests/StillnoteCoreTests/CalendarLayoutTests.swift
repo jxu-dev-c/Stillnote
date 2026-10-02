@@ -134,15 +134,28 @@ import Testing
         #expect(placements["crossing"] == .init(column: 0, columns: 2))
         #expect(placements["next"] == .init(column: 1, columns: 2))
 
-        // Fall back: clocks return from 2:00 to 1:00, so 90 minutes from 0:30 ends at 1:00.
+        // Fall back: clocks return from 2:00 to 1:00. 90 minutes from 0:30 ends at the second
+        // 1:00 but passed through the first 1:00-2:00, so a 15-minute meeting held at the first
+        // 1:30 overlaps it.
         let fall = layout.clockSpan(start: halifax(11, 1, 0, 30), duration: 5400)
-        #expect(fall.start == clock(0, 30) && fall.end == clock(1))
-        // 20 minutes from the first 1:50 ends at the second 1:10, before it began by the clock.
-        // It keeps the minimum height rather than collapsing.
-        let first = halifax(11, 1, 0, 30).addingTimeInterval(80 * 60)
-        let repeated = layout.clockSpan(start: first, duration: 1200)
-        #expect(repeated.start == clock(1, 50))
-        #expect(repeated.end == clock(1, 50) + CalendarLayout.minimumEventDuration)
+        #expect(fall.start == clock(0, 30))
+        #expect(abs(fall.end - clock(2)) < 0.01)
+        let firstHalfPast = halifax(11, 1, 0, 30).addingTimeInterval(60 * 60)
+        let inRepeat = layout.clockSpan(start: firstHalfPast, duration: 900)
+        #expect(inRepeat.start == clock(1, 30))
+        let fallPlacements = CalendarLayout.placements([
+            ("long", fall.start, fall.end), ("inside", inRepeat.start, inRepeat.end),
+        ])
+        #expect(fallPlacements["long"] == .init(column: 0, columns: 2))
+        #expect(fallPlacements["inside"] == .init(column: 1, columns: 2))
+        // 20 minutes from the first 1:50 ends at the second 1:10, so it covered the clock from
+        // 1:00 to 2:00.
+        let repeated = layout.clockSpan(start: halifax(11, 1, 0, 30).addingTimeInterval(80 * 60), duration: 1200)
+        #expect(repeated.start == clock(1))
+        #expect(abs(repeated.end - clock(2)) < 0.01)
+        // A day with no change is unaffected.
+        let ordinary = layout.clockSpan(start: halifax(6, 1, 9), duration: 1800)
+        #expect(ordinary.start == clock(9) && ordinary.end == clock(9, 30))
         // A meeting past midnight stops at the end of its start day.
         let late = layout.clockSpan(start: halifax(6, 1, 23, 30), duration: 3600)
         #expect(late.end == clock(24))

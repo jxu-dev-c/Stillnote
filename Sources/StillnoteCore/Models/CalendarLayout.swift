@@ -79,15 +79,26 @@ public struct CalendarLayout: Sendable {
         return hours + minutes + seconds
     }
 
-    /// The `clockOffset` range a meeting covers on its start day. The end comes from the real
-    /// end time, so a meeting across a daylight-saving change ends at the clock time it
-    /// actually finished. A meeting running past midnight is cut at the end of the day.
+    /// The `clockOffset` range a meeting covers on its start day: every clock reading it
+    /// passed through, not just the readings at its two ends. Across a spring-forward change it
+    /// ends at the clock time it actually finished. Across a fall-back change it keeps the
+    /// first pass through the repeated hour, so a meeting held then still overlaps it. A meeting
+    /// running past midnight is cut at the end of the day.
     public func clockSpan(start: Date, duration: TimeInterval) -> (start: TimeInterval, end: TimeInterval) {
-        let top = clockOffset(start)
         let end = start.addingTimeInterval(max(duration, 0))
-        let bottom = calendar.isDate(end, inSameDayAs: start) ? clockOffset(end) : 86_400
-        // When clocks fall back, a short meeting can end at an earlier clock time than it began.
-        return (top, max(bottom, top + Self.minimumEventDuration))
+        var low = clockOffset(start)
+        var high = calendar.isDate(end, inSameDayAs: start) ? clockOffset(end) : 86_400
+        var cursor = start
+        while let change = calendar.timeZone.nextDaylightSavingTimeTransition(after: cursor), change <= end {
+            // The clock reads its highest just before a change and restarts from its new value,
+            // which a meeting ending exactly at the change never reads.
+            if calendar.isDate(change, inSameDayAs: start) {
+                high = max(high, clockOffset(change.addingTimeInterval(-0.001)))
+                if change < end { low = min(low, clockOffset(change)) }
+            }
+            cursor = change
+        }
+        return (low, max(high, low + Self.minimumEventDuration))
     }
 
     private func days(from start: Date, count: Int) -> [Date] {

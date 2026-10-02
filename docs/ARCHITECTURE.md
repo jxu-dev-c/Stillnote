@@ -239,8 +239,10 @@ is estimated as its save time minus its kept duration and any trimmed tail. An i
 the time it was imported. Records older than `source` with the audio name `recording.wav` are
 treated as recordings, which includes the rare older import of a file with that name. A meeting's block is as tall as its duration, with a 15-minute
 minimum. Positions are local clock times rather than time elapsed since midnight, so a meeting
-on a daylight-saving changeover day still lines up with its hour label. A meeting's end comes from
-its real end time, so a meeting that spans the changeover ends at the clock time it finished. Overlapping meetings share a column. The date math and the overlap columns are
+on a daylight-saving changeover day still lines up with its hour label. A meeting's block covers
+every clock reading the meeting passed through. Across a spring-forward change it ends at the
+clock time it finished. Across a fall-back change it includes both passes through the repeated
+hour, so meetings held in either pass still overlap it. Overlapping meetings share a column. The date math and the overlap columns are
 in `StillnoteCore/Models/CalendarLayout.swift`. The chosen tab, range, and date are kept per
 window in scene storage. Playback uses AVKit's `VideoPlayer` for
 recordings with screen video and a compact transport otherwise. Settings live in the
