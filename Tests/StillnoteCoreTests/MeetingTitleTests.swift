@@ -152,6 +152,28 @@ import Testing
         #expect(recorded.title == "Q3 launch readiness")
     }
 
+    @Test func summaryRetitlesPreviouslyResavedRecordingPlaceholder() async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        let date = try #require(ISO8601DateFormatter().date(from: "2026-09-26T12:00:00+00:00"))
+        let recorded = try legacyMeeting(
+            title: CaptureOptions.defaultTitle(for: date), audioName: "recording.wav", automatic: false
+        )
+        #expect(recorded.automaticTitle)
+        try await store.insert(recorded)
+        try await store.update(recorded.id) { $0.applySummary(summary(title: "Q3 launch readiness")) }
+        #expect(try await Store(paths: paths).get(recorded.id).title == "Q3 launch readiness")
+    }
+
+    @Test(arguments: ["My design review", "recording"])
+    func oldRecordingsWithExplicitCustomTitlesRemainProtected(title: String) throws {
+        var recorded = try legacyMeeting(title: title, audioName: "recording.wav", automatic: false)
+        recorded.applySummary(summary(title: "Q3 launch readiness"))
+        #expect(recorded.title == title)
+        #expect(!recorded.automaticTitle)
+    }
+
     @Test(arguments: ["audio-2026-09-26", "audio-2026-09-26.m4a"])
     func summaryRetitlesALegacyImportFilename(title: String) throws {
         var imported = try legacyMeeting(title: title, audioName: "audio-2026-09-26.m4a")
@@ -210,7 +232,9 @@ import Testing
             (CaptureOptions.defaultTitle(for: date), "recording.wav"),
             ("recording", "recording.wav"),
         ] {
-            var named = try legacyMeeting(title: title, audioName: audioName, automatic: false)
+            var named = try legacyMeeting(
+                title: title, audioName: audioName, automatic: false, ownershipVersion: 1
+            )
             named.applySummary(summary(title: "Q3 launch readiness"))
             #expect(named.title == title)
             #expect(!named.automaticTitle)

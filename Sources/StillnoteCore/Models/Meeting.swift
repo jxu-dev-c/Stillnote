@@ -146,7 +146,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     /// True while the title is one Stillnote chose rather than one the user typed, so a summary
     /// may replace it with a descriptive one.
     public var automaticTitle: Bool
-    /// Earlier import forms stored false even for untouched filename titles. This marker
+    /// Earlier builds stored false even for untouched default titles. This marker
     /// distinguishes their records from explicit title choices saved by the corrected form.
     private var titleOwnershipVersion = 1
 
@@ -194,15 +194,14 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         automaticTitle = storedAutomaticTitle ?? false
         let storedTitleOwnershipVersion = try values.decodeIfPresent(Int.self, forKey: .titleOwnershipVersion) ?? 0
         titleOwnershipVersion = max(1, storedTitleOwnershipVersion)
-        // Recorded meetings already tracked explicit choices correctly once automatic_title
-        // existed. Imports did not, so migrate their untouched filename titles even with false.
-        // Records saved by this build have the marker and always retain their title ownership.
+        // Older imports and re-saved recording placeholders could carry false despite never
+        // being named. Records saved by this build have the marker and retain their ownership.
         if storedTitleOwnershipVersion < 1, !automaticTitle {
             let source = URL(fileURLWithPath: audioName)
             let matchesFilename = title == source.lastPathComponent
                 || title == source.deletingPathExtension().lastPathComponent
             automaticTitle = (matchesFilename && (storedAutomaticTitle == nil || audioName != "recording.wav"))
-                || (storedAutomaticTitle == nil && audioName == "recording.wav" && createdDate != .distantPast
+                || (audioName == "recording.wav" && createdDate != .distantPast
                     && title == CaptureOptions.defaultTitle(for: createdDate))
         }
     }
