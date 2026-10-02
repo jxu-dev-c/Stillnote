@@ -57,10 +57,14 @@ import Testing
         #expect(sunday.interval(.month, containing: date(2026, 2, 10)).end == date(2026, 3, 1))
     }
 
+    private func clock(_ hour: Int, _ minute: Int = 0) -> TimeInterval {
+        TimeInterval(hour * 3600 + minute * 60)
+    }
+
     @Test func disjointEventsEachTakeTheFullWidth() {
         let placements = CalendarLayout.placements([
-            ("a", date(2026, 10, 1, 9), 3600),
-            ("b", date(2026, 10, 1, 10), 1800),
+            ("a", clock(9), 3600),
+            ("b", clock(10), 1800),
         ])
         #expect(placements["a"] == .init(column: 0, columns: 1))
         #expect(placements["b"] == .init(column: 0, columns: 1))
@@ -70,10 +74,10 @@ import Testing
         // a overlaps b, and b overlaps c, so all three line up in one group. c starts after a
         // ends, so it reuses a's column rather than adding a third.
         let placements = CalendarLayout.placements([
-            ("b", date(2026, 10, 1, 9, 30), 3600),
-            ("a", date(2026, 10, 1, 9), 3600),
-            ("c", date(2026, 10, 1, 10), 1800),
-            ("d", date(2026, 10, 1, 13), 600),
+            ("b", clock(9, 30), 3600),
+            ("a", clock(9), 3600),
+            ("c", clock(10), 1800),
+            ("d", clock(13), 600),
         ])
         #expect(placements["a"] == .init(column: 0, columns: 2))
         #expect(placements["b"] == .init(column: 1, columns: 2))
@@ -85,12 +89,47 @@ import Testing
         // A zero-length meeting still occupies the minimum height, so the one starting five
         // minutes later must sit beside it.
         let placements = CalendarLayout.placements([
-            ("long", date(2026, 10, 1, 9), 7200),
-            ("empty", date(2026, 10, 1, 9, 30), 0),
-            ("next", date(2026, 10, 1, 9, 35), 600),
+            ("long", clock(9), 7200),
+            ("empty", clock(9, 30), 0),
+            ("next", clock(9, 35), 600),
         ])
         #expect(placements["long"] == .init(column: 0, columns: 3))
         #expect(placements["empty"] == .init(column: 1, columns: 3))
         #expect(placements["next"] == .init(column: 2, columns: 3))
+    }
+
+    @Test func clockOffsetFollowsTheWallClockAcrossDaylightSaving() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Halifax")!
+        let layout = CalendarLayout(calendar: calendar)
+        func local(_ month: Int, _ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+            calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: minute))!
+        }
+        // March 8 is 23 hours long and November 1 is 25. Elapsed time from midnight would put
+        // these at 8:00 and 10:00, and the late meeting below the end of the day.
+        #expect(layout.clockOffset(local(3, 8, 9)) == clock(9))
+        #expect(layout.clockOffset(local(11, 1, 9)) == clock(9))
+        #expect(layout.clockOffset(local(11, 1, 23, 30)) == clock(23, 30))
+        #expect(layout.clockOffset(local(6, 1, 0)) == 0)
+    }
+
+    @Test func startDatePrefersTheRecordedTimeAndEstimatesOlderRecordings() {
+        let saved = "2026-10-01T10:00:00.000+00:00"
+        var recording = Meeting(
+            id: "r", title: "Sync", audioName: "recording.wav", language: "en", speakerCount: nil,
+            duration: 1800, cleanup: MeetingCleanup(originalDuration: 1920, head: 60, tail: 60)
+        )
+        recording.createdAt = saved
+        // Saved at 10:00 after 30 kept minutes and a trimmed one-minute tail.
+        #expect(recording.startDate == Meeting.parseTimestamp("2026-10-01T09:29:00.000+00:00"))
+
+        recording.recordedAt = "2026-10-01T09:31:00.000+00:00"
+        #expect(recording.startDate == Meeting.parseTimestamp("2026-10-01T09:31:00.000+00:00"))
+
+        var imported = Meeting(
+            id: "i", title: "Call", audioName: "call.m4a", language: "en", speakerCount: nil, duration: 1800
+        )
+        imported.createdAt = saved
+        #expect(imported.startDate == imported.createdDate)
     }
 }

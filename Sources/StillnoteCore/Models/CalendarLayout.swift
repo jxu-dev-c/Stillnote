@@ -68,6 +68,17 @@ public struct CalendarLayout: Sendable {
         return Array(symbols[first...] + symbols[..<first])
     }
 
+    /// Where `date` falls on a day's timeline, in seconds by the wall clock. Counting elapsed
+    /// time from midnight would put a 9:00 meeting at 8:00 or 10:00 on a daylight-saving
+    /// change, away from its hour label; the clock reading always matches the label.
+    public func clockOffset(_ date: Date) -> TimeInterval {
+        let time = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: date)
+        let hours = TimeInterval(time.hour ?? 0) * 3600
+        let minutes = TimeInterval(time.minute ?? 0) * 60
+        let seconds = TimeInterval(time.second ?? 0) + TimeInterval(time.nanosecond ?? 0) / 1e9
+        return hours + minutes + seconds
+    }
+
     private func days(from start: Date, count: Int) -> [Date] {
         (0..<count).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }
     }
@@ -85,18 +96,24 @@ public struct CalendarLayout: Sendable {
 
     /// Side-by-side columns for overlapping events, as Calendar.app lays out a busy day.
     /// Events that overlap directly or through a chain share one group, so their slices
-    /// line up. Each event takes the leftmost column that is free when it starts.
+    /// line up. Each event takes the leftmost column that is free when it starts. Starts are
+    /// `clockOffset`s, the same coordinates the timeline draws in.
     public static func placements(
-        _ events: [(id: String, start: Date, duration: TimeInterval)]
+        _ events: [(id: String, start: TimeInterval, duration: TimeInterval)]
     ) -> [String: Placement] {
-        let sorted = events
-            .map { (id: $0.id, start: $0.start, end: $0.start.addingTimeInterval(max($0.duration, minimumEventDuration))) }
-            .sorted { $0.start == $1.start ? $0.end > $1.end : $0.start < $1.start }
+        typealias Span = (id: String, start: TimeInterval, end: TimeInterval)
+        let spans: [Span] = events.map { event in
+            let length: TimeInterval = max(event.duration, minimumEventDuration)
+            return (event.id, event.start, event.start + length)
+        }
+        let sorted = spans.sorted { (a: Span, b: Span) -> Bool in
+            a.start == b.start ? a.end > b.end : a.start < b.start
+        }
 
         var result: [String: Placement] = [:]
         var group: [(id: String, column: Int)] = []
-        var columnEnds: [Date] = []
-        var groupEnd = Date.distantPast
+        var columnEnds: [TimeInterval] = []
+        var groupEnd = -TimeInterval.infinity
 
         func closeGroup() {
             for item in group {

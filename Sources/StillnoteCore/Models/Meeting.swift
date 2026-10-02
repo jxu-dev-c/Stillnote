@@ -143,6 +143,9 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     public var notes: String
     public var contextLinks: [ContextLink]
     public var cleanup: MeetingCleanup?
+    /// When a recording's kept audio began. `createdAt` is when the meeting was saved, which
+    /// is after the recording ends. Imports and older recordings have none.
+    public var recordedAt: String?
     /// True while the title is one Stillnote chose rather than one the user typed, so a summary
     /// may replace it with a descriptive one.
     public var automaticTitle: Bool
@@ -161,6 +164,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         case speakerProfiles = "speaker_profiles"
         case speakerCount = "speaker_count"
         case contextLinks = "context_links"
+        case recordedAt = "recorded_at"
         case automaticTitle = "automatic_title"
         case titleOwnershipVersion = "title_ownership_version"
     }
@@ -190,6 +194,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         notes = try values.decodeIfPresent(String.self, forKey: .notes) ?? ""
         contextLinks = try values.decodeIfPresent([ContextLink].self, forKey: .contextLinks) ?? []
         cleanup = try values.decodeIfPresent(MeetingCleanup.self, forKey: .cleanup)
+        recordedAt = try values.decodeIfPresent(String.self, forKey: .recordedAt)
         let storedAutomaticTitle = try values.decodeIfPresent(Bool.self, forKey: .automaticTitle)
         automaticTitle = storedAutomaticTitle ?? false
         let storedTitleOwnershipVersion = try values.decodeIfPresent(Int.self, forKey: .titleOwnershipVersion) ?? 0
@@ -209,7 +214,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     public init(
         id: String, title: String, audioName: String, language: String, speakerCount: Int?,
         duration: Double, videoName: String? = nil, error: String? = nil,
-        cleanup: MeetingCleanup? = nil, automaticTitle: Bool = false
+        cleanup: MeetingCleanup? = nil, automaticTitle: Bool = false, recordedAt: String? = nil
     ) {
         let timestamp = Meeting.now()
         self.id = id
@@ -234,6 +239,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         self.notes = ""
         self.contextLinks = []
         self.cleanup = cleanup
+        self.recordedAt = recordedAt
         self.automaticTitle = automaticTitle
     }
 
@@ -253,21 +259,38 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         )
     }
 
-    public static func now() -> String {
+    public static func now() -> String { timestamp(Date()) }
+
+    public static func timestamp(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(identifier: "UTC")
         // Python emits +00:00; ISO8601DateFormatter emits Z. Both parse, and only
         // string ordering matters for sorting, which is unaffected by the suffix.
-        return formatter.string(from: Date()).replacingOccurrences(of: "Z", with: "+00:00")
+        return formatter.string(from: date).replacingOccurrences(of: "Z", with: "+00:00")
+    }
+
+    public static func parseTimestamp(_ text: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: text) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: text)
     }
 
     public var createdDate: Date {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: createdAt) { return date }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: createdAt) ?? .distantPast
+        Meeting.parseTimestamp(createdAt) ?? .distantPast
+    }
+
+    /// When the meeting took place, for the calendar. A recording saved before
+    /// `recorded_at` existed is estimated from its save time: it ended just before it was
+    /// saved, and trimmed silence was cut from its tail after the kept audio. An import has
+    /// no known recording time, so it stays at the time it was imported.
+    public var startDate: Date {
+        if let recordedAt, let date = Meeting.parseTimestamp(recordedAt) { return date }
+        let created = createdDate
+        guard audioName == "recording.wav", created != .distantPast else { return created }
+        return created.addingTimeInterval(-(duration + (cleanup?.tail ?? 0)))
     }
 
     /// Display name for a segment's speaker id, falling back to the raw id.

@@ -20,8 +20,8 @@ struct MeetingCalendarView: View {
     }
 
     private var meetingsByDay: [Date: [Meeting]] {
-        // `createdDate` parses a timestamp, so read it once per meeting.
-        let dated = meetings.map { ($0.createdDate, $0) }.sorted { $0.0 < $1.0 }
+        // `startDate` parses a timestamp, so read it once per meeting.
+        let dated = meetings.map { ($0.startDate, $0) }.sorted { $0.0 < $1.0 }
         return Dictionary(grouping: dated) { layout.calendar.startOfDay(for: $0.0) }
             .mapValues { $0.map(\.1) }
     }
@@ -136,8 +136,8 @@ private extension Meeting {
     }
 
     var timeRange: String {
-        let end = createdDate.addingTimeInterval(max(duration, 0))
-        return (createdDate..<end).formatted(.interval.hour().minute())
+        let start = startDate
+        return (start..<start.addingTimeInterval(max(duration, 0))).formatted(.interval.hour().minute())
     }
 }
 
@@ -278,7 +278,7 @@ private struct MonthEventChip: View {
                     HStack(spacing: 4) {
                         Text(meeting.title).lineLimit(1).fixedSize()
                         Spacer(minLength: 0)
-                        Text(meeting.createdDate, format: .dateTime.hour().minute())
+                        Text(meeting.startDate, format: .dateTime.hour().minute())
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                             .fixedSize()
@@ -375,27 +375,29 @@ private struct TimelineGrid: View {
     }
 
     private func hourLabel(_ hour: Int) -> String {
-        let date = layout.calendar.date(bySettingHour: hour, minute: 0, second: 0, of: days.first ?? now) ?? now
-        return date.formatted(.dateTime.hour())
+        // Label from a day without a clock change, so a skipped or repeated hour cannot
+        // shift or duplicate the gutter.
+        let reference = layout.calendar.date(from: DateComponents(year: 2001, month: 1, day: 1, hour: hour)) ?? now
+        return reference.formatted(.dateTime.hour())
     }
 
     private func dayColumn(_ day: Date) -> some View {
         let meetings = meetingsByDay[day] ?? []
-        let placements = CalendarLayout.placements(meetings.map { ($0.id, $0.createdDate, $0.duration) })
+        let placements = CalendarLayout.placements(meetings.map { ($0.id, layout.clockOffset($0.startDate), $0.duration) })
         let isToday = layout.calendar.isDate(day, inSameDayAs: now)
         return GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
                 hourLines(width: proxy.size.width)
                 ForEach(meetings) { meeting in
                     let placement = placements[meeting.id] ?? .init(column: 0, columns: 1)
-                    let frame = eventFrame(meeting, day: day, placement: placement, width: proxy.size.width)
+                    let frame = eventFrame(meeting, placement: placement, width: proxy.size.width)
                     TimelineEventBlock(meeting: meeting, compact: frame.height < 36, open: open)
                         .modifier(MeetingEventMenu(meeting: meeting, open: open, onDelete: onDelete))
                         .frame(width: frame.width, height: frame.height)
                         .offset(x: frame.minX, y: frame.minY)
                 }
                 if isToday {
-                    currentTimeLine(day: day, width: proxy.size.width)
+                    currentTimeLine(width: proxy.size.width)
                 }
             }
         }
@@ -417,12 +419,12 @@ private struct TimelineGrid: View {
         .allowsHitTesting(false)
     }
 
-    private func y(for date: Date, on day: Date) -> CGFloat {
-        CGFloat(date.timeIntervalSince(day) / 3600) * Self.hourHeight
+    private func y(for date: Date) -> CGFloat {
+        CGFloat(layout.clockOffset(date) / 3600) * Self.hourHeight
     }
 
-    private func eventFrame(_ meeting: Meeting, day: Date, placement: CalendarLayout.Placement, width: CGFloat) -> CGRect {
-        let top = y(for: meeting.createdDate, on: day)
+    private func eventFrame(_ meeting: Meeting, placement: CalendarLayout.Placement, width: CGFloat) -> CGRect {
+        let top = y(for: meeting.startDate)
         let length = CGFloat(max(meeting.duration, CalendarLayout.minimumEventDuration) / 3600) * Self.hourHeight
         // A meeting that runs past midnight is cut at the bottom of its start day.
         let height = min(length, Self.hourHeight * 24 - top) - 2
@@ -430,20 +432,22 @@ private struct TimelineGrid: View {
         return CGRect(x: 2 + slice * CGFloat(placement.column), y: top + 1, width: slice - 2, height: max(height, 12))
     }
 
-    private func currentTimeLine(day: Date, width: CGFloat) -> some View {
+    private func currentTimeLine(width: CGFloat) -> some View {
         HStack(spacing: 0) {
             Circle().fill(.red).frame(width: 8, height: 8)
             Rectangle().fill(.red).frame(height: 1.5)
         }
         .frame(width: width + 4)
-        .offset(x: -4, y: y(for: now, on: day) - 4)
+        .offset(x: -4, y: y(for: now) - 4)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 
     private func scrollToFirstMeeting(_ proxy: ScrollViewProxy) {
-        let first = days.flatMap { meetingsByDay[$0] ?? [] }.map(\.createdDate).min()
-        let hour = first.map { max(0, layout.calendar.component(.hour, from: $0) - 1) } ?? 8
+        // The earliest time of day across the visible days, not the earliest date: a Monday
+        // 9:00 meeting needs the view higher than a Sunday 16:00 one.
+        let first = days.flatMap { meetingsByDay[$0] ?? [] }.map { layout.clockOffset($0.startDate) }.min()
+        let hour = first.map { max(0, Int($0 / 3600) - 1) } ?? 8
         proxy.scrollTo(min(hour, 16), anchor: .top)
     }
 }
@@ -467,7 +471,7 @@ private struct TimelineEventBlock: View {
                             ViewThatFits(in: .horizontal) {
                                 HStack(spacing: 4) {
                                     title.lineLimit(1).fixedSize()
-                                    Text(meeting.createdDate, format: .dateTime.hour().minute())
+                                    Text(meeting.startDate, format: .dateTime.hour().minute())
                                         .font(.system(size: 11))
                                         .foregroundStyle(.secondary)
                                         .fixedSize()
