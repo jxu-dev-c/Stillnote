@@ -596,6 +596,9 @@ final class CommandServer {
             }
             model.recorder.resume()
         default:
+            guard !model.recorder.isSaving else {
+                throw CLIError.busy("The recording is being saved. Wait for it to finish.")
+            }
             await model.recorder.discard()
             return try CommandRunner.recordResponse(
                 "Discarded the recording. Its audio was deleted.", RecordPayload(session: nil)

@@ -37,6 +37,7 @@ final class AppModel {
     private let commands = CommandServer()
     @ObservationIgnored let meetingReminder = MeetingReminder()
     private var transcriptions: [String: Task<Void, Never>] = [:]
+    private var startingTranscriptions: Set<String> = []
     private var installTask: Task<Void, Never>?
     private var installProgress = 0.0
     private var installDetail: String?
@@ -292,7 +293,9 @@ final class AppModel {
                     detector: SpeechActivityService(modelDirectory: paths.modelDirectory)
                 )
             )
-            apply(meeting)
+            // Other stop callers share this save; do not reset a meeting that one
+            // of them has already queued for transcription.
+            if self.meeting(meeting.id) == nil { apply(meeting) }
             return meeting
         } catch {
             report(error)
@@ -302,9 +305,10 @@ final class AppModel {
 
     // MARK: - Transcription
 
-    var isTranscribing: Bool { !transcriptions.isEmpty }
+    var isTranscribing: Bool { !startingTranscriptions.isEmpty || !transcriptions.isEmpty }
 
     func transcribe(_ id: String, language: String? = nil, speakerCount: Int?? = nil) async {
+        guard !startingTranscriptions.contains(id), transcriptions[id] == nil else { return }
         guard let meeting = meeting(id) else { return }
         guard !meeting.status.isBusy else {
             alertMessage = "This meeting is processing. Wait for it to finish."
@@ -323,6 +327,9 @@ final class AppModel {
         let hotWords = settings.transcription.hotWords
         let mode = settings.transcription.mode
         let cleanup = settings.cleanup
+        // Reserve before the first await so overlapping stop callers queue one job.
+        startingTranscriptions.insert(id)
+        defer { startingTranscriptions.remove(id) }
         guard let queued = await edit(id, { meeting in
             meeting.status = .transcribing
             meeting.progress = 0
