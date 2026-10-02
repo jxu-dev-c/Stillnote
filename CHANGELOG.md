@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.8.0
+
+- Add a calendar view to All Meetings. A List | Calendar switch in the toolbar shows meetings by
+  day, week, or month, like Apple's Calendar app. Meetings appear when they happened and are as
+  tall as they lasted, overlapping meetings sit side by side, and ⌘T goes to today. Clicking a
+  meeting opens it, and the toolbar search filters the calendar too.
+- Place new recordings at the time capture started instead of the time they were saved, and
+  estimate the start of older recordings. Imports stay at their import time.
+- Move transcript search into the macOS toolbar. It appears on the Transcript tab and collapses
+  to a button when the window is narrow.
+- Offer every thinking effort level the summary provider accepts: None, Minimal, Low, Medium,
+  High, Extra High, and Max for Codex, and Low through Max for Claude Code. A saved level the
+  provider doesn't accept falls back to Low.
+- Let summaries replace an imported meeting's filename title when the Title field was left
+  blank, and fix older recordings and imports whose default title a summary could not replace.
+  Titles you typed yourself are still never replaced.
+- Keep a recording's audio when Stop is pressed again while it is saving. The menu and recording
+  sheet show that it is saving until the meeting is stored.
+
 ## 0.7.0
 
 - Offer to record when a meeting starts. When Teams, Zoom, Webex, Slack, FaceTime, Discord, or a

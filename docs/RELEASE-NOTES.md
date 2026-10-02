@@ -2,24 +2,40 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
-## What's new in 0.7.0
+## What's new in 0.8.0
 
-### A reminder to record when a meeting starts
+### A calendar of your meetings
 
-- When Teams, Zoom, Webex, Slack, FaceTime, Discord, or a web browser (for Google Meet or Teams
-  on the web) starts using the microphone, a small reminder at the top right of the screen asks
-  "Record this meeting?". **Start Recording** starts it in one click.
-- Close it with its **×**, or it goes away by itself when the call ends, when a recording starts,
-  or after a minute. Muting and unmuting during the same call doesn't bring it back.
-- Reminders are off until you turn them on in **Settings → Transcription → Meeting reminders**.
-  Stillnote only checks which apps are using the microphone, never their audio, and needs no
-  new macOS permission.
+- **All Meetings** has a **List | Calendar** switch in the toolbar. The calendar shows meetings by
+  **Day**, **Week**, or **Month**, like Apple's Calendar app, with **‹ Today ›** buttons and ⌘T to
+  jump to today.
+- In Day and Week view, each meeting appears when it happened and is as tall as it lasted.
+  Overlapping meetings sit side by side, and a red line marks the current time.
+- In Month view, each day lists its meetings; when there are too many, **N more** opens that day.
+- Clicking a meeting opens it, its context menu offers **Open** and **Delete…**, and the toolbar
+  search filters the calendar too.
+- New recordings are placed at the time recording started rather than when they were saved.
+  Older recordings are placed at an estimated start time, and imports stay at their import time.
+
+### Transcript search in the toolbar
+
+- Transcript search now lives in the macOS toolbar on the **Transcript** tab instead of taking a
+  row above the transcript. In a narrow window it collapses to a search button.
+
+### More summary effort levels
+
+- **Settings → Summaries → Thinking effort** lists every level the selected provider accepts:
+  None, Minimal, Low, Medium, High, Extra High, and Max for Codex, and Low through Max for Claude
+  Code. A saved level the provider doesn't accept, for example after switching providers, uses
+  Low. Some models reject some levels; the summary then shows the provider's error.
 
 ### Fixes
 
-- A transcript's speaker chips stay on one row that scrolls sideways when there are more
-  speakers than fit, instead of stacking and pushing the transcript down.
-- Recent meetings in the sidebar no longer draw behind the Settings button.
+- Summaries can now replace an imported meeting's filename title when you left the Title field
+  blank, and older recordings and imports still showing a default title get a descriptive one
+  from their next summary. A title you typed yourself is never replaced.
+- Pressing Stop again while a recording is saving no longer loses its audio. The menu and the
+  recording sheet show that it is saving until the meeting is stored.
 
 ## The `stillnote` command and AI agents
 
@@ -41,6 +57,12 @@ still asks for consent, as `stillnote summarize <id> --allow-remote`.
 
 To let a coding agent drive it, install the published skill with
 `npx skills add jxu-dev-c/Stillnote`.
+
+## Upgrading from 0.7.0
+
+Existing meetings, settings, and downloaded models are preserved, and no new download is
+needed. Your saved summary effort level is kept. Older meetings' default titles are updated
+the next time they are summarized.
 
 ## Upgrading from 0.6.0
 
