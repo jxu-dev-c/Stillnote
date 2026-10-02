@@ -138,7 +138,7 @@ struct RecordingSheet: View {
 
             HStack {
                 Button("Discard", role: .destructive) { confirmingDiscard = true }
-                    .disabled(saving || session.status == .starting || session.status == .stopping)
+                    .disabled(saving || model.recorder.isSaving || session.status == .starting || session.status == .stopping)
                 Spacer()
                 if session.status == .recording {
                     Button("Pause") { model.recorder.pause() }
@@ -148,7 +148,7 @@ struct RecordingSheet: View {
                 Button(finishTitle) { Task { await finish() } }
                     .primaryActionStyle()
                     .keyboardShortcut(.defaultAction)
-                    .disabled(saving || session.status == .starting || session.status == .stopping)
+                    .disabled(saving || model.recorder.isSaving || session.status == .starting || session.status == .stopping)
             }
         }
     }
@@ -180,6 +180,7 @@ struct RecordingSheet: View {
     }
 
     private func statusText(_ session: RecordingSessionState) -> String {
+        if model.recorder.isSaving { return "Finishing recording" }
         switch session.status {
         case .starting: return "Waiting for macOS permissions"
         case .recording: return "Recording"
@@ -200,7 +201,7 @@ struct RecordingSheet: View {
     }
 
     private var finishTitle: String {
-        if saving { return "Saving…" }
+        if saving || model.recorder.isSaving { return "Saving…" }
         return model.speech.ready ? "Finish & Transcribe" : "Save Recording"
     }
 

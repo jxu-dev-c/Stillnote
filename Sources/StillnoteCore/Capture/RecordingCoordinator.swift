@@ -42,6 +42,8 @@ public final class RecordingCoordinator {
     private let paths: Paths
     private var capture: (any AnyObject)?
     private var eventTask: Task<Void, Never>?
+    private var finishTask: Task<Meeting, Error>?
+    private var discarding = false
 
     public init(store: Store, paths: Paths) {
         self.store = store
@@ -49,6 +51,7 @@ public final class RecordingCoordinator {
     }
 
     public var isRecoveredSession: Bool { session?.status == .stopped && capture == nil }
+    public var isSaving: Bool { finishTask != nil }
 
     // MARK: - Recovery
 
@@ -93,7 +96,7 @@ public final class RecordingCoordinator {
     // MARK: - Lifecycle
 
     public func start(options: CaptureOptions) async throws {
-        guard session == nil else {
+        guard session == nil, !isSaving, !discarding else {
             throw RecordingError.message("Save or discard the current recording before starting another.")
         }
         guard #available(macOS 15.0, *) else {
@@ -165,7 +168,18 @@ public final class RecordingCoordinator {
     /// Stops capture, mixes the sources, trims silence, muxes optional video, and stores the
     /// meeting. Repeating a successful save returns the same meeting instead of duplicating it.
     public func finish(cleanup: RecordingCleanup? = nil) async throws -> Meeting {
+        // Main-actor methods can interleave at every await. Claim the save before any
+        // suspension so stops from the menu, window, and CLI share one file/DB commit.
+        if let finishTask { return try await finishTask.value }
+        guard !discarding else { throw RecordingError.message("This recording is being discarded.") }
         guard let state = session else { throw RecordingError.message("This recording session was not found.") }
+        let task = Task { try await save(state: state, cleanup: cleanup) }
+        finishTask = task
+        defer { finishTask = nil }
+        return try await task.value
+    }
+
+    private func save(state: RecordingSessionState, cleanup: RecordingCleanup?) async throws -> Meeting {
         if let existing = try? await store.get(state.id) { return existing }
         await stopCapture()
         let directory = paths.recordingsDirectory.appendingPathComponent(state.id, isDirectory: true)
@@ -239,7 +253,15 @@ public final class RecordingCoordinator {
     }
 
     public func discard() async {
-        guard let state = session else { return }
+        guard !discarding, let state = session else { return }
+        // A discard queued during a save must not remove its sources or accidentally
+        // discard the next interrupted session adopted by recovery.
+        if let finishTask {
+            _ = try? await finishTask.value
+            guard session?.id == state.id, !discarding else { return }
+        }
+        discarding = true
+        defer { discarding = false }
         await stopCapture()
         try? FileManager.default.removeItem(
             at: paths.recordingsDirectory.appendingPathComponent(state.id, isDirectory: true)

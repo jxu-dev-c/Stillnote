@@ -70,6 +70,12 @@ serializes transcription, summaries, and model downloads so they never compete f
 or the GPU; a job cancelled while still queued observes cancellation and returns. Jobs left
 running when the app quits are marked retryable on the next launch.
 
+Overlapping recording stops share one save task, claimed before any suspension, so only
+one operation can move the media and insert the meeting. Save/discard controls stay disabled
+through cleanup and persistence; a discard already waiting on a save cannot delete that
+meeting or the next recovered session. Transcription requests reserve their meeting before
+awaiting the store so concurrent stop callers queue only one job.
+
 ## Capture
 
 `CaptureSession` uses ScreenCaptureKit for the selected microphone, optional system audio,

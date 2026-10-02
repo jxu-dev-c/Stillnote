@@ -78,11 +78,14 @@ struct MenuBarMenu: View {
             EmptyView()
         }
         // A session recovered after a crash is `stopped`: saving it is still the way forward.
-        Button(model.speech.ready ? "Stop & Transcribe" : "Stop & Save") { Task { await stop() } }
-            .disabled(session.status == .starting || session.status == .stopping)
+        Button(model.recorder.isSaving ? "Saving…" : (model.speech.ready ? "Stop & Transcribe" : "Stop & Save")) {
+            Task { await stop() }
+        }
+        .disabled(model.recorder.isSaving || session.status == .starting || session.status == .stopping)
     }
 
     private func status(_ session: RecordingSessionState) -> String {
+        if model.recorder.isSaving { return "Saving" }
         switch session.status {
         case .starting: return "Waiting for permissions"
         case .recording: return "Recording"
