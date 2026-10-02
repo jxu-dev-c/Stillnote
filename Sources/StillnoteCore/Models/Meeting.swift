@@ -146,6 +146,9 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     /// True while the title is one Stillnote chose rather than one the user typed, so a summary
     /// may replace it with a descriptive one.
     public var automaticTitle: Bool
+    /// Earlier builds stored false even for untouched default titles. This marker
+    /// distinguishes their records from explicit title choices saved by the corrected form.
+    private var titleOwnershipVersion = 1
 
     enum CodingKeys: String, CodingKey {
         case id, title, duration, status, progress, stage, error, language, speakers, segments, summary, notes, cleanup
@@ -159,6 +162,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         case speakerCount = "speaker_count"
         case contextLinks = "context_links"
         case automaticTitle = "automatic_title"
+        case titleOwnershipVersion = "title_ownership_version"
     }
 
     public init(from decoder: Decoder) throws {
@@ -186,7 +190,20 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         notes = try values.decodeIfPresent(String.self, forKey: .notes) ?? ""
         contextLinks = try values.decodeIfPresent([ContextLink].self, forKey: .contextLinks) ?? []
         cleanup = try values.decodeIfPresent(MeetingCleanup.self, forKey: .cleanup)
-        automaticTitle = try values.decodeIfPresent(Bool.self, forKey: .automaticTitle) ?? false
+        let storedAutomaticTitle = try values.decodeIfPresent(Bool.self, forKey: .automaticTitle)
+        automaticTitle = storedAutomaticTitle ?? false
+        let storedTitleOwnershipVersion = try values.decodeIfPresent(Int.self, forKey: .titleOwnershipVersion) ?? 0
+        titleOwnershipVersion = max(1, storedTitleOwnershipVersion)
+        // Older imports and re-saved recording placeholders could carry false despite never
+        // being named. Records saved by this build have the marker and retain their ownership.
+        if storedTitleOwnershipVersion < 1, !automaticTitle {
+            let source = URL(fileURLWithPath: audioName)
+            let matchesFilename = title == source.lastPathComponent
+                || title == source.deletingPathExtension().lastPathComponent
+            automaticTitle = (matchesFilename && (storedAutomaticTitle == nil || audioName != "recording.wav"))
+                || (audioName == "recording.wav" && createdDate != .distantPast
+                    && title == CaptureOptions.defaultTitle(for: createdDate))
+        }
     }
 
     public init(
@@ -222,6 +239,20 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
 
     public var hasVideo: Bool { videoURL != nil }
 
+    /// A blank import title uses the filename until a summary supplies a descriptive title.
+    /// Keeping the typed title separate from that fallback preserves explicit user choices.
+    public static func imported(
+        id: String, from url: URL, title: String, language: String, speakerCount: Int?, duration: Double
+    ) throws -> Meeting {
+        let typedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let initialTitle = typedTitle.isEmpty ? url.deletingPathExtension().lastPathComponent : typedTitle
+        return Meeting(
+            id: id, title: try Validation.title(initialTitle),
+            audioName: String(url.lastPathComponent.prefix(240)), language: language,
+            speakerCount: speakerCount, duration: duration, automaticTitle: typedTitle.isEmpty
+        )
+    }
+
     public static func now() -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -244,8 +275,8 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
 
     public func orderedSpeakerIDs() -> [String] { speakers.keys.sorted() }
 
-    /// Stores a summary, and adopts its suggested title while the meeting still carries the
-    /// placeholder a recording started with. A title the user typed is never replaced.
+    /// Stores a summary, and adopts its suggested title while Stillnote owns the title.
+    /// A title the user typed is never replaced.
     public mutating func applySummary(_ summary: MeetingSummary) {
         self.summary = summary
         guard automaticTitle, let suggested = summary.title,

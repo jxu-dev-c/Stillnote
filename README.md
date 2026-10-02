@@ -37,6 +37,9 @@ In **Settings**, download the speech model once (about 1.3 GB). Grant microphone
 and screen/system audio permissions when prompted. For AI summaries, install and
 sign in to the Codex or Claude Code CLI, then select it in Settings.
 
+Summaries name recordings automatically. When importing a file, leave **Title** blank
+to use its filename until a summary names it. A title you type or rename is preserved.
+
 ## If the icon keeps bouncing or Open Anyway does not work
 
 The current release is already ad-hoc signed, but it is **not Apple-notarized**.

@@ -48,11 +48,18 @@ struct ImportSheet: View {
             }
 
             Form {
-                TextField("Title", text: $title)
+                TextField(
+                    "Title", text: $title,
+                    prompt: Text(url?.deletingPathExtension().lastPathComponent ?? "Title after summary")
+                )
                 TranscriptionOptionFields(language: $language, speakerCount: $speakerCount)
             }
             .formStyle(.grouped)
             .frame(height: 130)
+
+            Text("Leave the title blank to name the meeting after its summary.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             HStack {
                 Spacer()
@@ -78,7 +85,6 @@ struct ImportSheet: View {
 
     private func select(_ picked: URL) {
         url = picked
-        if title.isEmpty { title = picked.deletingPathExtension().lastPathComponent }
     }
 
     private func save() async {
@@ -89,7 +95,7 @@ struct ImportSheet: View {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         guard let meeting = await model.importRecording(
-            from: url, title: title.isEmpty ? url.lastPathComponent : title,
+            from: url, title: title,
             language: language, speakerCount: speakerCount
         ) else { return }
         selection = meeting.id

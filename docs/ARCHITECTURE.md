@@ -50,14 +50,23 @@ Claude Code, dropping obsolete API credentials, without touching saved meetings.
 Meeting = {id,title,created_at,updated_at,duration,status:'ready'|'transcribing'|'transcribed'|'summarizing'|'complete'|'error',
   progress,stage,error,audio_name,audio_url,video_url,summary_include_video_path,language,speaker_count,
   speakers:Record<string,string>,segments:Segment[],summary:Summary|null,notes,context_links:ContextLink[],
-  cleanup:{original_duration,head,tail,applied_at}|null,automatic_title}
+  cleanup:{original_duration,head,tail,applied_at}|null,automatic_title,title_ownership_version}
 Segment = {id,start,end,speaker,text}
 Summary = {title?,overview,key_points[],decisions[],action_items:[{text,owner,due}],provider,model,generated_at}
 ContextLink = {url,title}
 ```
 
-`automatic_title` is true while a recording still carries the `Meeting · <date>` placeholder it
-started with (older documents decode it as false). Storing a summary through
+`automatic_title` is true for titles Stillnote chose: a recording's `Meeting · <date>` placeholder,
+an imported file's name when the title field was left blank, and titles suggested by summaries.
+Older documents without the field infer it when the title matches the original filename or
+the dated recording placeholder; other titles default to false. Older imports and re-saved
+recording placeholders also stored false without a user choice, so records without
+`title_ownership_version` infer ownership for those defaults even with false. New writes
+include `title_ownership_version: 1`, so all explicit title choices then survive reopening.
+Old meetings named or renamed back to their exact default cannot be distinguished from untouched
+defaults. Editing a meeting in an older build removes the marker, so this inference applies again
+if that library is then reopened in a current build.
+Storing a summary through
 `Meeting.applySummary` then adopts the summary's suggested `title`; renaming the meeting clears
 the flag, so a title the user typed is never replaced.
 
