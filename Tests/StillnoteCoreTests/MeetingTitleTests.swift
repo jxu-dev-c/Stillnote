@@ -3,7 +3,7 @@ import Testing
 
 @testable import StillnoteCore
 
-/// A recording starts with a placeholder title, and its summary may replace it; a title the
+/// Recordings and imports start with automatic titles that summaries may replace; a title the
 /// user chose is never replaced.
 @Suite struct MeetingTitleTests {
     private func summary(title: String?) -> MeetingSummary {
@@ -56,7 +56,7 @@ import Testing
         #expect(CaptureOptions.defaultTitle(for: date).hasPrefix("Meeting · "))
     }
 
-    /// Meetings and interrupted sessions saved before the flag existed were named by the user.
+    /// Legacy custom titles remain protected, as do custom interrupted-session titles.
     @Test func olderDocumentsDecodeAsUserNamed() throws {
         let meeting = try JSONDecoder().decode(Meeting.self, from: Data(#"""
             {"id":"m1","title":"Design review","created_at":"2026-09-01T10:00:00+00:00",
@@ -87,6 +87,86 @@ import Testing
             from: try JSONEncoder().encode(CaptureOptions(title: "t", automaticTitle: true))
         )
         #expect(options.automaticTitle)
+    }
+
+    @Test(arguments: ["", " \n\t"])
+    func summaryRetitlesAnImportWithoutATypedTitle(title: String) async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        let imported = try Meeting.imported(
+            id: "import", from: URL(fileURLWithPath: "/synthetic/audio-2026-09-26.m4a"),
+            title: title, language: "en", speakerCount: nil, duration: 60
+        )
+        #expect(imported.title == "audio-2026-09-26")
+        #expect(imported.audioName == "audio-2026-09-26.m4a")
+        try await store.insert(imported)
+        try await store.update(imported.id) { $0.applySummary(summary(title: "Q3 launch readiness")) }
+        let reopened = try Store(paths: paths)
+        let saved = try await reopened.get(imported.id)
+        #expect(saved.title == "Q3 launch readiness")
+        #expect(saved.automaticTitle)
+        #expect(saved.summary?.title == "Q3 launch readiness")
+    }
+
+    @Test(arguments: ["  Design review  ", "recording"])
+    func summaryKeepsATitleTypedDuringImport(title: String) throws {
+        var imported = try Meeting.imported(
+            id: "import", from: URL(fileURLWithPath: "/synthetic/recording.wav"),
+            title: title, language: "en", speakerCount: nil, duration: 60
+        )
+        imported.applySummary(summary(title: "Q3 launch readiness"))
+        #expect(imported.title == title.trimmingCharacters(in: .whitespacesAndNewlines))
+        #expect(!imported.automaticTitle)
+        #expect(imported.summary != nil)
+    }
+
+    @Test func rejectsInvalidImportTitles() {
+        #expect(throws: ValidationError.self) {
+            try Meeting.imported(
+                id: "import", from: URL(fileURLWithPath: "/synthetic/recording.wav"),
+                title: String(repeating: "x", count: Validation.maxTitleLength + 1),
+                language: "en", speakerCount: nil, duration: 60
+            )
+        }
+    }
+
+    private func legacyMeeting(title: String, audioName: String, automatic: Bool? = nil) throws -> Meeting {
+        var document: [String: Any] = [
+            "id": "legacy", "title": title, "audio_name": audioName,
+            "created_at": "2026-09-26T12:00:00+00:00", "updated_at": "2026-09-26T12:00:00+00:00",
+        ]
+        if let automatic { document["automatic_title"] = automatic }
+        return try JSONDecoder().decode(Meeting.self, from: JSONSerialization.data(withJSONObject: document))
+    }
+
+    @Test func summaryRetitlesALegacyRecordingPlaceholder() throws {
+        let date = try #require(ISO8601DateFormatter().date(from: "2026-09-26T12:00:00+00:00"))
+        var recorded = try legacyMeeting(title: CaptureOptions.defaultTitle(for: date), audioName: "recording.wav")
+        #expect(recorded.automaticTitle)
+        recorded.applySummary(summary(title: "Q3 launch readiness"))
+        #expect(recorded.title == "Q3 launch readiness")
+    }
+
+    @Test(arguments: ["audio-2026-09-26", "audio-2026-09-26.m4a"])
+    func summaryRetitlesALegacyImportFilename(title: String) throws {
+        var imported = try legacyMeeting(title: title, audioName: "audio-2026-09-26.m4a")
+        #expect(imported.automaticTitle)
+        imported.applySummary(summary(title: "Q3 launch readiness"))
+        #expect(imported.title == "Q3 launch readiness")
+    }
+
+    @Test func explicitUserTitleOwnershipOverridesLegacyInference() throws {
+        let date = try #require(ISO8601DateFormatter().date(from: "2026-09-26T12:00:00+00:00"))
+        for (title, audioName) in [
+            (CaptureOptions.defaultTitle(for: date), "recording.wav"),
+            ("recording", "recording.wav"),
+        ] {
+            var named = try legacyMeeting(title: title, audioName: audioName, automatic: false)
+            named.applySummary(summary(title: "Q3 launch readiness"))
+            #expect(named.title == title)
+            #expect(!named.automaticTitle)
+        }
     }
 
     @Test func parsesAndMergesSuggestedTitles() throws {

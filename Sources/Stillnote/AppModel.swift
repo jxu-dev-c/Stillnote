@@ -225,7 +225,6 @@ final class AppModel {
 
     func importRecording(from url: URL, title: String, language: String, speakerCount: Int?) async -> Meeting? {
         do {
-            let title = try Validation.title(title)
             let language = try Validation.language(language)
             let speakerCount = try Validation.speakerCount(speakerCount)
             let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int ?? 0
@@ -235,14 +234,14 @@ final class AppModel {
             }
             let duration = try await AudioDecoder.probeDuration(url)
             let id = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+            let meeting = try Meeting.imported(
+                id: id, from: url, title: title, language: language,
+                speakerCount: speakerCount, duration: duration
+            )
             let destination = paths.audioURL(id)
             try FileManager.default.copyItem(at: url, to: destination)
             try? FileManager.default.setAttributes(
                 [.posixPermissions: 0o600], ofItemAtPath: destination.path
-            )
-            let meeting = Meeting(
-                id: id, title: title, audioName: String(url.lastPathComponent.prefix(240)),
-                language: language, speakerCount: speakerCount, duration: duration
             )
             _ = try await store.insert(meeting)
             apply(meeting)

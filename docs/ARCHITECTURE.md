@@ -56,8 +56,11 @@ Summary = {title?,overview,key_points[],decisions[],action_items:[{text,owner,du
 ContextLink = {url,title}
 ```
 
-`automatic_title` is true while a recording still carries the `Meeting · <date>` placeholder it
-started with (older documents decode it as false). Storing a summary through
+`automatic_title` is true for titles Stillnote chose: a recording's `Meeting · <date>` placeholder,
+an imported file's name when the title field was left blank, and titles suggested by summaries.
+Older documents without the field infer it when the title matches the original filename or
+the dated recording placeholder; other titles default to false. An explicit false is preserved.
+Storing a summary through
 `Meeting.applySummary` then adopts the summary's suggested `title`; renaming the meeting clears
 the flag, so a title the user typed is never replaced.
 

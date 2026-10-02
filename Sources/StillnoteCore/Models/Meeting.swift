@@ -187,6 +187,15 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         contextLinks = try values.decodeIfPresent([ContextLink].self, forKey: .contextLinks) ?? []
         cleanup = try values.decodeIfPresent(MeetingCleanup.self, forKey: .cleanup)
         automaticTitle = try values.decodeIfPresent(Bool.self, forKey: .automaticTitle) ?? false
+        // Older forms filled in a filename or a dated recording placeholder. Infer ownership
+        // only when it was not stored; an explicit false always protects a user-chosen title.
+        if !values.contains(.automaticTitle) {
+            let source = URL(fileURLWithPath: audioName)
+            automaticTitle = title == source.lastPathComponent
+                || title == source.deletingPathExtension().lastPathComponent
+                || (audioName == "recording.wav" && createdDate != .distantPast
+                    && title == CaptureOptions.defaultTitle(for: createdDate))
+        }
     }
 
     public init(
@@ -222,6 +231,20 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
 
     public var hasVideo: Bool { videoURL != nil }
 
+    /// A blank import title uses the filename until a summary supplies a descriptive title.
+    /// Keeping the typed title separate from that fallback preserves explicit user choices.
+    public static func imported(
+        id: String, from url: URL, title: String, language: String, speakerCount: Int?, duration: Double
+    ) throws -> Meeting {
+        let typedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let initialTitle = typedTitle.isEmpty ? url.deletingPathExtension().lastPathComponent : typedTitle
+        return Meeting(
+            id: id, title: try Validation.title(initialTitle),
+            audioName: String(url.lastPathComponent.prefix(240)), language: language,
+            speakerCount: speakerCount, duration: duration, automaticTitle: typedTitle.isEmpty
+        )
+    }
+
     public static func now() -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -244,8 +267,8 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
 
     public func orderedSpeakerIDs() -> [String] { speakers.keys.sorted() }
 
-    /// Stores a summary, and adopts its suggested title while the meeting still carries the
-    /// placeholder a recording started with. A title the user typed is never replaced.
+    /// Stores a summary, and adopts its suggested title while Stillnote owns the title.
+    /// A title the user typed is never replaced.
     public mutating func applySummary(_ summary: MeetingSummary) {
         self.summary = summary
         guard automaticTitle, let suggested = summary.title,

@@ -4,6 +4,29 @@ import Testing
 @testable import StillnoteCore
 
 @Suite @MainActor struct RecordingRecoveryTests {
+    @Test(arguments: [true, false])
+    func savingARecordingPreservesTitleOwnership(automatic: Bool) async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        let title = CaptureOptions.defaultTitle()
+        try writeSession(
+            id: "title", paths: paths, options: CaptureOptions(title: title, automaticTitle: automatic)
+        )
+        let recorder = RecordingCoordinator(store: store, paths: paths)
+        await recorder.recover()
+        let meeting = try await recorder.finish()
+        #expect(meeting.automaticTitle == automatic)
+        try await store.update(meeting.id) {
+            $0.applySummary(MeetingSummary(
+                overview: "We agreed.", keyPoints: [], decisions: [], actionItems: [],
+                provider: "codex", model: "test", generatedAt: Meeting.now(), title: "Q3 launch readiness"
+            ))
+        }
+        let saved = try await Store(paths: paths).get(meeting.id)
+        #expect(saved.title == (automatic ? "Q3 launch readiness" : title))
+    }
+
     @Test func savedAudioSurvivesInterruptedTranscription() async throws {
         let paths = try temporaryPaths()
         defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
@@ -113,12 +136,14 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: directory.path))
     }
 
-    private func writeSession(id: String, paths: Paths) throws {
+    private func writeSession(
+        id: String, paths: Paths, options: CaptureOptions = CaptureOptions(title: "Synthetic meeting")
+    ) throws {
         let directory = paths.recordingsDirectory.appendingPathComponent(id)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let state = RecordingSessionState(
             id: id, status: .stopped, elapsed: 1, error: nil,
-            options: CaptureOptions(title: "Synthetic meeting")
+            options: options
         )
         try JSONEncoder().encode(state).write(to: directory.appendingPathComponent("session.json"))
         let writer = try PCMWriter(url: directory.appendingPathComponent("microphone.wav"))
