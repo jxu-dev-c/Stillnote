@@ -41,11 +41,6 @@ struct TranscriptTab: View {
                 .disabled(meeting.status.isBusy)
             }
 
-            TextField("Search transcript", text: $search)
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.large)
-                .accessibilityLabel("Search transcript")
-
             speakerChips
 
             if segments.isEmpty {
@@ -66,6 +61,7 @@ struct TranscriptTab: View {
             }
         }
         .font(StillnoteTheme.detailBodyFont)
+        .searchable(text: $search, placement: .toolbar, prompt: "Search transcript")
         .sheet(item: $editing) { segment in
             SegmentEditor(meeting: meeting, segment: segment)
         }
