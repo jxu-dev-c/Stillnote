@@ -226,7 +226,12 @@ the catalog provides are the same set in both directions.
 The interface is built from stock SwiftUI and AppKit controls with system semantic colors
 and SF Symbols, so it follows the viewer's appearance, accent color, and contrast settings
 rather than carrying its own palette. `NavigationSplitView` hosts the sidebar and either
-the meeting `Table` or a meeting's detail view; playback uses AVKit's `VideoPlayer` for
+All Meetings, shown either as a `Table` or as a calendar, or a meeting's detail view. The
+calendar (`MeetingCalendarView`) has Day, Week, and Month ranges laid out like Calendar.app. Each
+meeting appears at its `created_at` time, and its block is as tall as its duration, with a
+15-minute minimum. Overlapping meetings share a column. The date math and the overlap columns are
+in `StillnoteCore/Models/CalendarLayout.swift`. The chosen tab, range, and date are kept per
+window in scene storage. Playback uses AVKit's `VideoPlayer` for
 recordings with screen video and a compact transport otherwise. Settings live in the
 standard Settings scene. The main window is a single `Window` scene; a `MenuBarExtra` starts and
 stops a recording with the saved transcription defaults, shows the elapsed time while capturing,
