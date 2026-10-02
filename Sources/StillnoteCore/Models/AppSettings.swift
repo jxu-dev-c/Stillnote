@@ -8,11 +8,20 @@ public enum SummaryProvider: String, Codable, CaseIterable, Sendable {
     public var command: String { self == .codex ? "codex" : "claude" }
     public var environmentOverride: String { self == .codex ? "STILLNOTE_CODEX_BIN" : "STILLNOTE_CLAUDE_BIN" }
     public var defaultModel: String { self == .codex ? "gpt-5.6-luna" : "claude-sonnet-5" }
+    /// The levels each CLI accepts. Claude Code ignores `none` and `minimal` and uses its default.
+    public var reasoningEfforts: [ReasoningEffort] {
+        self == .codex ? ReasoningEffort.allCases : [.low, .medium, .high, .xhigh, .max]
+    }
 }
 
 public enum ReasoningEffort: String, Codable, CaseIterable, Sendable {
-    case low, medium, high
-    public var label: String { rawValue.capitalized }
+    case noReasoning = "none", minimal, low, medium, high, xhigh, max
+    public var label: String { self == .xhigh ? "Extra High" : rawValue.capitalized }
+
+    /// This level, or the nearest one `provider` accepts.
+    public func supported(by provider: SummaryProvider) -> ReasoningEffort {
+        provider.reasoningEfforts.contains(self) ? self : .low
+    }
 }
 
 public enum TranscriptionMode: String, Codable, CaseIterable, Sendable {
@@ -156,6 +165,8 @@ public struct SummarySettings: Codable, Hashable, Sendable {
         agentPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? Summarizer.defaultAgentPrompt : agentPrompt
     }
+
+    public var resolvedReasoningEffort: ReasoningEffort { reasoningEffort.supported(by: provider) }
 
     enum CodingKeys: String, CodingKey {
         case provider, model

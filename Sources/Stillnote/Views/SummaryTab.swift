@@ -126,7 +126,7 @@ struct ConsentSheet: View {
             VStack(spacing: 12) {
                 detail("Provider", value: model.settings.summary.provider.label)
                 detail("Model", value: model.settings.summary.model)
-                detail("Thinking", value: model.settings.summary.reasoningEffort.label)
+                detail("Thinking", value: model.settings.summary.resolvedReasoningEffort.label)
             }
             .contentPanel()
 
