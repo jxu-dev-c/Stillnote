@@ -383,14 +383,17 @@ private struct TimelineGrid: View {
 
     private func dayColumn(_ day: Date) -> some View {
         let meetings = meetingsByDay[day] ?? []
-        let placements = CalendarLayout.placements(meetings.map { ($0.id, layout.clockOffset($0.startDate), $0.duration) })
+        let spans = Dictionary(uniqueKeysWithValues: meetings.map {
+            ($0.id, layout.clockSpan(start: $0.startDate, duration: $0.duration))
+        })
+        let placements = CalendarLayout.placements(meetings.map { ($0.id, spans[$0.id]!.start, spans[$0.id]!.end) })
         let isToday = layout.calendar.isDate(day, inSameDayAs: now)
         return GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
                 hourLines(width: proxy.size.width)
                 ForEach(meetings) { meeting in
                     let placement = placements[meeting.id] ?? .init(column: 0, columns: 1)
-                    let frame = eventFrame(meeting, placement: placement, width: proxy.size.width)
+                    let frame = eventFrame(spans[meeting.id]!, placement: placement, width: proxy.size.width)
                     TimelineEventBlock(meeting: meeting, compact: frame.height < 36, open: open)
                         .modifier(MeetingEventMenu(meeting: meeting, open: open, onDelete: onDelete))
                         .frame(width: frame.width, height: frame.height)
@@ -423,11 +426,11 @@ private struct TimelineGrid: View {
         CGFloat(layout.clockOffset(date) / 3600) * Self.hourHeight
     }
 
-    private func eventFrame(_ meeting: Meeting, placement: CalendarLayout.Placement, width: CGFloat) -> CGRect {
-        let top = y(for: meeting.startDate)
-        let length = CGFloat(max(meeting.duration, CalendarLayout.minimumEventDuration) / 3600) * Self.hourHeight
-        // A meeting that runs past midnight is cut at the bottom of its start day.
-        let height = min(length, Self.hourHeight * 24 - top) - 2
+    private func eventFrame(
+        _ span: (start: TimeInterval, end: TimeInterval), placement: CalendarLayout.Placement, width: CGFloat
+    ) -> CGRect {
+        let top = CGFloat(span.start / 3600) * Self.hourHeight
+        let height = CGFloat((span.end - span.start) / 3600) * Self.hourHeight - 2
         let slice = (width - 6) / CGFloat(placement.columns)
         return CGRect(x: 2 + slice * CGFloat(placement.column), y: top + 1, width: slice - 2, height: max(height, 12))
     }

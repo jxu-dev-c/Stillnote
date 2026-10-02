@@ -79,6 +79,17 @@ public struct CalendarLayout: Sendable {
         return hours + minutes + seconds
     }
 
+    /// The `clockOffset` range a meeting covers on its start day. The end comes from the real
+    /// end time, so a meeting across a daylight-saving change ends at the clock time it
+    /// actually finished. A meeting running past midnight is cut at the end of the day.
+    public func clockSpan(start: Date, duration: TimeInterval) -> (start: TimeInterval, end: TimeInterval) {
+        let top = clockOffset(start)
+        let end = start.addingTimeInterval(max(duration, 0))
+        let bottom = calendar.isDate(end, inSameDayAs: start) ? clockOffset(end) : 86_400
+        // When clocks fall back, a short meeting can end at an earlier clock time than it began.
+        return (top, max(bottom, top + Self.minimumEventDuration))
+    }
+
     private func days(from start: Date, count: Int) -> [Date] {
         (0..<count).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }
     }
@@ -96,15 +107,15 @@ public struct CalendarLayout: Sendable {
 
     /// Side-by-side columns for overlapping events, as Calendar.app lays out a busy day.
     /// Events that overlap directly or through a chain share one group, so their slices
-    /// line up. Each event takes the leftmost column that is free when it starts. Starts are
-    /// `clockOffset`s, the same coordinates the timeline draws in.
+    /// line up. Each event takes the leftmost column that is free when it starts. Spans are
+    /// `clockSpan`s, the same coordinates the timeline draws in.
     public static func placements(
-        _ events: [(id: String, start: TimeInterval, duration: TimeInterval)]
+        _ events: [(id: String, start: TimeInterval, end: TimeInterval)]
     ) -> [String: Placement] {
         typealias Span = (id: String, start: TimeInterval, end: TimeInterval)
         let spans: [Span] = events.map { event in
-            let length: TimeInterval = max(event.duration, minimumEventDuration)
-            return (event.id, event.start, event.start + length)
+            let end: TimeInterval = max(event.end, event.start + minimumEventDuration)
+            return (event.id, event.start, end)
         }
         let sorted = spans.sorted { (a: Span, b: Span) -> Bool in
             a.start == b.start ? a.end > b.end : a.start < b.start

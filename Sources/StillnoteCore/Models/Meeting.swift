@@ -111,6 +111,12 @@ public struct MeetingCleanup: Codable, Hashable, Sendable {
     public var removedDuration: Double { head + tail }
 }
 
+/// Where a meeting's audio came from. Older documents have none.
+public enum MeetingSource: String, Codable, Sendable {
+    case recording
+    case `import`
+}
+
 public enum MeetingStatus: String, Codable, Sendable {
     case ready, transcribing, transcribed, summarizing, complete, error
 
@@ -146,6 +152,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     /// When a recording's kept audio began. `createdAt` is when the meeting was saved, which
     /// is after the recording ends. Imports and older recordings have none.
     public var recordedAt: String?
+    public var source: MeetingSource?
     /// True while the title is one Stillnote chose rather than one the user typed, so a summary
     /// may replace it with a descriptive one.
     public var automaticTitle: Bool
@@ -165,6 +172,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         case speakerCount = "speaker_count"
         case contextLinks = "context_links"
         case recordedAt = "recorded_at"
+        case source
         case automaticTitle = "automatic_title"
         case titleOwnershipVersion = "title_ownership_version"
     }
@@ -195,6 +203,8 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         contextLinks = try values.decodeIfPresent([ContextLink].self, forKey: .contextLinks) ?? []
         cleanup = try values.decodeIfPresent(MeetingCleanup.self, forKey: .cleanup)
         recordedAt = try values.decodeIfPresent(String.self, forKey: .recordedAt)
+        // A value from a newer build is treated as unknown rather than failing the document.
+        source = (try? values.decodeIfPresent(MeetingSource.self, forKey: .source)) ?? nil
         let storedAutomaticTitle = try values.decodeIfPresent(Bool.self, forKey: .automaticTitle)
         automaticTitle = storedAutomaticTitle ?? false
         let storedTitleOwnershipVersion = try values.decodeIfPresent(Int.self, forKey: .titleOwnershipVersion) ?? 0
@@ -214,7 +224,8 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     public init(
         id: String, title: String, audioName: String, language: String, speakerCount: Int?,
         duration: Double, videoName: String? = nil, error: String? = nil,
-        cleanup: MeetingCleanup? = nil, automaticTitle: Bool = false, recordedAt: String? = nil
+        cleanup: MeetingCleanup? = nil, automaticTitle: Bool = false, recordedAt: String? = nil,
+        source: MeetingSource? = nil
     ) {
         let timestamp = Meeting.now()
         self.id = id
@@ -240,6 +251,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         self.contextLinks = []
         self.cleanup = cleanup
         self.recordedAt = recordedAt
+        self.source = source
         self.automaticTitle = automaticTitle
     }
 
@@ -255,7 +267,8 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         return Meeting(
             id: id, title: try Validation.title(initialTitle),
             audioName: String(url.lastPathComponent.prefix(240)), language: language,
-            speakerCount: speakerCount, duration: duration, automaticTitle: typedTitle.isEmpty
+            speakerCount: speakerCount, duration: duration, automaticTitle: typedTitle.isEmpty,
+            source: .import
         )
     }
 
@@ -282,14 +295,16 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         Meeting.parseTimestamp(createdAt) ?? .distantPast
     }
 
-    /// When the meeting took place, for the calendar. A recording saved before
-    /// `recorded_at` existed is estimated from its save time: it ended just before it was
-    /// saved, and trimmed silence was cut from its tail after the kept audio. An import has
-    /// no known recording time, so it stays at the time it was imported.
+    /// When the meeting took place, for the calendar. An import has no known recording time,
+    /// so it stays at the time it was imported. A recording saved before `recorded_at`
+    /// existed is estimated from its save time: it ended just before it was saved, and
+    /// trimmed silence was cut from its tail after the kept audio. Documents that old also
+    /// predate `source`, so an import of a file named `recording.wav` from then is
+    /// indistinguishable from a recording and is estimated the same way.
     public var startDate: Date {
         if let recordedAt, let date = Meeting.parseTimestamp(recordedAt) { return date }
         let created = createdDate
-        guard audioName == "recording.wav", created != .distantPast else { return created }
+        guard source != .import, audioName == "recording.wav", created != .distantPast else { return created }
         return created.addingTimeInterval(-(duration + (cleanup?.tail ?? 0)))
     }
 

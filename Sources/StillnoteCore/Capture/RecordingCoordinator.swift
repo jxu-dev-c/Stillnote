@@ -244,7 +244,8 @@ public final class RecordingCoordinator {
             language: state.options.language, speakerCount: state.options.speakerCount,
             duration: duration, videoName: videoName, error: warning, cleanup: record,
             automaticTitle: state.options.automaticTitle,
-            recordedAt: Self.keptAudioStart(startedAt: state.startedAt, head: record?.head ?? 0)
+            recordedAt: Self.keptAudioStart(startedAt: state.startedAt, head: record?.head ?? 0),
+            source: .recording
         )
         do {
             _ = try await store.insert(meeting)

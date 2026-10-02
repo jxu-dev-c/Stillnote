@@ -61,10 +61,24 @@ import Testing
         TimeInterval(hour * 3600 + minute * 60)
     }
 
+    private func event(_ id: String, _ start: TimeInterval, _ duration: TimeInterval) -> (String, TimeInterval, TimeInterval) {
+        (id, start, start + duration)
+    }
+
+    private static let halifax: CalendarLayout = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Halifax")!
+        return CalendarLayout(calendar: calendar)
+    }()
+
+    private func halifax(_ month: Int, _ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+        Self.halifax.calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: minute))!
+    }
+
     @Test func disjointEventsEachTakeTheFullWidth() {
         let placements = CalendarLayout.placements([
-            ("a", clock(9), 3600),
-            ("b", clock(10), 1800),
+            event("a", clock(9), 3600),
+            event("b", clock(10), 1800),
         ])
         #expect(placements["a"] == .init(column: 0, columns: 1))
         #expect(placements["b"] == .init(column: 0, columns: 1))
@@ -74,10 +88,10 @@ import Testing
         // a overlaps b, and b overlaps c, so all three line up in one group. c starts after a
         // ends, so it reuses a's column rather than adding a third.
         let placements = CalendarLayout.placements([
-            ("b", clock(9, 30), 3600),
-            ("a", clock(9), 3600),
-            ("c", clock(10), 1800),
-            ("d", clock(13), 600),
+            event("b", clock(9, 30), 3600),
+            event("a", clock(9), 3600),
+            event("c", clock(10), 1800),
+            event("d", clock(13), 600),
         ])
         #expect(placements["a"] == .init(column: 0, columns: 2))
         #expect(placements["b"] == .init(column: 1, columns: 2))
@@ -89,9 +103,9 @@ import Testing
         // A zero-length meeting still occupies the minimum height, so the one starting five
         // minutes later must sit beside it.
         let placements = CalendarLayout.placements([
-            ("long", clock(9), 7200),
-            ("empty", clock(9, 30), 0),
-            ("next", clock(9, 35), 600),
+            event("long", clock(9), 7200),
+            event("empty", clock(9, 30), 0),
+            event("next", clock(9, 35), 600),
         ])
         #expect(placements["long"] == .init(column: 0, columns: 3))
         #expect(placements["empty"] == .init(column: 1, columns: 3))
@@ -99,18 +113,39 @@ import Testing
     }
 
     @Test func clockOffsetFollowsTheWallClockAcrossDaylightSaving() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "America/Halifax")!
-        let layout = CalendarLayout(calendar: calendar)
-        func local(_ month: Int, _ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
-            calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: minute))!
-        }
+        let layout = Self.halifax
         // March 8 is 23 hours long and November 1 is 25. Elapsed time from midnight would put
         // these at 8:00 and 10:00, and the late meeting below the end of the day.
-        #expect(layout.clockOffset(local(3, 8, 9)) == clock(9))
-        #expect(layout.clockOffset(local(11, 1, 9)) == clock(9))
-        #expect(layout.clockOffset(local(11, 1, 23, 30)) == clock(23, 30))
-        #expect(layout.clockOffset(local(6, 1, 0)) == 0)
+        #expect(layout.clockOffset(halifax(3, 8, 9)) == clock(9))
+        #expect(layout.clockOffset(halifax(11, 1, 9)) == clock(9))
+        #expect(layout.clockOffset(halifax(11, 1, 23, 30)) == clock(23, 30))
+        #expect(layout.clockOffset(halifax(6, 1, 0)) == 0)
+    }
+
+    @Test func spansAcrossAClockChangeEndAtTheRealEndTime() {
+        let layout = Self.halifax
+        // Spring forward: an hour from 1:30 ends at 3:30, so it overlaps a 3:00 meeting.
+        let spring = layout.clockSpan(start: halifax(3, 8, 1, 30), duration: 3600)
+        #expect(spring.start == clock(1, 30) && spring.end == clock(3, 30))
+        let afterJump = layout.clockSpan(start: halifax(3, 8, 3), duration: 1800)
+        let placements = CalendarLayout.placements([
+            ("crossing", spring.start, spring.end), ("next", afterJump.start, afterJump.end),
+        ])
+        #expect(placements["crossing"] == .init(column: 0, columns: 2))
+        #expect(placements["next"] == .init(column: 1, columns: 2))
+
+        // Fall back: clocks return from 2:00 to 1:00, so 90 minutes from 0:30 ends at 1:00.
+        let fall = layout.clockSpan(start: halifax(11, 1, 0, 30), duration: 5400)
+        #expect(fall.start == clock(0, 30) && fall.end == clock(1))
+        // 20 minutes from the first 1:50 ends at the second 1:10, before it began by the clock.
+        // It keeps the minimum height rather than collapsing.
+        let first = halifax(11, 1, 0, 30).addingTimeInterval(80 * 60)
+        let repeated = layout.clockSpan(start: first, duration: 1200)
+        #expect(repeated.start == clock(1, 50))
+        #expect(repeated.end == clock(1, 50) + CalendarLayout.minimumEventDuration)
+        // A meeting past midnight stops at the end of its start day.
+        let late = layout.clockSpan(start: halifax(6, 1, 23, 30), duration: 3600)
+        #expect(late.end == clock(24))
     }
 
     @Test func startDatePrefersTheRecordedTimeAndEstimatesOlderRecordings() {
@@ -131,5 +166,19 @@ import Testing
         )
         imported.createdAt = saved
         #expect(imported.startDate == imported.createdDate)
+    }
+
+    @Test func anImportNamedLikeARecordingStaysAtItsImportTime() throws {
+        var imported = try Meeting.imported(
+            id: "i", from: URL(fileURLWithPath: "/tmp/recording.wav"), title: "", language: "en",
+            speakerCount: nil, duration: 3600
+        )
+        imported.createdAt = "2026-10-01T00:15:00.000+00:00"
+        #expect(imported.source == .import)
+        #expect(imported.startDate == imported.createdDate)
+
+        let decoded = try JSONDecoder().decode(Meeting.self, from: JSONEncoder().encode(imported))
+        #expect(decoded.source == .import)
+        #expect(decoded.startDate == imported.createdDate)
     }
 }
