@@ -1,11 +1,19 @@
 import StillnoteCore
 import SwiftUI
 
+enum LibraryTab: String, CaseIterable, Identifiable {
+    case list, calendar
+    var id: String { rawValue }
+    var label: String { rawValue.capitalized }
+}
+
 struct MeetingListView: View {
     @Environment(AppModel.self) private var model
     @Binding var selection: String?
     @Binding var search: String
     @Binding var sheet: RootSheet?
+    // Scene storage survives this view being rebuilt when a meeting is opened and closed.
+    @SceneStorage("libraryTab") private var tab: LibraryTab = .list
 
     private var filtered: [Meeting] {
         let query = search.trimmingCharacters(in: .whitespaces).lowercased()
@@ -29,10 +37,28 @@ struct MeetingListView: View {
                         .controlSize(.large)
                     Button("Import Audio") { sheet = .importAudio }
                 }
-            } else if filtered.isEmpty {
+            } else if tab == .list && filtered.isEmpty {
                 ContentUnavailableView.search(text: search)
+            } else if tab == .calendar {
+                MeetingCalendarView(meetings: filtered, selection: $selection) { id in
+                    Task { await model.delete(id) }
+                }
             } else {
                 table
+            }
+        }
+        .toolbar {
+            if !model.meetings.isEmpty {
+                ToolbarItem(placement: .principal) {
+                    Picker("Library view", selection: $tab) {
+                        ForEach(LibraryTab.allCases) { tab in
+                            Text(tab.label).tag(tab)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 180)
+                }
             }
         }
         .font(StillnoteTheme.detailBodyFont)

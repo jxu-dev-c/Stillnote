@@ -27,6 +27,36 @@ import Testing
         #expect(saved.title == (automatic ? "Q3 launch readiness" : title))
     }
 
+    @Test func aSavedRecordingIsPlacedWhenCaptureStartedNotWhenItWasSaved() async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        // Recovered the next day: the save time is far from when the meeting happened.
+        let started = "2026-09-30T09:00:00.000+00:00"
+        try writeSession(id: "dated", paths: paths, startedAt: started)
+        try writeSession(id: "legacy", paths: paths)
+        let recorder = RecordingCoordinator(store: store, paths: paths)
+
+        await recorder.recover()
+        let first = try await recorder.finish()
+        await recorder.recover()
+        let second = try await recorder.finish()
+        let dated = try #require([first, second].first { $0.id == "dated" })
+        let legacy = try #require([first, second].first { $0.id == "legacy" })
+
+        #expect(dated.recordedAt == started)
+        #expect(try await Store(paths: paths).get("dated").startDate == Meeting.parseTimestamp(started))
+        // A session written before the start was recorded falls back to its save time.
+        #expect(legacy.recordedAt == nil)
+        #expect(abs(legacy.startDate.timeIntervalSince(legacy.createdDate) + legacy.duration) < 0.01)
+    }
+
+    @Test func trimmedSilenceMovesTheStartToTheKeptAudio() {
+        #expect(RecordingCoordinator.keptAudioStart(startedAt: "2026-09-30T09:00:00.000+00:00", head: 90)
+            == "2026-09-30T09:01:30.000+00:00")
+        #expect(RecordingCoordinator.keptAudioStart(startedAt: nil, head: 90) == nil)
+    }
+
     @Test func savedAudioSurvivesInterruptedTranscription() async throws {
         let paths = try temporaryPaths()
         defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
@@ -137,13 +167,14 @@ import Testing
     }
 
     private func writeSession(
-        id: String, paths: Paths, options: CaptureOptions = CaptureOptions(title: "Synthetic meeting")
+        id: String, paths: Paths, options: CaptureOptions = CaptureOptions(title: "Synthetic meeting"),
+        startedAt: String? = nil
     ) throws {
         let directory = paths.recordingsDirectory.appendingPathComponent(id)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let state = RecordingSessionState(
             id: id, status: .stopped, elapsed: 1, error: nil,
-            options: options
+            options: options, startedAt: startedAt
         )
         try JSONEncoder().encode(state).write(to: directory.appendingPathComponent("session.json"))
         let writer = try PCMWriter(url: directory.appendingPathComponent("microphone.wav"))

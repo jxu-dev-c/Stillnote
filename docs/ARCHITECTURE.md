@@ -50,11 +50,17 @@ Claude Code, dropping obsolete API credentials, without touching saved meetings.
 Meeting = {id,title,created_at,updated_at,duration,status:'ready'|'transcribing'|'transcribed'|'summarizing'|'complete'|'error',
   progress,stage,error,audio_name,audio_url,video_url,summary_include_video_path,language,speaker_count,
   speakers:Record<string,string>,segments:Segment[],summary:Summary|null,notes,context_links:ContextLink[],
-  cleanup:{original_duration,head,tail,applied_at}|null,automatic_title,title_ownership_version}
+  cleanup:{original_duration,head,tail,applied_at}|null,recorded_at?,source?:'recording'|'import',automatic_title,title_ownership_version}
 Segment = {id,start,end,speaker,text}
 Summary = {title?,overview,key_points[],decisions[],action_items:[{text,owner,due}],provider,model,generated_at}
 ContextLink = {url,title}
 ```
+
+`created_at` is when the meeting was saved, which for a recording is after it ended.
+`recorded_at` is when a recording's kept audio began: the capture start written to the
+session's `session.json`, plus any silence trimmed from the head. Imports and older
+recordings don't have it. `source` records whether the audio was recorded or imported. Documents
+written before it was added don't have it.
 
 `automatic_title` is true for titles Stillnote chose: a recording's `Meeting · <date>` placeholder,
 an imported file's name when the title field was left blank, and titles suggested by summaries.
@@ -226,7 +232,19 @@ the catalog provides are the same set in both directions.
 The interface is built from stock SwiftUI and AppKit controls with system semantic colors
 and SF Symbols, so it follows the viewer's appearance, accent color, and contrast settings
 rather than carrying its own palette. `NavigationSplitView` hosts the sidebar and either
-the meeting `Table` or a meeting's detail view; playback uses AVKit's `VideoPlayer` for
+All Meetings, shown either as a `Table` or as a calendar, or a meeting's detail view. The
+calendar (`MeetingCalendarView`) has Day, Week, and Month ranges laid out like Calendar.app. Each
+meeting appears at `Meeting.startDate`, which is `recorded_at` when it's set. An older recording
+is estimated as its save time minus its kept duration and any trimmed tail. An import stays at
+the time it was imported. Records older than `source` with the audio name `recording.wav` are
+treated as recordings, which includes the rare older import of a file with that name. A meeting's block is as tall as its duration, with a 15-minute
+minimum. Positions are local clock times rather than time elapsed since midnight, so a meeting
+on a daylight-saving changeover day still lines up with its hour label. A meeting's block covers
+every clock reading the meeting passed through. Across a spring-forward change it ends at the
+clock time it finished. Across a fall-back change it includes both passes through the repeated
+hour, so meetings held in either pass still overlap it. Overlapping meetings share a column. The date math and the overlap columns are
+in `StillnoteCore/Models/CalendarLayout.swift`. The chosen tab, range, and date are kept per
+window in scene storage. Playback uses AVKit's `VideoPlayer` for
 recordings with screen video and a compact transport otherwise. Settings live in the
 standard Settings scene. The main window is a single `Window` scene; a `MenuBarExtra` starts and
 stops a recording with the saved transcription defaults, shows the elapsed time while capturing,

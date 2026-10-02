@@ -8,6 +8,8 @@ public struct RecordingSessionState: Codable, Hashable, Sendable {
     public var elapsed: Double
     public var error: String?
     public var options: CaptureOptions
+    /// When capture began. Sessions written before this field existed decode as nil.
+    public var startedAt: String? = nil
 }
 
 /// What a coordinator needs to trim silence from a saved recording. Passing `nil` to
@@ -124,7 +126,7 @@ public final class RecordingCoordinator {
             at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
         )
         var state = RecordingSessionState(
-            id: id, status: .starting, elapsed: 0, error: nil, options: options
+            id: id, status: .starting, elapsed: 0, error: nil, options: options, startedAt: Meeting.now()
         )
         session = state
         persist(state)
@@ -177,6 +179,13 @@ public final class RecordingCoordinator {
         finishTask = task
         defer { finishTask = nil }
         return try await task.value
+    }
+
+    /// The kept audio begins after any silence trimmed from the head, so the meeting is
+    /// placed where its speech starts rather than where capture started.
+    static func keptAudioStart(startedAt: String?, head: Double) -> String? {
+        guard let startedAt, let start = Meeting.parseTimestamp(startedAt) else { return nil }
+        return Meeting.timestamp(start.addingTimeInterval(head))
     }
 
     private func save(state: RecordingSessionState, cleanup: RecordingCleanup?) async throws -> Meeting {
@@ -234,7 +243,9 @@ public final class RecordingCoordinator {
             id: state.id, title: state.options.title, audioName: "recording.wav",
             language: state.options.language, speakerCount: state.options.speakerCount,
             duration: duration, videoName: videoName, error: warning, cleanup: record,
-            automaticTitle: state.options.automaticTitle
+            automaticTitle: state.options.automaticTitle,
+            recordedAt: Self.keptAudioStart(startedAt: state.startedAt, head: record?.head ?? 0),
+            source: .recording
         )
         do {
             _ = try await store.insert(meeting)
