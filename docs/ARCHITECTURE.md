@@ -50,7 +50,7 @@ Claude Code, dropping obsolete API credentials, without touching saved meetings.
 Meeting = {id,title,created_at,updated_at,duration,status:'ready'|'transcribing'|'transcribed'|'summarizing'|'complete'|'error',
   progress,stage,error,audio_name,audio_url,video_url,summary_include_video_path,language,speaker_count,
   speakers:Record<string,string>,segments:Segment[],summary:Summary|null,notes,context_links:ContextLink[],
-  cleanup:{original_duration,head,tail,applied_at}|null,automatic_title}
+  cleanup:{original_duration,head,tail,applied_at}|null,automatic_title,title_ownership_version}
 Segment = {id,start,end,speaker,text}
 Summary = {title?,overview,key_points[],decisions[],action_items:[{text,owner,due}],provider,model,generated_at}
 ContextLink = {url,title}
@@ -59,7 +59,11 @@ ContextLink = {url,title}
 `automatic_title` is true for titles Stillnote chose: a recording's `Meeting · <date>` placeholder,
 an imported file's name when the title field was left blank, and titles suggested by summaries.
 Older documents without the field infer it when the title matches the original filename or
-the dated recording placeholder; other titles default to false. An explicit false is preserved.
+the dated recording placeholder; other titles default to false. Older imports also stored false
+for untouched filename titles, so records without `title_ownership_version` infer ownership for
+those filenames even with false. Explicit false on recordings remains protected. New writes
+include `title_ownership_version: 1`, so all explicit title choices then survive reopening.
+Old imports renamed back to their exact filename cannot be distinguished from untouched defaults.
 Storing a summary through
 `Meeting.applySummary` then adopts the summary's suggested `title`; renaming the meeting clears
 the flag, so a title the user typed is never replaced.

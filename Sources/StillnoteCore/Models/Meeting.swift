@@ -146,6 +146,9 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     /// True while the title is one Stillnote chose rather than one the user typed, so a summary
     /// may replace it with a descriptive one.
     public var automaticTitle: Bool
+    /// Earlier import forms stored false even for untouched filename titles. This marker
+    /// distinguishes their records from explicit title choices saved by the corrected form.
+    private var titleOwnershipVersion = 1
 
     enum CodingKeys: String, CodingKey {
         case id, title, duration, status, progress, stage, error, language, speakers, segments, summary, notes, cleanup
@@ -159,6 +162,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         case speakerCount = "speaker_count"
         case contextLinks = "context_links"
         case automaticTitle = "automatic_title"
+        case titleOwnershipVersion = "title_ownership_version"
     }
 
     public init(from decoder: Decoder) throws {
@@ -186,14 +190,19 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         notes = try values.decodeIfPresent(String.self, forKey: .notes) ?? ""
         contextLinks = try values.decodeIfPresent([ContextLink].self, forKey: .contextLinks) ?? []
         cleanup = try values.decodeIfPresent(MeetingCleanup.self, forKey: .cleanup)
-        automaticTitle = try values.decodeIfPresent(Bool.self, forKey: .automaticTitle) ?? false
-        // Older forms filled in a filename or a dated recording placeholder. Infer ownership
-        // only when it was not stored; an explicit false always protects a user-chosen title.
-        if !values.contains(.automaticTitle) {
+        let storedAutomaticTitle = try values.decodeIfPresent(Bool.self, forKey: .automaticTitle)
+        automaticTitle = storedAutomaticTitle ?? false
+        let storedTitleOwnershipVersion = try values.decodeIfPresent(Int.self, forKey: .titleOwnershipVersion) ?? 0
+        titleOwnershipVersion = max(1, storedTitleOwnershipVersion)
+        // Recorded meetings already tracked explicit choices correctly once automatic_title
+        // existed. Imports did not, so migrate their untouched filename titles even with false.
+        // Records saved by this build have the marker and always retain their title ownership.
+        if storedTitleOwnershipVersion < 1, !automaticTitle {
             let source = URL(fileURLWithPath: audioName)
-            automaticTitle = title == source.lastPathComponent
+            let matchesFilename = title == source.lastPathComponent
                 || title == source.deletingPathExtension().lastPathComponent
-                || (audioName == "recording.wav" && createdDate != .distantPast
+            automaticTitle = (matchesFilename && (storedAutomaticTitle == nil || audioName != "recording.wav"))
+                || (storedAutomaticTitle == nil && audioName == "recording.wav" && createdDate != .distantPast
                     && title == CaptureOptions.defaultTitle(for: createdDate))
         }
     }

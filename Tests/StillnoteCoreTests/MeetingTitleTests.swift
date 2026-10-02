@@ -109,12 +109,13 @@ import Testing
         #expect(saved.summary?.title == "Q3 launch readiness")
     }
 
-    @Test(arguments: ["  Design review  ", "recording"])
+    @Test(arguments: ["  Design review  ", "standup"])
     func summaryKeepsATitleTypedDuringImport(title: String) throws {
-        var imported = try Meeting.imported(
-            id: "import", from: URL(fileURLWithPath: "/synthetic/recording.wav"),
+        let original = try Meeting.imported(
+            id: "import", from: URL(fileURLWithPath: "/synthetic/standup.m4a"),
             title: title, language: "en", speakerCount: nil, duration: 60
         )
+        var imported = try JSONDecoder().decode(Meeting.self, from: JSONEncoder().encode(original))
         imported.applySummary(summary(title: "Q3 launch readiness"))
         #expect(imported.title == title.trimmingCharacters(in: .whitespacesAndNewlines))
         #expect(!imported.automaticTitle)
@@ -131,12 +132,15 @@ import Testing
         }
     }
 
-    private func legacyMeeting(title: String, audioName: String, automatic: Bool? = nil) throws -> Meeting {
+    private func legacyMeeting(
+        title: String, audioName: String, automatic: Bool? = nil, ownershipVersion: Int? = nil
+    ) throws -> Meeting {
         var document: [String: Any] = [
             "id": "legacy", "title": title, "audio_name": audioName,
             "created_at": "2026-09-26T12:00:00+00:00", "updated_at": "2026-09-26T12:00:00+00:00",
         ]
         if let automatic { document["automatic_title"] = automatic }
+        if let ownershipVersion { document["title_ownership_version"] = ownershipVersion }
         return try JSONDecoder().decode(Meeting.self, from: JSONSerialization.data(withJSONObject: document))
     }
 
@@ -154,6 +158,50 @@ import Testing
         #expect(imported.automaticTitle)
         imported.applySummary(summary(title: "Q3 launch readiness"))
         #expect(imported.title == "Q3 launch readiness")
+    }
+
+    @Test(arguments: ["standup", "standup.m4a"])
+    func summaryRetitlesImportsSavedWithTheOldFalseFlag(title: String) async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        let imported = try legacyMeeting(title: title, audioName: "standup.m4a", automatic: false)
+        #expect(imported.automaticTitle)
+        try await store.insert(imported)
+        try await store.update(imported.id) { $0.applySummary(summary(title: "Q3 launch readiness")) }
+        let saved = try await Store(paths: paths).get(imported.id)
+        #expect(saved.title == "Q3 launch readiness")
+        #expect(saved.automaticTitle)
+    }
+
+    @Test func migratedImportOwnershipStaysExplicitAfterATitleChoice() async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        try await store.insert(legacyMeeting(title: "standup", audioName: "standup.m4a", automatic: false))
+        try await store.update("legacy") { $0.automaticTitle = false }
+        let reopened = try Store(paths: paths)
+        try await reopened.update("legacy") { $0.applySummary(summary(title: "Q3 launch readiness")) }
+        let saved = try await reopened.get("legacy")
+        #expect(saved.title == "standup")
+        #expect(!saved.automaticTitle)
+    }
+
+    @Test(arguments: ["standup", "standup.m4a"])
+    func correctedImportOwnershipProtectsEvenAFilenameTitle(title: String) throws {
+        var imported = try legacyMeeting(
+            title: title, audioName: "standup.m4a", automatic: false, ownershipVersion: 1
+        )
+        imported.applySummary(summary(title: "Q3 launch readiness"))
+        #expect(imported.title == title)
+        #expect(!imported.automaticTitle)
+    }
+
+    @Test func oldImportsWithCustomTitlesRemainProtected() throws {
+        var imported = try legacyMeeting(title: "My design review", audioName: "standup.m4a", automatic: false)
+        imported.applySummary(summary(title: "Q3 launch readiness"))
+        #expect(imported.title == "My design review")
+        #expect(!imported.automaticTitle)
     }
 
     @Test func explicitUserTitleOwnershipOverridesLegacyInference() throws {
