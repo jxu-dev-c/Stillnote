@@ -425,7 +425,7 @@ final class CommandServer {
                 )
             }
             let saved = try edited(
-                await model.edit(meeting.id) { $0.applySummary(replacement); $0.status = .complete },
+                await model.edit(meeting.id) { $0.summary = replacement; $0.status = .complete },
                 "The summary"
             )
             return try CommandRunner.meetingResponse("Replaced the summary of '\(saved.title)'.", saved)
@@ -495,8 +495,8 @@ final class CommandServer {
         guard meeting.segments.isEmpty == false else {
             throw CLIError.usage("Transcribe '\(meeting.title)' before summarizing it.")
         }
-        // The app asks for consent per request before any transcript text reaches an agent. The
-        // flag is the CLI's equivalent, so a summary is never sent out on a caller's behalf.
+        // In the window, the person choosing a provider in Settings is the consent. A command may
+        // come from an agent instead, so the flag keeps a summary from being sent on its behalf.
         guard request.has("allow-remote") else {
             throw CLIError.usage(
                 "Summarizing sends this transcript to the configured agent CLI "

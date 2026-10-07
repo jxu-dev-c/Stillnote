@@ -3,8 +3,8 @@
 A native macOS 15+ app for Apple silicon: SwiftUI interface, SwiftPM package with a pinned native MLX dependency. Capture, storage, decoding, summaries, and exports are Swift and run
 in process. MOSS 0.9B inference runs in a short-lived bundled Swift worker using the vendored MOSS package. Nothing listens on
 a network port; the bundled `stillnote` command reaches the app through a Unix domain socket
-inside the library folder. No recording or transcription leaves the computer. Summaries can send
-transcript text to a provider only after per-request consent.
+inside the library folder. No recording or transcription leaves the computer. Summaries and Name Meeting
+send meeting text to the provider chosen in Settings; the CLI also requires `--allow-remote`.
 
 ## Layout
 
@@ -52,7 +52,7 @@ Meeting = {id,title,created_at,updated_at,duration,status:'ready'|'transcribing'
   speakers:Record<string,string>,segments:Segment[],summary:Summary|null,notes,context_links:ContextLink[],
   cleanup:{original_duration,head,tail,applied_at}|null,recorded_at?,source?:'recording'|'import',automatic_title,title_ownership_version}
 Segment = {id,start,end,speaker,text}
-Summary = {title?,overview,key_points[],decisions[],action_items:[{text,owner,due}],provider,model,generated_at}
+Summary = {overview,key_points[],decisions[],action_items:[{text,owner,due}],provider,model,generated_at}
 ContextLink = {url,title}
 ```
 
@@ -63,7 +63,7 @@ recordings don't have it. `source` records whether the audio was recorded or imp
 written before it was added don't have it.
 
 `automatic_title` is true for titles Stillnote chose: a recording's `Meeting · <date>` placeholder,
-an imported file's name when the title field was left blank, and titles suggested by summaries.
+an imported file's name when the title field was left blank, and titles from **Name Meeting**.
 Older documents without the field infer it when the title matches the original filename or
 the dated recording placeholder; other titles default to false. Older imports and re-saved
 recording placeholders also stored false without a user choice, so records without
@@ -72,9 +72,17 @@ include `title_ownership_version: 1`, so all explicit title choices then survive
 Old meetings named or renamed back to their exact default cannot be distinguished from untouched
 defaults. Editing a meeting in an older build removes the marker, so this inference applies again
 if that library is then reopened in a current build.
-Storing a summary through
-`Meeting.applySummary` then adopts the summary's suggested `title`; renaming the meeting clears
-the flag, so a title the user typed is never replaced.
+Renaming the meeting clears the flag. Summaries never change the title, and summaries written by
+0.8.0 may still carry an unused `title` key.
+
+**Name Meeting** is the only way Stillnote changes an existing title. `MeetingNamer` sends one
+request to the summary provider, separately from summaries, with a fixed prompt that the summary
+prompt in Settings doesn't affect, at low effort. It sends the meeting's summary (overview, key
+points, and decisions) when there is one, and otherwise the transcript's first 60 KB. The reply
+replaces the title and sets `automatic_title`. Like a summary, it starts without a confirmation
+sheet: choosing the provider in Settings is the consent.
+Settings that still hold the 0.8.0 default summary prompt, which asked for a title, move to the
+current default.
 
 ## Concurrency
 
@@ -221,7 +229,8 @@ Transcript replacement, search, date ranges, and meeting references live in Core
 covered by tests, which can reach neither the app nor the CLI target. The policy that a transcript
 correction invalidates the summary drawn from it is `TranscriptEdit.finish`, called by both the
 window's segment editor and the CLI, so the two cannot diverge. `summarize` requires
-`--allow-remote`, which is the CLI's form of the per-request consent the window asks for.
+`--allow-remote`. The window treats the provider chosen in Settings as consent, but a command
+may come from an agent, so it must consent on each request.
 
 `skills/stillnote` publishes this as an agent skill. `scripts/check-skill.sh`, run by
 `scripts/check.sh`, validates its frontmatter and proves the commands it documents and the commands

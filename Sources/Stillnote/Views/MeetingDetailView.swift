@@ -19,7 +19,6 @@ struct MeetingDetailView: View {
     @State private var player: PlayerModel?
     @State private var confirmingDelete = false
     @State private var retranscribing = false
-    @State private var consenting = false
     @State private var exporting: ExportDocument?
     @State private var notesDirty = false
 
@@ -78,9 +77,6 @@ struct MeetingDetailView: View {
         .sheet(isPresented: $retranscribing) {
             RetranscribeSheet(meeting: meeting)
         }
-        .sheet(isPresented: $consenting) {
-            ConsentSheet(meeting: meeting)
-        }
         .fileExporter(
             isPresented: Binding(get: { exporting != nil }, set: { if !$0 { exporting = nil } }),
             document: exporting,
@@ -93,15 +89,20 @@ struct MeetingDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 16) {
-            TextField("Meeting title", text: $title)
-                .textFieldStyle(.plain)
-                .font(StillnoteTheme.detailTitleFont)
-                .accessibilityLabel("Meeting title")
-                .disabled(meeting.status.isBusy)
-                .onSubmit(commitTitle)
-                .onChange(of: meeting.id) { title = meeting.title }
-                // A summary can retitle a recording that was never named.
-                .onChange(of: meeting.title) { title = meeting.title }
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                TextField("Meeting title", text: $title)
+                    .textFieldStyle(.plain)
+                    .font(StillnoteTheme.detailTitleFont)
+                    .accessibilityLabel("Meeting title")
+                    .disabled(meeting.status.isBusy || naming)
+                    .onSubmit(commitTitle)
+                    .onChange(of: meeting.id) { title = meeting.title }
+                    // Name Meeting replaces the title from outside this field.
+                    .onChange(of: meeting.title) { title = meeting.title }
+                if !meeting.segments.isEmpty {
+                    nameButton
+                }
+            }
 
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 16) {
@@ -122,10 +123,31 @@ struct MeetingDetailView: View {
         }
     }
 
+    private var naming: Bool { model.namingMeetings.contains(meeting.id) }
+
+    private var nameButton: some View {
+        // The provider chosen in Settings is the consent, so naming starts straight away.
+        Button { Task { await model.suggestTitle(meeting.id, allowRemote: true) } } label: {
+            if naming {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Naming…")
+                }
+            } else {
+                Label("Name Meeting", systemImage: "wand.and.sparkles")
+            }
+        }
+        .font(StillnoteTheme.detailSupportingFont)
+        .buttonStyle(.borderless)
+        .fixedSize()
+        .disabled(meeting.status.isBusy || naming)
+        .help("Suggest a title from this meeting's summary, or its transcript when there is no summary")
+    }
+
     private var headerActions: some View {
         HStack(spacing: 16) {
             if tab == .summary, meeting.summary != nil, !meeting.segments.isEmpty {
-                Button { consenting = true } label: {
+                Button(action: summarize) {
                     Label("Regenerate", systemImage: "arrow.clockwise")
                 }
                 .font(StillnoteTheme.detailSupportingFont)
@@ -226,6 +248,11 @@ struct MeetingDetailView: View {
             .disabled(meeting.status.isBusy)
 
             Menu {
+                if meeting.hasVideo {
+                    Toggle("Send Video Path to AI", isOn: sendVideoPath)
+                        .help("Include this recording's local video path in summary prompts. Only the path is shared; video analysis is not enabled.")
+                    Divider()
+                }
                 Button("Delete Meeting…", role: .destructive) {
                     confirmingDelete = true
                 }
@@ -249,7 +276,7 @@ struct MeetingDetailView: View {
         } else {
             switch tab {
             case .summary:
-                SummaryTab(meeting: meeting, requestSummary: { consenting = true })
+                SummaryTab(meeting: meeting, requestSummary: summarize)
             case .transcript:
                 TranscriptTab(meeting: meeting, player: player, retranscribe: { retranscribing = true })
             case .context:
@@ -291,6 +318,18 @@ struct MeetingDetailView: View {
         return model.speech.ready
             ? "Transcribe this recording to get a speaker-labeled transcript."
             : model.speech.detail
+    }
+
+    /// The provider chosen in Settings is the consent, so a summary starts straight away.
+    private func summarize() {
+        Task { await model.summarize(meeting.id, allowRemote: true) }
+    }
+
+    private var sendVideoPath: Binding<Bool> {
+        Binding(
+            get: { meeting.summaryIncludeVideoPath },
+            set: { include in Task { await model.edit(meeting.id) { $0.summaryIncludeVideoPath = include } } }
+        )
     }
 
     private func commitTitle() {

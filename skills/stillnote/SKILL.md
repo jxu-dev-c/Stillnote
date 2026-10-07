@@ -131,7 +131,7 @@ one from a transcript you already read, prefer that and say what you did.
 
 ```bash
 stillnote record status --json
-stillnote record start --json                          # titled after its summary
+stillnote record start --json                          # titled "Meeting · <date>"
 stillnote record start --title "Design review" --json  # a fixed title
 stillnote record pause --json
 stillnote record resume --json

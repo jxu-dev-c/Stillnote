@@ -52,8 +52,6 @@ the app's own compatibility; the CLI does not expose them.
 
 `segments` is present only with `--segments`, and is filtered when `--speaker` is given;
 `segment_count` is always the full count. `summary` is `null` until one is generated.
-`summary.title` is the title the agent suggested, absent from older summaries; a recording that
-was never named takes it as the meeting `title`.
 `speakers[].profile` is true when the name comes from a reusable speaker profile.
 `cleanup` is present only when silence was trimmed from the saved recording, and records what was
 removed — that trim cannot be undone.

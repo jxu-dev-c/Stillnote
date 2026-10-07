@@ -17,14 +17,9 @@ import Testing
         await recorder.recover()
         let meeting = try await recorder.finish()
         #expect(meeting.automaticTitle == automatic)
-        try await store.update(meeting.id) {
-            $0.applySummary(MeetingSummary(
-                overview: "We agreed.", keyPoints: [], decisions: [], actionItems: [],
-                provider: "codex", model: "test", generatedAt: Meeting.now(), title: "Q3 launch readiness"
-            ))
-        }
         let saved = try await Store(paths: paths).get(meeting.id)
-        #expect(saved.title == (automatic ? "Q3 launch readiness" : title))
+        #expect(saved.title == title)
+        #expect(saved.automaticTitle == automatic)
     }
 
     @Test func aSavedRecordingIsPlacedWhenCaptureStartedNotWhenItWasSaved() async throws {

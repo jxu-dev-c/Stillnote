@@ -44,8 +44,6 @@ public struct ActionItem: Codable, Hashable, Identifiable, Sendable {
 }
 
 public struct MeetingSummary: Codable, Hashable, Sendable {
-    /// A short title the agent suggested for the meeting. Older summaries have none.
-    public var title: String?
     public var overview: String
     public var keyPoints: [String]
     public var decisions: [String]
@@ -55,7 +53,6 @@ public struct MeetingSummary: Codable, Hashable, Sendable {
     public var generatedAt: String
 
     enum CodingKeys: String, CodingKey {
-        case title
         case overview
         case keyPoints = "key_points"
         case decisions
@@ -67,9 +64,8 @@ public struct MeetingSummary: Codable, Hashable, Sendable {
 
     public init(
         overview: String, keyPoints: [String], decisions: [String], actionItems: [ActionItem],
-        provider: String, model: String, generatedAt: String, title: String? = nil
+        provider: String, model: String, generatedAt: String
     ) {
-        self.title = title
         self.overview = overview
         self.keyPoints = keyPoints
         self.decisions = decisions
@@ -153,8 +149,8 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     /// is after the recording ends. Imports and older recordings have none.
     public var recordedAt: String?
     public var source: MeetingSource?
-    /// True while the title is one Stillnote chose rather than one the user typed, so a summary
-    /// may replace it with a descriptive one.
+    /// True while the title is one Stillnote chose rather than one the user typed: a placeholder,
+    /// an import's filename, or a title suggested by `MeetingNamer`.
     public var automaticTitle: Bool
     /// Earlier builds stored false even for untouched default titles. This marker
     /// distinguishes their records from explicit title choices saved by the corrected form.
@@ -313,13 +309,10 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
 
     public func orderedSpeakerIDs() -> [String] { speakers.keys.sorted() }
 
-    /// Stores a summary, and adopts its suggested title while Stillnote owns the title.
-    /// A title the user typed is never replaced.
-    public mutating func applySummary(_ summary: MeetingSummary) {
-        self.summary = summary
-        guard automaticTitle, let suggested = summary.title,
-              let cleaned = try? Validation.title(suggested)
-        else { return }
-        title = cleaned
+    /// Adopts a title the user asked Stillnote to suggest. It counts as Stillnote's choice
+    /// until the user types one.
+    public mutating func applySuggestedTitle(_ suggested: String) {
+        title = suggested
+        automaticTitle = true
     }
 }

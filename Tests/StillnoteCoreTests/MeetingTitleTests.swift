@@ -3,16 +3,9 @@ import Testing
 
 @testable import StillnoteCore
 
-/// Recordings and imports start with automatic titles that summaries may replace; a title the
-/// user chose is never replaced.
+/// Recordings and imports start with automatic titles. Only Name Meeting suggests a better
+/// one, and `automaticTitle` records whether Stillnote or the user chose the current title.
 @Suite struct MeetingTitleTests {
-    private func summary(title: String?) -> MeetingSummary {
-        MeetingSummary(
-            overview: "We agreed.", keyPoints: [], decisions: [], actionItems: [], provider: "codex",
-            model: "gpt-5-codex", generatedAt: Meeting.now(), title: title
-        )
-    }
-
     private func meeting(automatic: Bool) -> Meeting {
         Meeting(
             id: "m1", title: CaptureOptions.defaultTitle(), audioName: "recording.wav", language: "en",
@@ -20,29 +13,18 @@ import Testing
         )
     }
 
-    @Test func summaryRetitlesAnUnnamedRecording() {
-        var unnamed = meeting(automatic: true)
-        unnamed.applySummary(summary(title: "  Q3 launch readiness  "))
-        #expect(unnamed.title == "Q3 launch readiness")
-        #expect(unnamed.summary?.overview == "We agreed.")
-        // It stays automatic, so a later summary of a corrected transcript can improve it again.
-        #expect(unnamed.automaticTitle)
-    }
-
-    @Test func summaryKeepsATitleTheUserChose() {
-        var named = meeting(automatic: false)
-        let original = named.title
-        named.applySummary(summary(title: "Q3 launch readiness"))
-        #expect(named.title == original)
-        #expect(named.summary != nil)
-    }
-
-    @Test func summaryWithoutATitleKeepsThePlaceholder() {
-        var unnamed = meeting(automatic: true)
-        unnamed.applySummary(summary(title: nil))
-        #expect(unnamed.title == CaptureOptions.defaultTitle())
-        unnamed.applySummary(summary(title: "   "))
-        #expect(unnamed.title == CaptureOptions.defaultTitle())
+    /// Name Meeting is an explicit request, so it replaces any title, and the result stays
+    /// Stillnote's choice until the user types one.
+    @Test(arguments: [true, false])
+    func aSuggestedTitleReplacesTheCurrentOne(automatic: Bool) async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        try await store.insert(meeting(automatic: automatic))
+        try await store.update("m1") { $0.applySuggestedTitle("Q3 launch readiness") }
+        let saved = try await Store(paths: paths).get("m1")
+        #expect(saved.title == "Q3 launch readiness")
+        #expect(saved.automaticTitle)
     }
 
     @Test func defaultTitleNamesTheDay() {
@@ -73,7 +55,7 @@ import Testing
             {"overview":"x","key_points":[],"decisions":[],"action_items":[],"provider":"codex",
              "model":"m","generated_at":"2026-09-01T10:00:00+00:00"}
             """#.utf8))
-        #expect(summary.title == nil)
+        #expect(summary.overview == "x")
     }
 
     @Test func automaticTitleSurvivesStorage() async throws {
@@ -90,7 +72,7 @@ import Testing
     }
 
     @Test(arguments: ["", " \n\t"])
-    func summaryRetitlesAnImportWithoutATypedTitle(title: String) async throws {
+    func anImportWithoutATypedTitleIsAutomatic(title: String) async throws {
         let paths = try temporaryPaths()
         defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
         let store = try Store(paths: paths)
@@ -101,25 +83,20 @@ import Testing
         #expect(imported.title == "audio-2026-09-26")
         #expect(imported.audioName == "audio-2026-09-26.m4a")
         try await store.insert(imported)
-        try await store.update(imported.id) { $0.applySummary(summary(title: "Q3 launch readiness")) }
-        let reopened = try Store(paths: paths)
-        let saved = try await reopened.get(imported.id)
-        #expect(saved.title == "Q3 launch readiness")
+        let saved = try await Store(paths: paths).get(imported.id)
+        #expect(saved.title == "audio-2026-09-26")
         #expect(saved.automaticTitle)
-        #expect(saved.summary?.title == "Q3 launch readiness")
     }
 
     @Test(arguments: ["  Design review  ", "standup"])
-    func summaryKeepsATitleTypedDuringImport(title: String) throws {
+    func aTitleTypedDuringImportIsTheUsers(title: String) throws {
         let original = try Meeting.imported(
             id: "import", from: URL(fileURLWithPath: "/synthetic/standup.m4a"),
             title: title, language: "en", speakerCount: nil, duration: 60
         )
-        var imported = try JSONDecoder().decode(Meeting.self, from: JSONEncoder().encode(original))
-        imported.applySummary(summary(title: "Q3 launch readiness"))
+        let imported = try JSONDecoder().decode(Meeting.self, from: JSONEncoder().encode(original))
         #expect(imported.title == title.trimmingCharacters(in: .whitespacesAndNewlines))
         #expect(!imported.automaticTitle)
-        #expect(imported.summary != nil)
     }
 
     @Test func rejectsInvalidImportTitles() {
@@ -144,15 +121,13 @@ import Testing
         return try JSONDecoder().decode(Meeting.self, from: JSONSerialization.data(withJSONObject: document))
     }
 
-    @Test func summaryRetitlesALegacyRecordingPlaceholder() throws {
+    @Test func aLegacyRecordingPlaceholderIsAutomatic() throws {
         let date = try #require(ISO8601DateFormatter().date(from: "2026-09-26T12:00:00+00:00"))
-        var recorded = try legacyMeeting(title: CaptureOptions.defaultTitle(for: date), audioName: "recording.wav")
+        let recorded = try legacyMeeting(title: CaptureOptions.defaultTitle(for: date), audioName: "recording.wav")
         #expect(recorded.automaticTitle)
-        recorded.applySummary(summary(title: "Q3 launch readiness"))
-        #expect(recorded.title == "Q3 launch readiness")
     }
 
-    @Test func summaryRetitlesPreviouslyResavedRecordingPlaceholder() async throws {
+    @Test func aPreviouslyResavedRecordingPlaceholderStaysAutomatic() async throws {
         let paths = try temporaryPaths()
         defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
         let store = try Store(paths: paths)
@@ -162,37 +137,31 @@ import Testing
         )
         #expect(recorded.automaticTitle)
         try await store.insert(recorded)
-        try await store.update(recorded.id) { $0.applySummary(summary(title: "Q3 launch readiness")) }
-        #expect(try await Store(paths: paths).get(recorded.id).title == "Q3 launch readiness")
+        #expect(try await Store(paths: paths).get(recorded.id).automaticTitle)
     }
 
     @Test(arguments: ["My design review", "recording"])
     func oldRecordingsWithExplicitCustomTitlesRemainProtected(title: String) throws {
-        var recorded = try legacyMeeting(title: title, audioName: "recording.wav", automatic: false)
-        recorded.applySummary(summary(title: "Q3 launch readiness"))
-        #expect(recorded.title == title)
+        let recorded = try legacyMeeting(title: title, audioName: "recording.wav", automatic: false)
         #expect(!recorded.automaticTitle)
     }
 
     @Test(arguments: ["audio-2026-09-26", "audio-2026-09-26.m4a"])
-    func summaryRetitlesALegacyImportFilename(title: String) throws {
-        var imported = try legacyMeeting(title: title, audioName: "audio-2026-09-26.m4a")
+    func aLegacyImportFilenameIsAutomatic(title: String) throws {
+        let imported = try legacyMeeting(title: title, audioName: "audio-2026-09-26.m4a")
         #expect(imported.automaticTitle)
-        imported.applySummary(summary(title: "Q3 launch readiness"))
-        #expect(imported.title == "Q3 launch readiness")
     }
 
     @Test(arguments: ["standup", "standup.m4a"])
-    func summaryRetitlesImportsSavedWithTheOldFalseFlag(title: String) async throws {
+    func importsSavedWithTheOldFalseFlagAreAutomatic(title: String) async throws {
         let paths = try temporaryPaths()
         defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
         let store = try Store(paths: paths)
         let imported = try legacyMeeting(title: title, audioName: "standup.m4a", automatic: false)
         #expect(imported.automaticTitle)
         try await store.insert(imported)
-        try await store.update(imported.id) { $0.applySummary(summary(title: "Q3 launch readiness")) }
         let saved = try await Store(paths: paths).get(imported.id)
-        #expect(saved.title == "Q3 launch readiness")
+        #expect(saved.title == title)
         #expect(saved.automaticTitle)
     }
 
@@ -202,27 +171,21 @@ import Testing
         let store = try Store(paths: paths)
         try await store.insert(legacyMeeting(title: "standup", audioName: "standup.m4a", automatic: false))
         try await store.update("legacy") { $0.automaticTitle = false }
-        let reopened = try Store(paths: paths)
-        try await reopened.update("legacy") { $0.applySummary(summary(title: "Q3 launch readiness")) }
-        let saved = try await reopened.get("legacy")
+        let saved = try await Store(paths: paths).get("legacy")
         #expect(saved.title == "standup")
         #expect(!saved.automaticTitle)
     }
 
     @Test(arguments: ["standup", "standup.m4a"])
     func correctedImportOwnershipProtectsEvenAFilenameTitle(title: String) throws {
-        var imported = try legacyMeeting(
+        let imported = try legacyMeeting(
             title: title, audioName: "standup.m4a", automatic: false, ownershipVersion: 1
         )
-        imported.applySummary(summary(title: "Q3 launch readiness"))
-        #expect(imported.title == title)
         #expect(!imported.automaticTitle)
     }
 
     @Test func oldImportsWithCustomTitlesRemainProtected() throws {
-        var imported = try legacyMeeting(title: "My design review", audioName: "standup.m4a", automatic: false)
-        imported.applySummary(summary(title: "Q3 launch readiness"))
-        #expect(imported.title == "My design review")
+        let imported = try legacyMeeting(title: "My design review", audioName: "standup.m4a", automatic: false)
         #expect(!imported.automaticTitle)
     }
 
@@ -232,42 +195,32 @@ import Testing
             (CaptureOptions.defaultTitle(for: date), "recording.wav"),
             ("recording", "recording.wav"),
         ] {
-            var named = try legacyMeeting(
+            let named = try legacyMeeting(
                 title: title, audioName: audioName, automatic: false, ownershipVersion: 1
             )
-            named.applySummary(summary(title: "Q3 launch readiness"))
-            #expect(named.title == title)
             #expect(!named.automaticTitle)
         }
     }
 
-    @Test func parsesAndMergesSuggestedTitles() throws {
+    /// Naming is a separate request, so a summary response carries no title and a custom
+    /// summary prompt can no longer leave meetings unnamed.
+    @Test func summariesNoLongerAskForATitle() throws {
+        #expect((Summarizer.schema["properties"] as? [String: Any])?["title"] == nil)
+        #expect((Summarizer.schema["required"] as? [String])?.contains("title") == false)
+        #expect(!Summarizer.defaultAgentPrompt.contains(#""title""#))
+        // A provider that still sends one is ignored rather than rejected.
         let parsed = try Summarizer.parse(
-            #"{"title":" \"Hiring  plan\" ","overview":"x","key_points":[],"decisions":[],"action_items":[]}"#
+            #"{"title":"Hiring plan","overview":"x","key_points":[],"decisions":[],"action_items":[]}"#
         )
-        #expect(parsed.title == "Hiring plan")
-        let untitled = try Summarizer.parse(#"{"overview":"x","key_points":[],"decisions":[],"action_items":[]}"#)
-        #expect(untitled.title == nil)
-        let long = Summarizer.title(String(repeating: "word ", count: 60))
-        #expect((long?.count ?? 0) <= Summarizer.maxTitleLength + 1)
-
-        let merged = Summarizer.merge([
-            untitled, Summarizer.PartialSummary(overview: "y", keyPoints: [], decisions: [], actionItems: [], title: "Budget"),
-        ])
-        #expect(merged.title == "Budget")
-    }
-
-    @Test func schemaAndDefaultPromptAskForATitle() {
-        #expect((Summarizer.schema["required"] as? [String])?.contains("title") == true)
-        #expect(Summarizer.defaultAgentPrompt.contains(#""title""#))
+        #expect(parsed.overview == "x")
     }
 
     /// Saving settings stores the default prompt verbatim, so the old default is upgraded;
     /// a prompt the user wrote is left alone.
     @Test func upgradesTheStoredLegacyDefaultPrompt() {
-        let legacy = AppSettings.migrating(from: ["summary": ["provider": "codex", "agent_prompt": Summarizer.legacyAgentPrompt]])
-        #expect(legacy.settings.summary.agentPrompt == Summarizer.defaultAgentPrompt)
-        #expect(legacy.changed)
+        let titled = AppSettings.migrating(from: ["summary": ["provider": "codex", "agent_prompt": Summarizer.titledAgentPrompt]])
+        #expect(titled.settings.summary.agentPrompt == Summarizer.defaultAgentPrompt)
+        #expect(titled.changed)
         let custom = AppSettings.migrating(from: ["summary": ["provider": "codex", "agent_prompt": "Be brief."]])
         #expect(custom.settings.summary.agentPrompt == "Be brief.")
     }

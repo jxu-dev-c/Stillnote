@@ -7,8 +7,11 @@ and associated media, but does not erase backups or guarantee forensic erasure.
 
 Network activity includes dependency installation, public Hugging Face model downloads,
 page-title and favicon requests for context links, and optional summary CLI requests.
-Summaries require confirmation and send transcript text and speaker labels to the chosen
-provider; optionally they include the local video path as text. Provider retention and
+Summaries send transcript text and speaker labels to the provider chosen in
+**Settings → Summaries**; for recordings with screen video, **Send Video Path to AI** in the
+meeting's More menu also includes the local video path as text. **Name Meeting** sends the
+meeting's summary, or the opening of its transcript and speaker labels when there is no summary.
+Choosing a provider in Settings is the consent: the window does not ask again for each request. Provider retention and
 account policies apply. No cloud transcription fallback is used.
 
 ## Meeting reminders
@@ -29,8 +32,8 @@ Anything running as this user — including an AI agent you point at the command
 read every meeting, correct transcripts and summaries, and start, stop, or discard a recording,
 which means it can switch on the microphone. Turn the whole interface off in
 **Settings → Advanced** to refuse every command. Generating a summary is excluded from that trust:
-`stillnote summarize` requires an explicit `--allow-remote`, the command-line form of the
-confirmation the window asks for, so no transcript reaches a provider CLI without consent.
+`stillnote summarize` requires an explicit `--allow-remote`, so an agent cannot send a transcript
+to a provider CLI without consent on that command.
 
 A file named `cli.sock` may remain in the data folder after Stillnote quits. It carries no
 content; the next launch reclaims it once a connection proves nothing is listening.
