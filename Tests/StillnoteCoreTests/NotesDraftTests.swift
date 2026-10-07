@@ -14,6 +14,32 @@ import Testing
         try await test(draft, defaults)
     }
 
+    /// Work that reads saved notes, such as a summary, saves a pending draft first.
+    @Test func flushSavesAPendingDraftAndKeepsItWhenSavingFails() async throws {
+        try await withDraft { draft, defaults in
+            var persisted: [String] = []
+            #expect(await NotesDraft.flush(meetingID: "test", savedText: "original", defaults: defaults) {
+                persisted.append($0); return true
+            })
+            #expect(persisted.isEmpty)
+
+            draft.text = "typed just now"
+            draft.recordEdit()
+            #expect(!(await NotesDraft.flush(meetingID: "test", savedText: "original", defaults: defaults) { _ in false }))
+            #expect(defaults.string(forKey: NotesDraft.key("test")) == "typed just now")
+
+            #expect(await NotesDraft.flush(meetingID: "test", savedText: "original", defaults: defaults) {
+                persisted.append($0); return true
+            })
+            #expect(persisted == ["typed just now"])
+            #expect(defaults.string(forKey: NotesDraft.key("test")) == nil)
+
+            draft.text = String(repeating: "x", count: Validation.maxNotesLength + 1)
+            draft.recordEdit()
+            #expect(!(await NotesDraft.flush(meetingID: "test", savedText: "original", defaults: defaults) { _ in true }))
+        }
+    }
+
     @Test func failedSaveKeepsDraftForRecoveryAndRetry() async throws {
         try await withDraft { draft, defaults in
             draft.text = "unsaved edit"

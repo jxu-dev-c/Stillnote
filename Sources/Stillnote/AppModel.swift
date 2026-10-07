@@ -203,7 +203,7 @@ final class AppModel {
     /// Drops the window's unsaved notes draft for a meeting whose notes were replaced elsewhere,
     /// so a stale draft cannot overwrite the new text on the next autosave.
     func discardNotesDraft(_ id: String) {
-        UserDefaults.standard.removeObject(forKey: "stillnote:notes:\(id)")
+        UserDefaults.standard.removeObject(forKey: NotesDraft.key(id))
     }
 
     func delete(_ id: String) async {
@@ -442,6 +442,17 @@ final class AppModel {
     // MARK: - Summary
 
     func summarize(_ id: String, allowRemote: Bool) async {
+        guard let saved = meeting(id) else { return }
+        // Notes autosave shortly after typing stops. A summary started sooner, or after a failed
+        // save, must not quietly use older notes.
+        let notesSaved = await NotesDraft.flush(meetingID: id, savedText: saved.notes) { pending in
+            await self.edit(id) { $0.notes = pending } != nil
+        }
+        guard notesSaved else {
+            alertMessage = "Your latest notes couldn't be saved, so the summary would miss them. "
+                + "Save them on the Context tab, then retry."
+            return
+        }
         guard let meeting = meeting(id) else { return }
         guard !meeting.status.isBusy else {
             alertMessage = "This meeting is processing. Wait for it to finish."

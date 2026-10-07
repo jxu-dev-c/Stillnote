@@ -17,8 +17,25 @@ public final class NotesDraft {
         self.defaults = defaults
     }
 
+    public static func key(_ meetingID: String) -> String { "stillnote:notes:\(meetingID)" }
+
+    /// Saves the draft kept for a meeting, if it differs from the saved notes, so work that
+    /// reads the saved meeting sees the latest edit instead of waiting for the autosave.
+    /// Returns false when the draft could not be saved; it is then kept for retry.
+    public static func flush(
+        meetingID: String, savedText: String, defaults: UserDefaults = .standard,
+        using persist: (String) async -> Bool
+    ) async -> Bool {
+        let key = key(meetingID)
+        guard let pending = defaults.string(forKey: key), pending != savedText else { return true }
+        guard pending.count <= Validation.maxNotesLength, await persist(pending) else { return false }
+        // Typing may have continued while the write was in flight. Keep that newer draft.
+        if defaults.string(forKey: key) == pending { defaults.removeObject(forKey: key) }
+        return true
+    }
+
     public func load(meetingID: String, savedText: String) {
-        key = "stillnote:notes:\(meetingID)"
+        key = Self.key(meetingID)
         self.savedText = savedText
         text = defaults.string(forKey: key!) ?? savedText
         error = nil
