@@ -24,7 +24,7 @@ private struct FakeAgent {
 }
 
 @Suite(.serialized) struct AgentRunnerTests {
-    @Test(arguments: [true, false]) func sendsCodexTheHeadlessFlagsAndReadsItsLastMessage(bypass: Bool) throws {
+    @Test func sendsCodexExecWithItsOutputSchemaAndReadsItsLastMessage() throws {
         let agent = try FakeAgent(script: """
             #!/bin/bash
             printf '%s\\n' "$@" > "$FAKE_DIR/arguments.txt"
@@ -46,30 +46,28 @@ private struct FakeAgent {
         }
 
         let response = try AgentRunner.requestJSON(
-            provider: .codex, model: "gpt-5.6-luna", effort: .high,
-            instructions: "INSTRUCTIONS", prompt: "PROMPT", schema: Summarizer.schema, bypassPermissions: bypass
+            provider: .codex, model: "gpt-5.6-luna", effort: .high, prompt: "PROMPT", schema: Summarizer.schema
         )
         #expect(response.contains("\"overview\":\"ok\""))
 
         let arguments = try String(contentsOf: agent.argumentsURL, encoding: .utf8)
             .split(separator: "\n").map(String.init)
-        #expect(arguments.count == (bypass ? 11 : 10))
-        #expect(Array(arguments.prefix(5)) == [
-            "exec", "--model", "gpt-5.6-luna", "--config", "model_reasoning_effort=\"high\"",
+        #expect(arguments.count == 11)
+        #expect(Array(arguments.prefix(6)) == [
+            "exec", "--skip-git-repo-check", "--model", "gpt-5.6-luna", "--config", "model_reasoning_effort=\"high\"",
         ])
-        #expect(arguments[5] == "--output-schema")
-        #expect(arguments[6].hasSuffix("/schema.json"))
-        #expect(arguments[7] == "--output-last-message")
-        #expect(arguments[8].hasSuffix("/response.json"))
-        #expect(arguments.contains("--dangerously-bypass-approvals-and-sandbox") == bypass)
+        #expect(arguments[6] == "--output-schema")
+        #expect(arguments[7].hasSuffix("/schema.json"))
+        #expect(arguments[8] == "--output-last-message")
+        #expect(arguments[9].hasSuffix("/response.json"))
         #expect(arguments.last == "-")
         // The transcript travels on stdin, never as an argument.
         let stdin = try String(contentsOf: agent.stdinURL, encoding: .utf8)
-        #expect(stdin == "INSTRUCTIONS\n\nPROMPT")
+        #expect(stdin == "PROMPT")
         #expect(!arguments.contains { $0.contains("PROMPT") })
     }
 
-    @Test(arguments: [true, false]) func readsClaudeCodeStructuredOutput(bypass: Bool) throws {
+    @Test func readsClaudeCodeStructuredOutput() throws {
         let agent = try FakeAgent(script: """
             #!/bin/bash
             printf '%s\\n' "$@" > "$FAKE_DIR/arguments.txt"
@@ -85,22 +83,18 @@ private struct FakeAgent {
         }
 
         let response = try AgentRunner.requestJSON(
-            provider: .claudeCode, model: "claude-sonnet-5", effort: .medium,
-            instructions: "SYSTEM", prompt: "PROMPT", schema: Summarizer.schema, bypassPermissions: bypass
+            provider: .claudeCode, model: "claude-sonnet-5", effort: .medium, prompt: "PROMPT",
+            schema: Summarizer.schema
         )
         #expect(try Summarizer.parse(response).overview == "from claude")
 
         let arguments = try String(contentsOf: agent.argumentsURL, encoding: .utf8)
             .split(separator: "\n").map(String.init)
-        #expect(arguments.contains("--dangerously-skip-permissions") == bypass)
-        #expect(arguments.contains("--permission-mode") == !bypass)
-        #expect(arguments.contains("dontAsk") == !bypass)
-        #expect(arguments.contains("--print"))
-        #expect(arguments.contains("--disable-slash-commands"))
-        #expect(arguments.contains("--strict-mcp-config"))
-        #expect(arguments.contains("{\"disableAllHooks\":true}"))
-        #expect(arguments.contains("--no-session-persistence"))
-        #expect(arguments.contains("SYSTEM"))
+        #expect(Array(arguments.prefix(8)) == [
+            "-p", "--model", "claude-sonnet-5", "--effort", "medium", "--output-format", "json", "--json-schema",
+        ])
+        #expect(arguments.count == 9)
+        #expect(arguments[8].contains("\"action_items\""))
         #expect(try String(contentsOf: agent.stdinURL, encoding: .utf8) == "PROMPT")
     }
 
@@ -134,23 +128,32 @@ private struct FakeAgent {
                               speakerCount: nil, duration: 1)
         meeting.segments = [Segment(id: "1", start: 0, end: 1, speaker: "speaker_1",
                                    text: String(repeating: "Meeting content. ", count: 700))]
+        // A long transcript is still one request carrying the prompt and the whole transcript.
         for provider in SummaryProvider.allCases {
             for prompt in ["CUSTOM SUMMARY INSTRUCTIONS", " \n"] {
                 try Data().write(to: agent.argumentsURL)
                 try Data().write(to: agent.stdinURL)
-                let bypass = prompt == "CUSTOM SUMMARY INSTRUCTIONS"
-                let settings = SummarySettings(provider: provider, agentPrompt: prompt, bypassPermissions: bypass)
+                let settings = SummarySettings(provider: provider, agentPrompt: prompt)
                 _ = try Summarizer.summarize(meeting: meeting, settings: settings,
                                             allowRemote: true, videoPath: nil)
-                let captured = try String(contentsOf: provider == .codex ? agent.stdinURL : agent.argumentsURL,
-                                          encoding: .utf8)
-                let count = captured.components(separatedBy: settings.resolvedAgentPrompt).count - 1
-                #expect(count == 2)
-                let args = try String(contentsOf: agent.argumentsURL, encoding: .utf8)
-                let flag = provider == .codex ? "--dangerously-bypass-approvals-and-sandbox" : "--dangerously-skip-permissions"
-                #expect(args.contains(flag) == bypass)
+                let stdin = try String(contentsOf: agent.stdinURL, encoding: .utf8)
+                let expected = settings.resolvedAgentPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                #expect(stdin.components(separatedBy: expected).count - 1 == 1)
+                #expect(stdin.components(separatedBy: "Meeting content.").count - 1 == 700)
+                let calls = try String(contentsOf: agent.argumentsURL, encoding: .utf8)
+                #expect(calls.components(separatedBy: provider == .codex ? "exec\n" : "-p\n").count - 1 == 1)
+                #expect(!stdin.contains("notes and reference links"))
             }
         }
+
+        // The user's notes and context links travel with the transcript.
+        meeting.notes = "Agenda: rollout"
+        meeting.contextLinks = [ContextLink(url: "https://example.com/ticket/42", title: "Ticket 42")]
+        let summary = try Summarizer.summarize(meeting: meeting, settings: SummarySettings(), allowRemote: true, videoPath: nil)
+        #expect(summary.contextFingerprint == Summarizer.contextFingerprint(meeting))
+        let stdin = try String(contentsOf: agent.stdinURL, encoding: .utf8)
+        #expect(stdin.contains("Agenda: rollout"))
+        #expect(stdin.contains("https://example.com/ticket/42"))
     }
 
     /// A failing CLI produces an actionable message, never its raw output.
@@ -166,77 +169,47 @@ private struct FakeAgent {
         defer { unsetenv("STILLNOTE_CODEX_BIN") }
 
         #expect {
-            try AgentRunner.requestJSON(
-                provider: .codex, model: "m", effort: .low, instructions: "i", prompt: "p",
-                schema: Summarizer.schema
-            )
+            try AgentRunner.requestJSON(provider: .codex, model: "m", effort: .low, prompt: "p", schema: Summarizer.schema)
         } throws: { error in
             let message = (error as? SummaryError)?.message ?? ""
             return message.contains("exit 7") && !message.contains("secret internal log")
         }
     }
 
-    @Test func namesMissingEnvironmentVariableWithoutLeakingOutput() throws {
-        let agent = try FakeAgent(script: """
-            #!/bin/bash
-            cat > /dev/null
-            echo 'secret internal log' >&2
-            echo 'ERROR: Missing environment variable: `CUSTOM_PROVIDER_KEY`.' >&2
-            exit 1
-            """)
-        defer { agent.cleanup() }
-        setenv("STILLNOTE_CODEX_BIN", agent.executable.path, 1)
-        defer { unsetenv("STILLNOTE_CODEX_BIN") }
-        #expect {
-            try AgentRunner.requestJSON(provider: .codex, model: "m", effort: .low,
-                instructions: "i", prompt: "p", schema: Summarizer.schema, inheritShellEnvironment: false)
-        } throws: { error in
-            let message = error.localizedDescription
-            return message.contains("CUSTOM_PROVIDER_KEY") && message.contains("Settings")
-                && !message.contains("secret internal log")
-        }
-    }
-
-    @Test func discoversNvmCLIWithFinderPathAndRunsItsSiblingRuntime() throws {
+    @Test func findsTheCLIOnTheShellPath() throws {
         let agent = try FakeAgent(script: "#!/bin/sh\nexit 0\n")
         defer { agent.cleanup() }
-        for version in ["v20.9.0", "v20.19.3"] {
-            let bin = agent.directory.appendingPathComponent("versions/node/" + version + "/bin")
-            try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
-            for (name, script) in [
-                ("codex", "#!/usr/bin/env stillnote-test-runtime\n"),
-                ("stillnote-test-runtime", "#!/bin/sh\nprintf runtime-ok\n")
-            ] {
-                let file = bin.appendingPathComponent(name)
-                try Data(script.utf8).write(to: file)
-                try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
-            }
-        }
-        let environment = ["PATH": "/usr/bin:/bin", "NVM_DIR": agent.directory.path]
-        // Explicit overrides must still win, even when invalid.
+        let codex = agent.directory.appendingPathComponent("codex")
+        try FileManager.default.copyItem(at: agent.executable, to: codex)
+        let environment = ["PATH": "/nonexistent:" + agent.directory.path]
+        #expect(AgentRunner.executable(for: .codex, environment: environment) == codex.path)
+        #expect(AgentRunner.executable(for: .claudeCode, environment: environment) == nil)
+        // An explicit override wins, even when invalid.
         #expect(AgentRunner.executable(for: .codex, environment:
             environment.merging(["STILLNOTE_CODEX_BIN": "/nonexistent/codex"]) { _, new in new }
         ) == nil)
-        let executable = try #require(AgentRunner.executable(for: .codex, environment: environment))
-        #expect(executable.hasSuffix("v20.19.3/bin/codex"))
-        let output = agent.directory.appendingPathComponent("output")
-        let result = try PosixProcess.run(
-            executable: executable, arguments: [], workingDirectory: agent.directory.path,
-            input: Data(), stdoutURL: output, timeout: 5
-        )
-        #expect(result.exitCode == 0)
-        #expect(try String(contentsOf: output, encoding: .utf8) == "runtime-ok")
     }
 
     @Test func reportsAMissingCLI() {
         setenv("STILLNOTE_CODEX_BIN", "/nonexistent/codex", 1)
         defer { unsetenv("STILLNOTE_CODEX_BIN") }
         #expect(throws: SummaryError.self) {
-            try AgentRunner.requestJSON(
-                provider: .codex, model: "m", effort: .low, instructions: "i", prompt: "p",
-                schema: Summarizer.schema
-            )
+            try AgentRunner.requestJSON(provider: .codex, model: "m", effort: .low, prompt: "p", schema: Summarizer.schema)
         }
+    }
+
+    /// A CLI that exits without reading a transcript larger than the pipe buffer is a failed
+    /// run. Without SIGPIPE suppression the stdin write would kill the test process instead.
+    @Test func survivesACLIThatExitsWithoutReadingItsInput() throws {
+        let agent = try FakeAgent(script: "#!/bin/sh\nexit 3\n")
+        defer { agent.cleanup() }
+        let result = try PosixProcess.run(
+            executable: agent.executable.path, arguments: [], workingDirectory: agent.directory.path,
+            input: Data(repeating: 0x61, count: 1_000_000),
+            stdoutURL: agent.directory.appendingPathComponent("out"), timeout: 10
+        )
+        #expect(result.exitCode == 3)
+        #expect(!result.timedOut)
     }
 
     /// A timeout must kill the whole process group, not just the CLI, so a child does

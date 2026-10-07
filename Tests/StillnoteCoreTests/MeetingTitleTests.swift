@@ -218,9 +218,11 @@ import Testing
     /// Saving settings stores the default prompt verbatim, so the old default is upgraded;
     /// a prompt the user wrote is left alone.
     @Test func upgradesTheStoredLegacyDefaultPrompt() {
-        let titled = AppSettings.migrating(from: ["summary": ["provider": "codex", "agent_prompt": Summarizer.titledAgentPrompt]])
-        #expect(titled.settings.summary.agentPrompt == Summarizer.defaultAgentPrompt)
-        #expect(titled.changed)
+        for retired in Summarizer.retiredAgentPrompts {
+            let titled = AppSettings.migrating(from: ["summary": ["provider": "codex", "agent_prompt": retired]])
+            #expect(titled.settings.summary.agentPrompt == Summarizer.defaultAgentPrompt)
+            #expect(titled.changed)
+        }
         let custom = AppSettings.migrating(from: ["summary": ["provider": "codex", "agent_prompt": "Be brief."]])
         #expect(custom.settings.summary.agentPrompt == "Be brief.")
     }

@@ -9,6 +9,22 @@
 - Start summaries and Name Meeting without a confirmation sheet. The provider and model chosen in
   Settings apply directly. **Send Video Path to AI** moved to the meeting's More menu, and
   `stillnote summarize` still needs `--allow-remote`.
+- Run summaries as a plain `codex exec` or `claude -p` with the CLI's native JSON schema, using
+  your own CLI config: skills, MCP servers, instructions files, and permissions now apply, so a
+  prompt can ask the agent to use your skills. The whole transcript goes in one request
+  instead of being summarized in sections and merged. Settings → Summaries keeps provider, model,
+  effort, and prompt; the YOLO and shell-environment options are gone, and the CLI always gets
+  your login shell's environment.
+  **Breaking:** a custom shell path or turning shell inheritance off is no longer supported, and
+  those choices are dropped on upgrade. If your CLI credentials or PATH are exported from a
+  different shell's startup files, such as `.bash_profile` while your account shell is Zsh,
+  export them from your login shell's startup files instead. If those startup files hang or
+  prompt, fix them, or summaries and Name Meeting fail with "Could not load your shell
+  environment."
+- Send a meeting's notes and context links with its summary request. Until now summaries ignored
+  them. The agent is asked to look up the links with your skills, such as work items or emails,
+  and use what it finds as context. When notes or links change after a summary was made, the
+  Summary tab says so and offers Regenerate.
 
 ## 0.8.0
 

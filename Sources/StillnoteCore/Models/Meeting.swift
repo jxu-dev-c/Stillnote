@@ -51,6 +51,9 @@ public struct MeetingSummary: Codable, Hashable, Sendable {
     public var provider: String
     public var model: String
     public var generatedAt: String
+    /// Identifies the notes and links the summary was drawn from; nil for summaries made before
+    /// context was sent, or set by hand. See `Meeting.summaryContextChanged`.
+    public var contextFingerprint: String?
 
     enum CodingKeys: String, CodingKey {
         case overview
@@ -60,11 +63,12 @@ public struct MeetingSummary: Codable, Hashable, Sendable {
         case provider
         case model
         case generatedAt = "generated_at"
+        case contextFingerprint = "context_fingerprint"
     }
 
     public init(
         overview: String, keyPoints: [String], decisions: [String], actionItems: [ActionItem],
-        provider: String, model: String, generatedAt: String
+        provider: String, model: String, generatedAt: String, contextFingerprint: String? = nil
     ) {
         self.overview = overview
         self.keyPoints = keyPoints
@@ -73,6 +77,7 @@ public struct MeetingSummary: Codable, Hashable, Sendable {
         self.provider = provider
         self.model = model
         self.generatedAt = generatedAt
+        self.contextFingerprint = contextFingerprint
     }
 }
 
@@ -314,5 +319,14 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     public mutating func applySuggestedTitle(_ suggested: String) {
         title = suggested
         automaticTitle = true
+    }
+}
+
+extension Meeting {
+    /// The meeting's notes or links changed after its summary was made from them, including
+    /// while that summary was running. Summaries without a fingerprint are never flagged.
+    public var summaryContextChanged: Bool {
+        guard let fingerprint = summary?.contextFingerprint else { return false }
+        return fingerprint != Summarizer.contextFingerprint(self)
     }
 }

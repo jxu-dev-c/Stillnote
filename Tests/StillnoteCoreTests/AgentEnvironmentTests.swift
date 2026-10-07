@@ -15,7 +15,7 @@ struct AgentEnvironmentTests {
             export PATH="/custom/cli/bin:$PATH"
             """.utf8).write(to: directory.appendingPathComponent(".zshrc"))
         let parent = ["HOME": directory.path, "ZDOTDIR": directory.path, "PATH": "/usr/bin:/bin"]
-        let resolved = try AgentEnvironment.resolve(inheritShell: true, shellPath: "/bin/zsh", environment: parent)
+        let resolved = try AgentEnvironment.resolve(shell: "/bin/zsh", environment: parent)
         #expect(resolved["STILLNOTE_LOGIN_TEST"] == "login")
         #expect(resolved["STILLNOTE_TEST_KEY"] == "spaces = punctuation $() `literal`")
         #expect(resolved["PATH"]?.hasPrefix("/custom/cli/bin:") == true)
@@ -27,27 +27,19 @@ struct AgentEnvironmentTests {
         #expect(try String(contentsOf: output, encoding: .utf8) == resolved["STILLNOTE_TEST_KEY"])
     }
 
-    @Test func appEnvironmentModeDoesNotStartAShell() throws {
-        let environment = ["SOME_PROVIDER_KEY": "test-only"]
-        #expect(try AgentEnvironment.resolve(inheritShell: false, shellPath: "/missing/shell",
-                                            environment: environment) == environment)
-    }
-
     @Test func invalidShellHasActionableError() {
-        #expect(throws: SummaryError.self) {
-            try AgentEnvironment.resolve(inheritShell: true, shellPath: "/missing/shell")
-        }
+        #expect(throws: SummaryError.self) { try AgentEnvironment.resolve(shell: "/missing/shell") }
     }
 
-    @Test func migratesAndPersistsShellPreferences() throws {
-        let legacy = Data(#"{"provider":"codex","model":"m","reasoning_effort":"low"}"#.utf8)
-        let decoded = try JSONDecoder().decode(SummarySettings.self, from: legacy)
-        #expect(decoded.inheritShellEnvironment)
-        #expect(decoded.shellPath.isEmpty)
-        let settings = AppSettings(summary: SummarySettings(inheritShellEnvironment: false, shellPath: "/bin/bash"))
-        let data = try JSONEncoder().encode(settings)
-        #expect(try JSONDecoder().decode(AppSettings.self, from: data) == settings)
-        let object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        #expect(AppSettings.migrating(from: object).settings == settings)
+    /// The retired permission and shell options are dropped from stored settings.
+    @Test func dropsRetiredSummaryOptions() throws {
+        let stored: [String: Any] = ["summary": [
+            "provider": "codex", "model": "m", "reasoning_effort": "low", "agent_prompt": "Be brief.",
+            "bypass_permissions": false, "inherit_shell_environment": false, "shell_path": "/bin/bash",
+        ]]
+        let migrated = AppSettings.migrating(from: stored)
+        #expect(migrated.changed)
+        #expect(migrated.settings.summary == SummarySettings(provider: .codex, model: "m", reasoningEffort: .low,
+                                                             agentPrompt: "Be brief."))
     }
 }
