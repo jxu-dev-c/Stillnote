@@ -12,71 +12,39 @@ public struct AgentAvailability: Sendable, Equatable {
     public let command: String
 }
 
-/// Headless adapters for the locally installed coding-agent CLIs. Credentials stay
-/// with the CLI: Stillnote never holds an API key or endpoint.
+/// Runs the user's own coding-agent CLI as if typed in their terminal: `codex exec` or
+/// `claude -p`, with the CLI's native JSON-schema output. The CLI's own config — sign-in,
+/// skills, MCP servers, permissions — applies unchanged; Stillnote holds no credentials.
 public enum AgentRunner {
-    public static let timeout: TimeInterval = 300
+    public static let timeout: TimeInterval = 600
     static let maxResponseBytes = 1_000_000
 
-    public static func availability(settings: SummarySettings = .init()) -> [AgentAvailability] {
-        let environment = (try? AgentEnvironment.resolve(
-            inheritShell: settings.inheritShellEnvironment, shellPath: settings.shellPath
-        )) ?? ProcessInfo.processInfo.environment
+    public static func availability() -> [AgentAvailability] {
+        let environment = (try? AgentEnvironment.resolve()) ?? ProcessInfo.processInfo.environment
         return SummaryProvider.allCases.map {
             AgentAvailability(provider: $0, installed: executable(for: $0, environment: environment) != nil, command: $0.command)
         }
     }
 
-    static func executable(
-        for provider: SummaryProvider, environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> String? {
-        if let override = environment[provider.environmentOverride], !override.isEmpty {
-            return FileManager.default.isExecutableFile(atPath: override) ? override : which(override, environment)
-        }
-        return which(provider.command, environment)
-    }
-
-    private static func which(_ command: String, _ environment: [String: String]) -> String? {
+    static func executable(for provider: SummaryProvider, environment: [String: String]) -> String? {
+        let command = environment[provider.environmentOverride].flatMap { $0.isEmpty ? nil : $0 } ?? provider.command
         if command.contains("/") {
             return FileManager.default.isExecutableFile(atPath: command) ? command : nil
         }
-        // Launched from Finder, an app inherits a minimal PATH; include the usual
-        // developer tool locations so an installed CLI is still found.
-        let search = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
-            + ["/usr/local/bin", "/opt/homebrew/bin", "\(NSHomeDirectory())/.local/bin",
-               "\(NSHomeDirectory())/.bun/bin", "\(NSHomeDirectory())/.npm-global/bin"]
-        for directory in search {
-            let candidate = directory + "/" + command
-            if FileManager.default.isExecutableFile(atPath: candidate) { return candidate }
-        }
-        // nvm installs global CLIs inside version-specific directories that Finder
-        // does not inherit. Prefer the newest installed version containing the CLI.
-        let nvmDirectory = environment["NVM_DIR"] ?? "\(NSHomeDirectory())/.nvm"
-        let versions = URL(fileURLWithPath: nvmDirectory).appendingPathComponent("versions/node")
-        let installed = (try? FileManager.default.contentsOfDirectory(
-            at: versions, includingPropertiesForKeys: nil
-        )) ?? []
-        for version in installed.sorted(by: {
-            $0.lastPathComponent.compare($1.lastPathComponent, options: .numeric) == .orderedDescending
-        }) {
-            let candidate = version.appendingPathComponent("bin/" + command).path
-            if FileManager.default.isExecutableFile(atPath: candidate) { return candidate }
-        }
-        return nil
+        return (environment["PATH"] ?? "").split(separator: ":")
+            .map { "\($0)/\(command)" }
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
-    /// Sends `instructions` + `prompt` to the agent and returns its JSON response text.
+    /// Sends `prompt` on stdin and returns the JSON object text the CLI produced for `schema`.
     public static func requestJSON(
-        provider: SummaryProvider, model: String, effort: ReasoningEffort,
-        instructions: String, prompt: String, schema: [String: Any],
-        inheritShellEnvironment: Bool = true, shellPath: String = "", bypassPermissions: Bool = true
+        provider: SummaryProvider, model: String, effort: ReasoningEffort, prompt: String, schema: [String: Any]
     ) throws -> String {
-        let environment = try AgentEnvironment.resolve(inheritShell: inheritShellEnvironment, shellPath: shellPath)
+        let environment = try AgentEnvironment.resolve()
         guard let executable = executable(for: provider, environment: environment) else {
             throw SummaryError(
-                "\(provider.label) CLI was not found. Install \(provider.command), sign in, and restart "
-                    + "Stillnote. For a custom installation, set \(provider.environmentOverride) to its "
-                    + "executable path."
+                "\(provider.label) CLI was not found on your shell's PATH. Install \(provider.command), "
+                    + "sign in, and retry."
             )
         }
         let workspace = FileManager.default.temporaryDirectory
@@ -86,133 +54,65 @@ public enum AgentRunner {
         )
         defer { try? FileManager.default.removeItem(at: workspace) }
 
-        // Transcript content is never a command-line argument or a shell program.
-        let transcriptOutput = workspace.appendingPathComponent("stdout")
-        let diagnosticOutput = workspace.appendingPathComponent("stderr")
         let schemaData = try JSONSerialization.data(withJSONObject: schema, options: [.sortedKeys])
+        let stdout = workspace.appendingPathComponent("stdout")
+        let response = workspace.appendingPathComponent("response.json")
         let arguments: [String]
-        let stdinText: String
-        let responseURL: URL?
-
         switch provider {
         case .codex:
-            // Codex exec expects a repository. Use a disposable one rather than
-            // overriding its CLI defaults or running inside the user's project.
-            let git = try PosixProcess.run(
-                executable: "/usr/bin/git", arguments: ["init", "--quiet", workspace.path],
-                workingDirectory: workspace.path, input: Data(),
-                stdoutURL: workspace.appendingPathComponent("git-output"), timeout: 10
-            )
-            guard git.exitCode == 0, !git.timedOut else {
-                throw SummaryError("Could not prepare the summary workspace. Check that Git is installed.")
-            }
             let schemaURL = workspace.appendingPathComponent("schema.json")
-            let response = workspace.appendingPathComponent("response.json")
             try schemaData.write(to: schemaURL)
             arguments = [
-                "exec", "--model", model,
+                "exec", "--skip-git-repo-check", "--model", model,
                 "--config", "model_reasoning_effort=\"\(effort.rawValue)\"",
-                "--output-schema", schemaURL.path,
-                "--output-last-message", response.path,
-            ] + (bypassPermissions ? ["--dangerously-bypass-approvals-and-sandbox"] : []) + ["-"]
-            stdinText = instructions + "\n\n" + prompt
-            responseURL = response
+                "--output-schema", schemaURL.path, "--output-last-message", response.path, "-",
+            ]
         case .claudeCode:
             arguments = [
-                "--print", "--model", model, "--effort", effort.rawValue,
-                "--output-format", "json",
-                "--json-schema", String(decoding: schemaData, as: UTF8.self),
-                "--system-prompt", instructions,
-                "--tools", "",
-                "--disable-slash-commands",
-                "--strict-mcp-config",
-                "--mcp-config", "{\"mcpServers\":{}}",
-                "--setting-sources", "user",
-                "--settings", "{\"disableAllHooks\":true}",
-            ] + (bypassPermissions ? ["--dangerously-skip-permissions"] : ["--permission-mode", "dontAsk"])
-                + ["--no-session-persistence"]
-            stdinText = prompt
-            responseURL = nil
+                "-p", "--model", model, "--effort", effort.rawValue,
+                "--output-format", "json", "--json-schema", String(decoding: schemaData, as: UTF8.self),
+            ]
         }
 
         let result: PosixProcess.Result
         do {
+            // The transcript travels on stdin, never as an argument.
             result = try PosixProcess.run(
                 executable: executable, arguments: arguments, workingDirectory: workspace.path,
-                input: Data(stdinText.utf8), stdoutURL: transcriptOutput, timeout: timeout,
-                environment: environment, stderrURL: diagnosticOutput
+                input: Data(prompt.utf8), stdoutURL: stdout, timeout: timeout, environment: environment,
+                stderrURL: workspace.appendingPathComponent("stderr")
             )
         } catch {
-            throw SummaryError(
-                "Could not start \(provider.label). Check its installation and executable permissions."
-            )
+            throw SummaryError("Could not start \(provider.label). Check its installation.")
         }
         if result.timedOut {
-            throw SummaryError(
-                "\(provider.label) timed out. Retry with a shorter transcript or check the CLI connection."
-            )
+            throw SummaryError("\(provider.label) timed out. Check the CLI connection and retry.")
         }
         guard result.exitCode == 0 else {
-            if let variable = missingEnvironmentVariable(at: diagnosticOutput) {
-                throw SummaryError("\(provider.label) requires the environment variable \(variable). "
-                    + "In Settings → Summaries, enable shell environment inheritance and select the shell "
-                    + "whose startup files export it, then retry. Stillnote does not store the value.")
-            }
             throw SummaryError(
-                "\(provider.label) could not finish the summary (exit \(result.exitCode)). "
-                    + "Check CLI sign-in, model access, usage limits, and that the CLI is up to date."
+                "\(provider.label) failed (exit \(result.exitCode)). Run `\(provider.command)` in a terminal "
+                    + "to check sign-in, model access, and usage limits."
             )
         }
 
-        let contentURL = responseURL ?? transcriptOutput
-        guard let data = try? Data(contentsOf: contentURL) else {
-            throw SummaryError("\(provider.label) did not return a final summary. Check model access and retry.")
+        guard let data = try? Data(contentsOf: provider == .codex ? response : stdout), !data.isEmpty else {
+            throw SummaryError("\(provider.label) returned no output. Retry.")
         }
         guard data.count <= maxResponseBytes else {
+            throw SummaryError("\(provider.label) returned an unexpectedly large response.")
+        }
+        guard provider == .claudeCode else { return String(decoding: data, as: UTF8.self) }
+
+        // `claude -p --output-format json` wraps the schema-validated object in an envelope.
+        guard let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              envelope["is_error"] as? Bool != true,
+              let structured = envelope["structured_output"] as? [String: Any],
+              let encoded = try? JSONSerialization.data(withJSONObject: structured)
+        else {
             throw SummaryError(
-                "\(provider.label) returned an unexpectedly large response. Try a shorter transcript."
+                "Claude Code did not return the requested JSON. Check CLI sign-in, model access, and retry."
             )
         }
-        var text = String(decoding: data, as: UTF8.self)
-        if provider == .claudeCode {
-            guard let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw SummaryError("\(provider.label) returned invalid output. Update the CLI and retry.")
-            }
-            if envelope["is_error"] as? Bool == true || envelope["subtype"] as? String != "success" {
-                throw SummaryError(
-                    "Claude Code could not complete the summary. Check CLI sign-in, model access, "
-                        + "usage limits, and retry."
-                )
-            }
-            // --json-schema returns the validated object in structured_output; older
-            // releases can return the final JSON text in result.
-            if let structured = envelope["structured_output"] as? [String: Any],
-               let encoded = try? JSONSerialization.data(withJSONObject: structured) {
-                text = String(decoding: encoded, as: UTF8.self)
-            } else if let fallback = envelope["result"] as? String {
-                text = fallback
-            } else {
-                throw SummaryError("\(provider.label) returned invalid output. Update the CLI and retry.")
-            }
-        }
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw SummaryError("\(provider.label) returned invalid output. Update the CLI and retry.")
-        }
-        return text
+        return String(decoding: encoded, as: UTF8.self)
     }
-
-    private static func missingEnvironmentVariable(at url: URL) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? handle.close() }
-        let size = (try? handle.seekToEnd()) ?? 0
-        try? handle.seek(toOffset: size > 65_536 ? size - 65_536 : 0)
-        let text = String(decoding: (try? handle.read(upToCount: 65_536)) ?? Data(), as: UTF8.self)
-        // Only extract a variable name, never arbitrary CLI output or secret values.
-        let pattern = #"Missing environment variable: `([A-Za-z_][A-Za-z0-9_]*)`"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let range = Range(match.range(at: 1), in: text) else { return nil }
-        return String(text[range])
-    }
-
 }

@@ -28,17 +28,6 @@ private func meeting(segments: [Segment], speakers: [String: String] = [:]) -> M
         #expect(throws: SummaryError.self) { try Summarizer.utterances(meeting(segments: [])) }
     }
 
-    /// Sections stay inside the byte budget, and one oversized utterance is split with
-    /// its speaker label repeated so attribution survives the boundary.
-    @Test func splitsLongTranscriptsOnByteBudgets() throws {
-        let long = String(repeating: "word ", count: 6000)
-        let chunks = try Summarizer.chunks([("Ada", long), ("Grace", "short reply")])
-        #expect(chunks.count > 1)
-        for chunk in chunks { #expect(chunk.utf8.count <= Summarizer.chunkBytes) }
-        #expect(chunks.allSatisfy { $0.contains("Ada: ") || $0.contains("Grace: ") })
-        #expect(chunks.last!.contains("Grace: short reply"))
-    }
-
     @Test func rejectsTranscriptsBeyondTheSizeLimit() {
         let huge = (0..<80).map {
             Segment(id: "\($0)", start: 0, end: 1, speaker: "s", text: String(repeating: "x", count: 10_000))
@@ -70,27 +59,6 @@ private func meeting(segments: [Segment], speakers: [String: String] = [:]) -> M
         #expect(throws: SummaryError.self) {
             try Summarizer.parse(#"{"overview":"x","key_points":[],"decisions":[],"action_items":[{}]}"#)
         }
-    }
-
-    /// Merging is local: every section's decisions and actions survive, and near
-    /// duplicates among key points are collapsed.
-    @Test func mergesSectionsWithoutLosingCommitments() {
-        let first = Summarizer.PartialSummary(
-            overview: "First half.", keyPoints: ["Latency budget is the blocker"],
-            decisions: ["Adopt the new pipeline"],
-            actionItems: [ActionItem(text: "File the ticket", owner: "Ada", due: nil)]
-        )
-        let second = Summarizer.PartialSummary(
-            overview: "Second half.", keyPoints: ["Latency budget is the blocker"],
-            decisions: ["Freeze the schema"],
-            actionItems: [ActionItem(text: "File the ticket", owner: "Ada", due: nil),
-                          ActionItem(text: "Draft the RFC", owner: nil, due: "Friday")]
-        )
-        let merged = Summarizer.merge([first, second])
-        #expect(merged.overview == "First half.\n\nSecond half.")
-        #expect(merged.decisions == ["Adopt the new pipeline", "Freeze the schema"])
-        #expect(merged.actionItems.count == 2)
-        #expect(merged.keyPoints.count == 1)
     }
 
     @Test func requiresExplicitRemoteConsent() {

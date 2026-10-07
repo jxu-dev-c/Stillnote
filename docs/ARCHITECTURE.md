@@ -173,18 +173,20 @@ keeps transcribing, with cleanup skipped until it is downloaded.
 
 ## Summaries
 
-Agents receive only speaker-labeled transcript text on stdin, in their own session and a
-private temporary directory, with a five-minute deadline that kills the whole process
-group. Codex runs read-only with shell and web search disabled and user config ignored;
-Claude Code disables tools, MCP servers, slash commands, and hooks. Both use ephemeral
-sessions and schema-constrained JSON with independent output validation. Long transcripts
-are summarized in sections and merged locally, so decisions late in a long meeting survive
-without extra requests. Consent is a precondition checked before any process starts.
+A summary is one request to the user's own CLI, run as if typed in their terminal:
+`codex exec --skip-git-repo-check --output-schema … -` or `claude -p --output-format json
+--json-schema …`, with the configured model and effort. The prompt and the whole
+speaker-labeled transcript travel on stdin from a private temporary directory, with the
+environment of the user's interactive login shell and a ten-minute deadline that kills the
+whole process group. The CLI's own config applies unchanged — sign-in, skills, MCP servers,
+instructions files, and permissions — so the agent can do whatever that config allows, and
+the transcript is untrusted input to it. The CLI enforces the JSON schema; Stillnote still
+validates the result. Consent is a precondition checked before any process starts.
 
 A meeting's `summary_include_video_path` preference adds its local screen-video path to
-each section as JSON-encoded text metadata. It defaults to false for new and legacy
-meetings, the path is resolved from the app's own video store, and file-reading tools stay
-disabled, so no video content is sent. Changing it affects future summaries and preserves
+the request as JSON-encoded text metadata. It defaults to false for new and legacy
+meetings, and the path is resolved from the app's own video store; Stillnote sends no
+video content. Changing it affects future summaries and preserves
 any existing one.
 
 ## Launch

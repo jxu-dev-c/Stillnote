@@ -1,19 +1,17 @@
 import Darwin
 import Foundation
 
-/// Resolves exported credentials and PATH without placing them in settings or logs.
-/// A fresh login shell also picks up provider switches without restarting Stillnote.
+/// The environment the user's terminal would give a CLI. An app opened from Finder gets a
+/// minimal PATH and none of the exports in shell startup files, so it is read from a fresh
+/// interactive login shell, which also picks up changes without restarting Stillnote.
 enum AgentEnvironment {
     static func resolve(
-        inheritShell: Bool, shellPath: String,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        shell: String? = nil, environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> [String: String] {
-        guard inheritShell else { return environment }
-        let configured = shellPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let accountShell = getpwuid(getuid()).flatMap { $0.pointee.pw_shell }.map { String(cString: $0) }
-        let shell = configured.isEmpty ? (accountShell ?? "/bin/zsh") : configured
-        guard shell.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: shell) else {
-            throw SummaryError("The summary shell is not executable. Choose its full path in Settings → Summaries.")
+        let shell = shell ?? accountShell ?? "/bin/zsh"
+        guard FileManager.default.isExecutableFile(atPath: shell) else {
+            throw SummaryError("Your login shell \(shell) is not executable.")
         }
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("stillnote-environment-\(UUID().uuidString)")
@@ -21,8 +19,7 @@ enum AgentEnvironment {
                                                attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: directory) }
         let output = directory.appendingPathComponent("environment")
-        // The marker separates shell startup chatter from NUL-delimited environment
-        // values. No user content or paths are interpolated into shell source.
+        // The marker separates shell startup chatter from NUL-delimited environment values.
         let result = try PosixProcess.run(
             executable: shell,
             arguments: ["-ilc", "/usr/bin/printf '\\000STILLNOTE_ENV\\000'; /usr/bin/env -0"],
@@ -30,17 +27,13 @@ enum AgentEnvironment {
             timeout: 10, environment: environment
         )
         guard !result.timedOut, result.exitCode == 0 else {
-            throw SummaryError("Could not load the summary shell environment. Check your shell startup files "
-                + "for errors or interactive prompts, or turn off shell inheritance in Settings → Summaries.")
+            throw SummaryError("Could not load your shell environment. Check your shell startup files "
+                + "for errors or interactive prompts.")
         }
-        guard let handle = try? FileHandle(forReadingFrom: output) else {
-            throw SummaryError("Could not read the summary shell environment.")
-        }
-        defer { try? handle.close() }
-        let data = (try handle.read(upToCount: 1_048_577)) ?? Data()
+        let data = (try? Data(contentsOf: output)) ?? Data()
         let marker = Data("\0STILLNOTE_ENV\0".utf8)
         guard data.count <= 1_048_576, let range = data.range(of: marker) else {
-            throw SummaryError("The summary shell returned invalid environment data. Check the shell in Settings → Summaries.")
+            throw SummaryError("Your shell returned invalid environment data.")
         }
         var resolved: [String: String] = [:]
         for item in data[range.upperBound...].split(separator: 0) {
@@ -48,7 +41,7 @@ enum AgentEnvironment {
             guard let separator = entry.firstIndex(of: "=") else { continue }
             resolved[String(entry[..<separator])] = String(entry[entry.index(after: separator)...])
         }
-        guard !resolved.isEmpty else { throw SummaryError("The summary shell returned an empty environment.") }
+        guard !resolved.isEmpty else { throw SummaryError("Your shell returned an empty environment.") }
         return resolved
     }
 }

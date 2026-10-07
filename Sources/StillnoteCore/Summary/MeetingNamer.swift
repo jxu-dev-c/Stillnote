@@ -41,9 +41,7 @@ public enum MeetingNamer {
         let response = try AgentRunner.requestJSON(
             provider: settings.provider, model: model,
             effort: ReasoningEffort.low.supported(by: settings.provider),
-            instructions: instructions, prompt: prompt, schema: schema,
-            inheritShellEnvironment: settings.inheritShellEnvironment, shellPath: settings.shellPath,
-            bypassPermissions: settings.bypassPermissions
+            prompt: instructions + "\n" + prompt, schema: schema
         )
         guard let title = title(Summarizer.jsonObject(response)?["title"]),
               let cleaned = try? Validation.title(title)

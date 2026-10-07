@@ -9,6 +9,12 @@
 - Start summaries and Name Meeting without a confirmation sheet. The provider and model chosen in
   Settings apply directly. **Send Video Path to AI** moved to the meeting's More menu, and
   `stillnote summarize` still needs `--allow-remote`.
+- Run summaries as a plain `codex exec` or `claude -p` with the CLI's native JSON schema, using
+  your own CLI config: skills, MCP servers, instructions files, and permissions now apply, so a
+  prompt can ask the agent to use your skills. The whole transcript goes in one request
+  instead of being summarized in sections and merged. Settings → Summaries keeps provider, model,
+  effort, and prompt; the YOLO and shell-environment options are gone, and the CLI always gets
+  your login shell's environment.
 
 ## 0.8.0
 
