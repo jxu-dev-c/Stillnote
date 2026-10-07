@@ -197,6 +197,20 @@ private struct FakeAgent {
         }
     }
 
+    /// A CLI that exits without reading a transcript larger than the pipe buffer is a failed
+    /// run. Without SIGPIPE suppression the stdin write would kill the test process instead.
+    @Test func survivesACLIThatExitsWithoutReadingItsInput() throws {
+        let agent = try FakeAgent(script: "#!/bin/sh\nexit 3\n")
+        defer { agent.cleanup() }
+        let result = try PosixProcess.run(
+            executable: agent.executable.path, arguments: [], workingDirectory: agent.directory.path,
+            input: Data(repeating: 0x61, count: 1_000_000),
+            stdoutURL: agent.directory.appendingPathComponent("out"), timeout: 10
+        )
+        #expect(result.exitCode == 3)
+        #expect(!result.timedOut)
+    }
+
     /// A timeout must kill the whole process group, not just the CLI, so a child does
     /// not outlive the temporary workspace it was given.
     @Test func killsTheProcessGroupOnTimeout() throws {

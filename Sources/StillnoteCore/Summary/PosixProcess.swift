@@ -65,6 +65,10 @@ enum PosixProcess {
             throw SpawnError.message("Could not start the agent process.")
         }
 
+        // A child that exits without reading all of stdin must fail the run, not raise
+        // SIGPIPE in this process: once the input outgrows the pipe buffer, a write can
+        // land after the reader is gone. With this flag it returns EPIPE instead.
+        _ = fcntl(writeEnd, F_SETNOSIGPIPE, 1)
         // Feed stdin from another thread: a large transcript would otherwise deadlock
         // against a child that has not started reading yet.
         DispatchQueue.global().async {
@@ -72,6 +76,7 @@ enum PosixProcess {
                 var offset = 0
                 while offset < buffer.count {
                     let written = write(writeEnd, buffer.baseAddress!.advanced(by: offset), buffer.count - offset)
+                    if written < 0 && errno == EINTR { continue }
                     if written <= 0 { break }
                     offset += written
                 }
