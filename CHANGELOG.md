@@ -15,6 +15,9 @@
   instead of being summarized in sections and merged. Settings → Summaries keeps provider, model,
   effort, and prompt; the YOLO and shell-environment options are gone, and the CLI always gets
   your login shell's environment.
+- Send a meeting's notes and context links with its summary request. Until now summaries ignored
+  them. The agent is asked to look up the links with your skills, such as work items or emails,
+  and use what it finds as context.
 
 ## 0.8.0
 

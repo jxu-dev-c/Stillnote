@@ -181,7 +181,9 @@ environment of the user's interactive login shell and a ten-minute deadline that
 whole process group. The CLI's own config applies unchanged — sign-in, skills, MCP servers,
 instructions files, and permissions — so the agent can do whatever that config allows, and
 the transcript is untrusted input to it. The CLI enforces the JSON schema; Stillnote still
-validates the result. Consent is a precondition checked before any process starts.
+validates the result. The meeting's notes and context links follow the transcript as the user's
+own context, with a request to look the links up with the agent's skills. Consent is a
+precondition checked before any process starts.
 
 A meeting's `summary_include_video_path` preference adds its local screen-video path to
 the request as JSON-encoded text metadata. It defaults to false for new and legacy

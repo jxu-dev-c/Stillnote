@@ -142,8 +142,17 @@ private struct FakeAgent {
                 #expect(stdin.components(separatedBy: "Meeting content.").count - 1 == 700)
                 let calls = try String(contentsOf: agent.argumentsURL, encoding: .utf8)
                 #expect(calls.components(separatedBy: provider == .codex ? "exec\n" : "-p\n").count - 1 == 1)
+                #expect(!stdin.contains("notes and reference links"))
             }
         }
+
+        // The user's notes and context links travel with the transcript.
+        meeting.notes = "Agenda: rollout"
+        meeting.contextLinks = [ContextLink(url: "https://example.com/ticket/42", title: "Ticket 42")]
+        _ = try Summarizer.summarize(meeting: meeting, settings: SummarySettings(), allowRemote: true, videoPath: nil)
+        let stdin = try String(contentsOf: agent.stdinURL, encoding: .utf8)
+        #expect(stdin.contains("Agenda: rollout"))
+        #expect(stdin.contains("https://example.com/ticket/42"))
     }
 
     /// A failing CLI produces an actionable message, never its raw output.
