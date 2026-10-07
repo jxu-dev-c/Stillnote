@@ -19,7 +19,7 @@ struct MeetingDetailView: View {
     @State private var player: PlayerModel?
     @State private var confirmingDelete = false
     @State private var retranscribing = false
-    @State private var consenting = false
+    @State private var consentRequest: ProviderRequest?
     @State private var exporting: ExportDocument?
     @State private var notesDirty = false
 
@@ -78,8 +78,8 @@ struct MeetingDetailView: View {
         .sheet(isPresented: $retranscribing) {
             RetranscribeSheet(meeting: meeting)
         }
-        .sheet(isPresented: $consenting) {
-            ConsentSheet(meeting: meeting)
+        .sheet(item: $consentRequest) { request in
+            ConsentSheet(meeting: meeting, request: request)
         }
         .fileExporter(
             isPresented: Binding(get: { exporting != nil }, set: { if !$0 { exporting = nil } }),
@@ -93,15 +93,20 @@ struct MeetingDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 16) {
-            TextField("Meeting title", text: $title)
-                .textFieldStyle(.plain)
-                .font(StillnoteTheme.detailTitleFont)
-                .accessibilityLabel("Meeting title")
-                .disabled(meeting.status.isBusy)
-                .onSubmit(commitTitle)
-                .onChange(of: meeting.id) { title = meeting.title }
-                // A summary can retitle a recording that was never named.
-                .onChange(of: meeting.title) { title = meeting.title }
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                TextField("Meeting title", text: $title)
+                    .textFieldStyle(.plain)
+                    .font(StillnoteTheme.detailTitleFont)
+                    .accessibilityLabel("Meeting title")
+                    .disabled(meeting.status.isBusy || naming)
+                    .onSubmit(commitTitle)
+                    .onChange(of: meeting.id) { title = meeting.title }
+                    // Name Meeting replaces the title from outside this field.
+                    .onChange(of: meeting.title) { title = meeting.title }
+                if !meeting.segments.isEmpty {
+                    nameButton
+                }
+            }
 
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 16) {
@@ -122,10 +127,30 @@ struct MeetingDetailView: View {
         }
     }
 
+    private var naming: Bool { model.namingMeetings.contains(meeting.id) }
+
+    private var nameButton: some View {
+        Button { consentRequest = .title } label: {
+            if naming {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Naming…")
+                }
+            } else {
+                Label("Name Meeting", systemImage: "wand.and.sparkles")
+            }
+        }
+        .font(StillnoteTheme.detailSupportingFont)
+        .buttonStyle(.borderless)
+        .fixedSize()
+        .disabled(meeting.status.isBusy || naming)
+        .help("Suggest a title from this meeting's summary, or its transcript when there is no summary")
+    }
+
     private var headerActions: some View {
         HStack(spacing: 16) {
             if tab == .summary, meeting.summary != nil, !meeting.segments.isEmpty {
-                Button { consenting = true } label: {
+                Button { consentRequest = .summary } label: {
                     Label("Regenerate", systemImage: "arrow.clockwise")
                 }
                 .font(StillnoteTheme.detailSupportingFont)
@@ -249,7 +274,7 @@ struct MeetingDetailView: View {
         } else {
             switch tab {
             case .summary:
-                SummaryTab(meeting: meeting, requestSummary: { consenting = true })
+                SummaryTab(meeting: meeting, requestSummary: { consentRequest = .summary })
             case .transcript:
                 TranscriptTab(meeting: meeting, player: player, retranscribe: { retranscribing = true })
             case .context:

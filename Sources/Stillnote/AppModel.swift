@@ -23,6 +23,9 @@ final class AppModel {
     private var isLoading = false
     var startupError: String?
     var alertMessage: String?
+    /// Meetings waiting on a suggested title. Naming leaves the meeting's status alone, so a
+    /// failed request never marks the meeting as failed.
+    private(set) var namingMeetings: Set<String> = []
 
     /// Everything that needs the filesystem. It is built in `load()`, never in `init`:
     /// resolving paths can touch a folder macOS guards, and the permission prompt for
@@ -489,7 +492,7 @@ final class AppModel {
                 )
             }.value
             await edit(id) {
-                $0.applySummary(summary)
+                $0.summary = summary
                 $0.status = .complete
                 $0.progress = 100
                 $0.stage = "Summary ready"
@@ -503,6 +506,36 @@ final class AppModel {
                 $0.stage = "Summary failed"
                 $0.error = String(message.prefix(1000))
             }
+        }
+    }
+
+    // MARK: - Naming
+
+    /// Asks the summary provider for a title, separately from summaries so a custom summary
+    /// prompt cannot leave meetings unnamed. Only an explicit request renames a meeting.
+    func suggestTitle(_ id: String, allowRemote: Bool) async {
+        guard let meeting = meeting(id), !namingMeetings.contains(id) else { return }
+        guard !meeting.status.isBusy else {
+            alertMessage = "This meeting is processing. Wait for it to finish."
+            return
+        }
+        guard !meeting.segments.isEmpty else {
+            alertMessage = "Create a transcript before naming this meeting."
+            return
+        }
+        namingMeetings.insert(id)
+        defer { namingMeetings.remove(id) }
+        let settings = settings.summary
+        do {
+            let title = try await Task.detached(priority: .userInitiated) {
+                try MeetingNamer.suggestTitle(meeting: meeting, settings: settings, allowRemote: allowRemote)
+            }.value
+            // The meeting may have been deleted while the provider was working.
+            guard self.meeting(id) != nil else { return }
+            await edit(id) { $0.applySuggestedTitle(title) }
+        } catch {
+            alertMessage = (error as? SummaryError)?.message
+                ?? "Naming failed. Check the provider configuration and try again."
         }
     }
 

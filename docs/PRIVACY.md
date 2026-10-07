@@ -8,7 +8,9 @@ and associated media, but does not erase backups or guarantee forensic erasure.
 Network activity includes dependency installation, public Hugging Face model downloads,
 page-title and favicon requests for context links, and optional summary CLI requests.
 Summaries require confirmation and send transcript text and speaker labels to the chosen
-provider; optionally they include the local video path as text. Provider retention and
+provider; optionally they include the local video path as text. **Name Meeting** also requires
+confirmation and sends the meeting's summary, or the opening of its transcript and speaker labels
+when there is no summary. Provider retention and
 account policies apply. No cloud transcription fallback is used.
 
 ## Meeting reminders

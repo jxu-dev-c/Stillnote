@@ -52,7 +52,7 @@ Meeting = {id,title,created_at,updated_at,duration,status:'ready'|'transcribing'
   speakers:Record<string,string>,segments:Segment[],summary:Summary|null,notes,context_links:ContextLink[],
   cleanup:{original_duration,head,tail,applied_at}|null,recorded_at?,source?:'recording'|'import',automatic_title,title_ownership_version}
 Segment = {id,start,end,speaker,text}
-Summary = {title?,overview,key_points[],decisions[],action_items:[{text,owner,due}],provider,model,generated_at}
+Summary = {overview,key_points[],decisions[],action_items:[{text,owner,due}],provider,model,generated_at}
 ContextLink = {url,title}
 ```
 
@@ -63,7 +63,7 @@ recordings don't have it. `source` records whether the audio was recorded or imp
 written before it was added don't have it.
 
 `automatic_title` is true for titles Stillnote chose: a recording's `Meeting · <date>` placeholder,
-an imported file's name when the title field was left blank, and titles suggested by summaries.
+an imported file's name when the title field was left blank, and titles from **Name Meeting**.
 Older documents without the field infer it when the title matches the original filename or
 the dated recording placeholder; other titles default to false. Older imports and re-saved
 recording placeholders also stored false without a user choice, so records without
@@ -72,9 +72,16 @@ include `title_ownership_version: 1`, so all explicit title choices then survive
 Old meetings named or renamed back to their exact default cannot be distinguished from untouched
 defaults. Editing a meeting in an older build removes the marker, so this inference applies again
 if that library is then reopened in a current build.
-Storing a summary through
-`Meeting.applySummary` then adopts the summary's suggested `title`; renaming the meeting clears
-the flag, so a title the user typed is never replaced.
+Renaming the meeting clears the flag. Summaries never change the title, and summaries written by
+0.8.0 may still carry an unused `title` key.
+
+**Name Meeting** is the only way Stillnote changes an existing title. `MeetingNamer` sends one
+request to the summary provider, separately from summaries, with a fixed prompt that the summary
+prompt in Settings doesn't affect, at low effort. It sends the meeting's summary (overview, key
+points, and decisions) when there is one, and otherwise the transcript's first 60 KB. The reply
+replaces the title and sets `automatic_title`. Like a summary, every request needs confirmation.
+Settings that still hold the 0.8.0 default summary prompt, which asked for a title, move to the
+current default.
 
 ## Concurrency
 

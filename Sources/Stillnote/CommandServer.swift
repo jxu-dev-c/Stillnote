@@ -425,7 +425,7 @@ final class CommandServer {
                 )
             }
             let saved = try edited(
-                await model.edit(meeting.id) { $0.applySummary(replacement); $0.status = .complete },
+                await model.edit(meeting.id) { $0.summary = replacement; $0.status = .complete },
                 "The summary"
             )
             return try CommandRunner.meetingResponse("Replaced the summary of '\(saved.title)'.", saved)

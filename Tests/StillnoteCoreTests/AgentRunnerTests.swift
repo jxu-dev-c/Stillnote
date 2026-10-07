@@ -263,6 +263,57 @@ private struct FakeAgent {
         Thread.sleep(forTimeInterval: 1.5)
         #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
+
+    /// Naming is one request with its own fixed prompt at low effort, whatever summary prompt
+    /// and effort are configured, and the reply is cleaned before it becomes a title.
+    @Test(arguments: [#"{"title":" \"Q4  launch review\" "}"#, #"{"title":""}"#])
+    func namesAMeetingInOneRequest(reply: String) throws {
+        let agent = try FakeAgent(script: """
+            #!/bin/bash
+            echo call >> "$FAKE_DIR/calls.txt"
+            printf '%s\\n' "$@" > "$FAKE_DIR/arguments.txt"
+            cat > "$FAKE_DIR/stdin.txt"
+            previous=""
+            for argument in "$@"; do
+              if [ "$previous" = "--output-last-message" ]; then response="$argument"; fi
+              previous="$argument"
+            done
+            printf '%s' "$REPLY_JSON" > "$response"
+            """)
+        defer { agent.cleanup() }
+        setenv("FAKE_DIR", agent.directory.path, 1)
+        setenv("REPLY_JSON", reply, 1)
+        setenv("STILLNOTE_CODEX_BIN", agent.executable.path, 1)
+        defer {
+            unsetenv("FAKE_DIR")
+            unsetenv("REPLY_JSON")
+            unsetenv("STILLNOTE_CODEX_BIN")
+        }
+        var meeting = Meeting(id: "name", title: "Meeting", audioName: "a", language: "en",
+                              speakerCount: nil, duration: 1)
+        // Longer than one summary section, so a per-section request would show up as several calls.
+        meeting.segments = [Segment(id: "1", start: 0, end: 1, speaker: "speaker_1",
+                                   text: String(repeating: "Launch planning. ", count: 1_000))]
+        let settings = SummarySettings(
+            provider: .codex, reasoningEffort: .high, agentPrompt: "CUSTOM SUMMARY INSTRUCTIONS"
+        )
+
+        if reply.contains("Q4") {
+            let title = try MeetingNamer.suggestTitle(meeting: meeting, settings: settings, allowRemote: true)
+            #expect(title == "Q4 launch review")
+        } else {
+            #expect(throws: SummaryError.self) {
+                try MeetingNamer.suggestTitle(meeting: meeting, settings: settings, allowRemote: true)
+            }
+        }
+        let calls = try String(contentsOf: agent.directory.appendingPathComponent("calls.txt"), encoding: .utf8)
+        #expect(calls.split(separator: "\n").count == 1)
+        let stdin = try String(contentsOf: agent.stdinURL, encoding: .utf8)
+        #expect(stdin.contains(MeetingNamer.instructions))
+        #expect(!stdin.contains("CUSTOM SUMMARY INSTRUCTIONS"))
+        let arguments = try String(contentsOf: agent.argumentsURL, encoding: .utf8)
+        #expect(arguments.contains(#"model_reasoning_effort="low""#))
+    }
 }
 
 @Suite struct LinkMetadataTests {

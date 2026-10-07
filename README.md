@@ -39,8 +39,9 @@ In **Settings**, download the speech model once (about 1.3 GB). Grant microphone
 and screen/system audio permissions when prompted. For AI summaries, install and
 sign in to the Codex or Claude Code CLI, then select it in Settings.
 
-Summaries name recordings automatically. When importing a file, leave **Title** blank
-to use its filename until a summary names it. A title you type or rename is preserved.
+New recordings are titled `Meeting · <date>`, and imports with a blank **Title** use their
+filename. Click **Name Meeting** beside the title to have the summary provider suggest one from
+the meeting's summary, or its transcript when there is no summary. Summaries never change titles.
 
 ## If the icon keeps bouncing or Open Anyway does not work
 
@@ -128,7 +129,7 @@ stillnote transcript replace ANE AEM --all --dry-run   # count first
 stillnote transcript replace ANE AEM --all --whole-word
 stillnote speaker list
 stillnote speaker update Jackson --email jackson@example.com
-stillnote record start          # titled after its summary; or --title "Design review"
+stillnote record start          # titled "Meeting · <date>"; or --title "Design review"
 stillnote record stop
 stillnote help
 ```

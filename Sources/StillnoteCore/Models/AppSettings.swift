@@ -315,7 +315,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
             changed = true
         }
         var storedPrompt = summary["agent_prompt"] as? String
-        if storedPrompt == Summarizer.legacyAgentPrompt {
+        if storedPrompt == Summarizer.titledAgentPrompt {
             // Saving settings stores the default prompt verbatim; nobody chose that text.
             storedPrompt = Summarizer.defaultAgentPrompt
             changed = true
