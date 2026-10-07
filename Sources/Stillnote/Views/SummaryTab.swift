@@ -8,6 +8,16 @@ struct SummaryTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             if let summary = meeting.summary {
+                if meeting.summaryContextChanged {
+                    HStack(spacing: 12) {
+                        Label("Notes or links changed since this summary was made.",
+                              systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Regenerate", action: requestSummary)
+                            .disabled(meeting.status.isBusy)
+                    }
+                }
                 sections(summary)
             } else {
                 ContentUnavailableView {

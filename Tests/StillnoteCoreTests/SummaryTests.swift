@@ -61,6 +61,30 @@ private func meeting(segments: [Segment], speakers: [String: String] = [:]) -> M
         }
     }
 
+    /// Changing notes or links after a summary marks it as drawn from older context; summaries
+    /// without a fingerprint, made before context was sent, are never flagged.
+    @Test func flagsASummaryWhoseContextChanged() throws {
+        var source = meeting(segments: [Segment(id: "1", start: 0, end: 1, speaker: "s", text: "hi")])
+        source.notes = "Project Atlas"
+        source.summary = MeetingSummary(
+            overview: "o", keyPoints: [], decisions: [], actionItems: [], provider: "codex", model: "m",
+            generatedAt: "t", contextFingerprint: Summarizer.contextFingerprint(source)
+        )
+        #expect(!source.summaryContextChanged)
+        source.notes = "  Project Atlas \n"
+        #expect(!source.summaryContextChanged)
+        source.notes = "Project Atlas v2"
+        #expect(source.summaryContextChanged)
+        source.notes = "Project Atlas"
+        source.contextLinks = [ContextLink(url: "https://example.com/42")]
+        #expect(source.summaryContextChanged)
+        source.summary?.contextFingerprint = nil
+        #expect(!source.summaryContextChanged)
+
+        let legacy = Data(#"{"overview":"o","key_points":[],"decisions":[],"action_items":[],"provider":"codex","model":"m","generated_at":"t"}"#.utf8)
+        #expect(try JSONDecoder().decode(MeetingSummary.self, from: legacy).contextFingerprint == nil)
+    }
+
     @Test func requiresExplicitRemoteConsent() {
         let source = meeting(segments: [Segment(id: "1", start: 0, end: 1, speaker: "s", text: "hello")])
         #expect(throws: SummaryError.self) {

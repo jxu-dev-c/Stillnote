@@ -149,7 +149,8 @@ private struct FakeAgent {
         // The user's notes and context links travel with the transcript.
         meeting.notes = "Agenda: rollout"
         meeting.contextLinks = [ContextLink(url: "https://example.com/ticket/42", title: "Ticket 42")]
-        _ = try Summarizer.summarize(meeting: meeting, settings: SummarySettings(), allowRemote: true, videoPath: nil)
+        let summary = try Summarizer.summarize(meeting: meeting, settings: SummarySettings(), allowRemote: true, videoPath: nil)
+        #expect(summary.contextFingerprint == Summarizer.contextFingerprint(meeting))
         let stdin = try String(contentsOf: agent.stdinURL, encoding: .utf8)
         #expect(stdin.contains("Agenda: rollout"))
         #expect(stdin.contains("https://example.com/ticket/42"))

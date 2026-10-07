@@ -17,7 +17,8 @@
   your login shell's environment.
 - Send a meeting's notes and context links with its summary request. Until now summaries ignored
   them. The agent is asked to look up the links with your skills, such as work items or emails,
-  and use what it finds as context.
+  and use what it finds as context. When notes or links change after a summary was made, the
+  Summary tab says so and offers Regenerate.
 
 ## 0.8.0
 
