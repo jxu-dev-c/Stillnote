@@ -139,8 +139,9 @@ it is the only writer, so a correction made here shows up in the open window, an
 permissions belong to the app rather than to your terminal. Add `--json` to any command for
 structured output. Turn the whole interface off in **Settings → Advanced**.
 
-Generating a summary sends the transcript to your configured agent CLI, so it asks for consent
-explicitly: `stillnote summarize <id> --allow-remote`.
+Generating a summary sends the transcript to your configured agent CLI. The window uses the
+provider chosen in Settings without asking again, but a command may come from an agent, so it
+asks for consent explicitly: `stillnote summarize <id> --allow-remote`.
 
 ### Agent skill
 

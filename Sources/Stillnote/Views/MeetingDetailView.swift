@@ -19,7 +19,6 @@ struct MeetingDetailView: View {
     @State private var player: PlayerModel?
     @State private var confirmingDelete = false
     @State private var retranscribing = false
-    @State private var consentRequest: ProviderRequest?
     @State private var exporting: ExportDocument?
     @State private var notesDirty = false
 
@@ -78,9 +77,6 @@ struct MeetingDetailView: View {
         .sheet(isPresented: $retranscribing) {
             RetranscribeSheet(meeting: meeting)
         }
-        .sheet(item: $consentRequest) { request in
-            ConsentSheet(meeting: meeting, request: request)
-        }
         .fileExporter(
             isPresented: Binding(get: { exporting != nil }, set: { if !$0 { exporting = nil } }),
             document: exporting,
@@ -130,7 +126,8 @@ struct MeetingDetailView: View {
     private var naming: Bool { model.namingMeetings.contains(meeting.id) }
 
     private var nameButton: some View {
-        Button { consentRequest = .title } label: {
+        // The provider chosen in Settings is the consent, so naming starts straight away.
+        Button { Task { await model.suggestTitle(meeting.id, allowRemote: true) } } label: {
             if naming {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
@@ -150,7 +147,7 @@ struct MeetingDetailView: View {
     private var headerActions: some View {
         HStack(spacing: 16) {
             if tab == .summary, meeting.summary != nil, !meeting.segments.isEmpty {
-                Button { consentRequest = .summary } label: {
+                Button(action: summarize) {
                     Label("Regenerate", systemImage: "arrow.clockwise")
                 }
                 .font(StillnoteTheme.detailSupportingFont)
@@ -251,6 +248,11 @@ struct MeetingDetailView: View {
             .disabled(meeting.status.isBusy)
 
             Menu {
+                if meeting.hasVideo {
+                    Toggle("Send Video Path to AI", isOn: sendVideoPath)
+                        .help("Include this recording's local video path in summary prompts. Only the path is shared; video analysis is not enabled.")
+                    Divider()
+                }
                 Button("Delete Meeting…", role: .destructive) {
                     confirmingDelete = true
                 }
@@ -274,7 +276,7 @@ struct MeetingDetailView: View {
         } else {
             switch tab {
             case .summary:
-                SummaryTab(meeting: meeting, requestSummary: { consentRequest = .summary })
+                SummaryTab(meeting: meeting, requestSummary: summarize)
             case .transcript:
                 TranscriptTab(meeting: meeting, player: player, retranscribe: { retranscribing = true })
             case .context:
@@ -316,6 +318,18 @@ struct MeetingDetailView: View {
         return model.speech.ready
             ? "Transcribe this recording to get a speaker-labeled transcript."
             : model.speech.detail
+    }
+
+    /// The provider chosen in Settings is the consent, so a summary starts straight away.
+    private func summarize() {
+        Task { await model.summarize(meeting.id, allowRemote: true) }
+    }
+
+    private var sendVideoPath: Binding<Bool> {
+        Binding(
+            get: { meeting.summaryIncludeVideoPath },
+            set: { include in Task { await model.edit(meeting.id) { $0.summaryIncludeVideoPath = include } } }
+        )
     }
 
     private func commitTitle() {
