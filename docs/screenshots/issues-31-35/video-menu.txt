@@ -1,0 +1,4 @@
+Accessibility inspection of the synthetic video meeting More menu:
+Window: "Product planning", App: Stillnote.
+1 menu Secondary Actions: Cancel
+	2 Delete Meeting…, ID: menuAction:

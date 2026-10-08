@@ -154,8 +154,8 @@ private struct MeetingEventMenu: ViewModifier {
                 Button("Delete…", role: .destructive) { onDelete(meeting.id) }
                     .disabled(meeting.status.isBusy)
             }
-            .help("\(meeting.title)\n\(meeting.timeRange)")
-            .accessibilityLabel("\(meeting.title), \(meeting.timeRange), \(meeting.status.label)")
+            .help("\(meeting.title)\n\(meeting.timeRange) · \(Formatting.calendarDuration(meeting.duration))")
+            .accessibilityLabel("\(meeting.title), \(meeting.timeRange), \(Formatting.calendarDuration(meeting.duration)), \(meeting.status.label)")
     }
 }
 
@@ -469,27 +469,23 @@ private struct TimelineEventBlock: View {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 4) {
                         if meeting.status.isBusy { ProgressView().controlSize(.mini) }
+                        title.lineLimit(compact ? 1 : 2)
                         if compact {
-                            // A short block has one line; the start time goes first when space is tight.
-                            ViewThatFits(in: .horizontal) {
-                                HStack(spacing: 4) {
-                                    title.lineLimit(1).fixedSize()
-                                    Text(meeting.startDate, format: .dateTime.hour().minute())
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.secondary)
-                                        .fixedSize()
-                                }
-                                title.lineLimit(1)
-                            }
-                        } else {
-                            title.lineLimit(2)
+                            durationLabel
+                                .layoutPriority(1)
                         }
                     }
                     if !compact {
-                        Text(meeting.timeRange)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 4) {
+                                Text(meeting.timeRange)
+                                durationLabel
+                            }
+                            durationLabel
+                        }
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                     }
                 }
                 .padding(.horizontal, 5)
@@ -503,6 +499,14 @@ private struct TimelineEventBlock: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+    }
+
+    private var durationLabel: some View {
+        Text("\(Formatting.calendarDuration(meeting.duration))")
+            .font(.system(size: 11, weight: .medium))
+            .monospacedDigit()
+            .lineLimit(1)
+            .fixedSize()
     }
 
     private var title: Text {

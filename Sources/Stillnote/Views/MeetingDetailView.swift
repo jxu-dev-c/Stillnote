@@ -223,7 +223,7 @@ struct MeetingDetailView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 250)
+            .fixedSize()
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Menu {
@@ -242,22 +242,17 @@ struct MeetingDetailView: View {
                     }
                 }
             } label: {
-                Label("Export", systemImage: "square.and.arrow.up")
+                ToolbarIcon("Export", systemImage: "square.and.arrow.up")
             }
             .help("Export Meeting")
             .disabled(meeting.status.isBusy)
 
             Menu {
-                if meeting.hasVideo {
-                    Toggle("Send Video Path to AI", isOn: sendVideoPath)
-                        .help("Include this recording's local video path in summary prompts. Only the path is shared; video analysis is not enabled.")
-                    Divider()
-                }
                 Button("Delete Meeting…", role: .destructive) {
                     confirmingDelete = true
                 }
             } label: {
-                Label("More", systemImage: "ellipsis")
+                ToolbarIcon("More", systemImage: "ellipsis")
             }
             .help("More Meeting Actions")
             .disabled(meeting.status.isBusy)
@@ -323,13 +318,6 @@ struct MeetingDetailView: View {
     /// The provider chosen in Settings is the consent, so a summary starts straight away.
     private func summarize() {
         Task { await model.summarize(meeting.id, allowRemote: true) }
-    }
-
-    private var sendVideoPath: Binding<Bool> {
-        Binding(
-            get: { meeting.summaryIncludeVideoPath },
-            set: { include in Task { await model.edit(meeting.id) { $0.summaryIncludeVideoPath = include } } }
-        )
     }
 
     private func commitTitle() {

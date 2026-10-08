@@ -81,3 +81,23 @@ private struct PlaybackSurface: ViewModifier {
         }
     }
 }
+
+/// Use the symbol's geometric bounds instead of its text baseline in icon-only toolbars.
+struct ToolbarIcon: View {
+    let title: String
+    let systemImage: String
+
+    init(_ title: String, systemImage: String) {
+        self.title = title
+        self.systemImage = systemImage
+    }
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 18, height: 18)
+            .frame(width: 24, height: 24)
+            .accessibilityLabel(title)
+    }
+}

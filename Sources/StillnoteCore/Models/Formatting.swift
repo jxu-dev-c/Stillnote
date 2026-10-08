@@ -10,6 +10,16 @@ public enum Formatting {
             : String(format: "%d:%02d", minutes, secs)
     }
 
+    /// Explicit units distinguish calendar event lengths from clock times.
+    public static func calendarDuration(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds > 0 else { return "0 sec" }
+        let total = Int(min(seconds, Double(Int.max / 2)))
+        if total < 60 { return "\(max(1, total)) sec" }
+        let hours = total / 3600, minutes = total % 3600 / 60
+        if hours == 0 { return "\(minutes) min" }
+        return minutes == 0 ? "\(hours) hr" : "\(hours) hr \(minutes) min"
+    }
+
     /// hh:mm:ss, with milliseconds for SRT cues.
     public static func timestamp(_ seconds: Double, srt: Bool = false) -> String {
         let milliseconds = Int((max(0, seconds) * 1000).rounded())
