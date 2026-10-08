@@ -33,9 +33,6 @@ struct MeetingDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentPanel()
                 }
-                if let player, player.hasVideo {
-                    PlayerView(player: player)
-                }
                 content
             }
             .frame(maxWidth: StillnoteTheme.readingWidth, alignment: .leading)
@@ -44,7 +41,7 @@ struct MeetingDetailView: View {
         }
         .background(.background)
         .playbackBar {
-            if let player, !player.hasVideo {
+            if let player {
                 PlayerView(player: player)
                     .frame(maxWidth: StillnoteTheme.readingWidth)
                     .padding(.horizontal, 20)

@@ -5,8 +5,8 @@ import StillnoteCore
 import SwiftUI
 
 /// Playback state shared by the transcript (for seeking and highlighting) and the
-/// transport. Video meetings use AVKit's own controls; audio-only meetings get a
-/// compact bar built from standard controls.
+/// transport. Every meeting gets the same compact bar; screen video opens on request
+/// in a sheet that drives the same player.
 @MainActor
 @Observable
 final class PlayerModel {
@@ -106,24 +106,24 @@ struct PlayerView: View {
 
     private static let rates: [Float] = [0.75, 1, 1.25, 1.5, 1.75, 2]
 
+    @State private var showingVideo = false
+
     var body: some View {
-        VStack(spacing: 8) {
+        Group {
             if let reason = player.unplayableReason {
                 Label(reason, systemImage: "speaker.slash")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-            } else if player.hasVideo {
-                VideoPlayer(player: player.player)
-                    .aspectRatio(16 / 9, contentMode: .fit)
-                    .frame(maxHeight: 360)
-                    .clipShape(.rect(cornerRadius: StillnoteTheme.cornerRadius))
             } else {
                 transport
             }
         }
-        .padding(player.hasVideo ? 0 : 16)
-        .modifier(AudioPlaybackSurface(enabled: !player.hasVideo))
+        .padding(16)
+        .playbackSurface()
+        .sheet(isPresented: $showingVideo) {
+            VideoSheet(player: player)
+        }
     }
 
     private var transport: some View {
@@ -173,19 +173,53 @@ struct PlayerView: View {
             .fixedSize()
             .help("Playback Speed")
             .accessibilityLabel("Playback speed, \(player.rate.formatted()) times")
+
+            if player.hasVideo {
+                Button { showingVideo = true } label: {
+                    Image(systemName: "play.rectangle")
+                }
+                .buttonStyle(.borderless)
+                .help("Show Video")
+                .accessibilityLabel("Show screen recording")
+            }
         }
     }
 }
 
-private struct AudioPlaybackSurface: ViewModifier {
-    let enabled: Bool
+/// Shows the screen recording with AVKit's own controls. It shares the bar's player, so
+/// position, speed, and transcript highlighting stay in step while it is open and after.
+private struct VideoSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let player: PlayerModel
 
-    @ViewBuilder
+    var body: some View {
+        VideoPlayer(player: player.player)
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .clipShape(.rect(cornerRadius: StillnoteTheme.cornerRadius))
+            // AVKit keeps its own buttons on the leading edge and along the bottom.
+            .overlay(alignment: .topTrailing) {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 28, height: 28)
+                }
+                .modifier(CloseButtonStyle())
+                .keyboardShortcut(.cancelAction)
+                .help("Close")
+                .accessibilityLabel("Close video")
+                .padding(12)
+            }
+            .padding(20)
+            .frame(minWidth: 720, idealWidth: 960, minHeight: 420, idealHeight: 580)
+    }
+}
+
+private struct CloseButtonStyle: ViewModifier {
     func body(content: Content) -> some View {
-        if enabled {
-            content.playbackSurface()
+        if #available(macOS 26, *) {
+            content.buttonStyle(.glass).buttonBorderShape(.circle)
         } else {
-            content
+            content.buttonStyle(.bordered).buttonBorderShape(.circle)
         }
     }
 }
