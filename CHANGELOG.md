@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
 
 - Open screen recordings in a sheet from the **Show Video** button in the playback bar instead
   of playing them inline above the summary. Every meeting now has the same bottom playback bar.
@@ -9,8 +9,7 @@
   transcript when there is no summary. Summaries no longer change titles: a custom summary prompt
   could leave out the title, and long meetings could be named after a single section.
 - Start summaries and Name Meeting without a confirmation sheet. The provider and model chosen in
-  Settings apply directly. **Send Video Path to AI** moved to the meeting's More menu, and
-  `stillnote summarize` still needs `--allow-remote`.
+  Settings apply directly, and `stillnote summarize` still needs `--allow-remote`.
 - Run summaries as a plain `codex exec` or `claude -p` with the CLI's native JSON schema, using
   your own CLI config: skills, MCP servers, instructions files, and permissions now apply, so a
   prompt can ask the agent to use your skills. The whole transcript goes in one request
@@ -27,6 +26,14 @@
   them. The agent is asked to look up the links with your skills, such as work items or emails,
   and use what it finds as context. When notes or links change after a summary was made, the
   Summary tab says so and offers Regenerate.
+- Always include the local video path in summary requests for recordings with screen video.
+  The **Send Video Path to AI** option is gone; the agent can open the path according to its own
+  configuration and permissions.
+- Show calendar meeting durations with explicit units, keeping the duration visible in narrow
+  and overlapping Day and Week columns. Hovering a meeting shows its full time range.
+- Balance the spacing of the toolbar pickers, center the toolbar icons, and match the Import
+  Audio icon to the recording button. The sidebar drops the Library heading and the waveform
+  icons on recent meetings; busy and error indicators remain.
 
 ## 0.8.0
 

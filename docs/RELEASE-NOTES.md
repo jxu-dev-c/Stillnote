@@ -2,40 +2,48 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
-## What's new in 0.8.0
+## What's new in 0.9.0
 
-### A calendar of your meetings
+### Summaries use your own Codex or Claude Code setup
 
-- **All Meetings** has a **List | Calendar** switch in the toolbar. The calendar shows meetings by
-  **Day**, **Week**, or **Month**, like Apple's Calendar app, with **‹ Today ›** buttons and ⌘T to
-  jump to today.
-- In Day and Week view, each meeting appears when it happened and is as tall as it lasted.
-  Overlapping meetings sit side by side, and a red line marks the current time.
-- In Month view, each day lists its meetings; when there are too many, **N more** opens that day.
-- Clicking a meeting opens it, its context menu offers **Open** and **Delete…**, and the toolbar
-  search filters the calendar too.
-- New recordings are placed at the time recording started rather than when they were saved.
-  Older recordings are placed at an estimated start time, and imports stay at their import time.
+- A summary is now one plain `codex exec` or `claude -p` request, run as if you typed it in
+  Terminal. Your CLI's sign-in, skills, MCP servers, instruction files, and permissions apply, so
+  a summary prompt can ask the agent to use your skills.
+- The whole transcript goes out in one request instead of being summarized in sections and
+  merged.
+- A meeting's **notes** and **context links** are now sent with its summary request. The agent is
+  asked to look the links up with your skills, such as work items or emails, and use what it
+  finds as context. When notes or links change after a summary was made, the **Summary** tab says
+  so and offers **Regenerate**.
+- For recordings with screen video, summary requests always include the local video path. The
+  agent can open it according to its own configuration and permissions.
+- Summaries start right away, without a confirmation sheet: choosing the provider and model in
+  **Settings → Summaries** is the consent. `stillnote summarize` still needs `--allow-remote`.
+- **Settings → Summaries** keeps provider, model, effort, and prompt. The YOLO, shell-path, and
+  inherit-shell-environment options are gone: the CLI always gets your login shell's environment.
 
-### Transcript search in the toolbar
+### Name Meeting
 
-- Transcript search now lives in the macOS toolbar on the **Transcript** tab instead of taking a
-  row above the transcript. In a narrow window it collapses to a search button.
+- A **Name Meeting** button beside the title asks the provider from Settings for a short title,
+  using the meeting's summary, or its transcript when there is no summary. It replaces any title,
+  because you asked for it.
+- Summaries no longer change titles. New recordings keep their dated default title, and imports
+  keep their filename, until you rename them or click **Name Meeting**.
 
-### More summary effort levels
+### Video in a sheet
 
-- **Settings → Summaries → Thinking effort** lists every level the selected provider accepts:
-  None, Minimal, Low, Medium, High, Extra High, and Max for Codex, and Low through Max for Claude
-  Code. A saved level the provider doesn't accept, for example after switching providers, uses
-  Low. Some models reject some levels; the summary then shows the provider's error.
+- Screen recordings no longer play above the summary. Every meeting has the same bottom playback
+  bar, and meetings with screen video add a **Show Video** button that opens the video in a
+  resizable sheet. Playback, speed, and transcript timestamps stay in sync, and playback continues
+  in the bar after you close the sheet.
 
-### Fixes
+### Fixes and polish
 
-- Summaries can now replace an imported meeting's filename title when you left the Title field
-  blank, and older recordings and imports still showing a default title get a descriptive one
-  from their next summary. A title you typed yourself is never replaced.
-- Pressing Stop again while a recording is saving no longer loses its audio. The menu and the
-  recording sheet show that it is saving until the meeting is stored.
+- Calendar meetings show durations with explicit units, and keep them visible in narrow and
+  overlapping Day and Week columns. Hovering a meeting shows its full time range.
+- Toolbar pickers have balanced spacing, toolbar icons are centered, and the Import Audio icon
+  matches the recording button. The sidebar drops the Library heading and the waveform icons on
+  recent meetings.
 
 ## The `stillnote` command and AI agents
 
@@ -57,6 +65,18 @@ still asks for consent, as `stillnote summarize <id> --allow-remote`.
 
 To let a coding agent drive it, install the published skill with
 `npx skills add jxu-dev-c/Stillnote`.
+
+## Upgrading from 0.8.0
+
+Existing meetings, settings, and downloaded models are preserved, and no new download is
+needed. Your summary provider, model, effort, and prompt are kept; a stored copy of the previous
+default prompt moves to the new default.
+
+**Breaking:** a custom shell path, or turning shell inheritance off, is no longer supported and is
+dropped on upgrade. If your CLI credentials or `PATH` are exported from a different shell's
+startup files, such as `.bash_profile` while your account shell is Zsh, export them from your
+login shell's startup files instead. If those startup files hang or prompt, fix them, or summaries
+and Name Meeting fail with "Could not load your shell environment."
 
 ## Upgrading from 0.7.0
 
@@ -184,7 +204,8 @@ remove `stillnote-runtime`. Neither operation deletes meetings, settings, or mod
 - First launch may require approval in macOS Privacy & Security.
 - Updates may require granting capture permissions again.
 - Speech models are downloaded separately in Settings.
-- Optional AI summaries use your configured Codex or Claude Code CLI and may send
-  transcript text to hosted models after your confirmation.
+- Optional AI summaries use your configured Codex or Claude Code CLI with its own
+  permissions, and send transcript text, notes, and context links to the provider chosen in
+  Settings.
 - The `stillnote` command reads meetings whether or not the app is open, but changing data and
   starting or stopping a recording need Stillnote running.
