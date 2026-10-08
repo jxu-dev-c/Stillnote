@@ -42,7 +42,7 @@ struct RootView: View {
                         }
                         .help("New Recording (⌘R)")
                         Button { sheet = .importAudio } label: {
-                            ToolbarIcon("Import Audio", systemImage: "square.and.arrow.down")
+                            ToolbarIcon("Import Audio", systemImage: "arrow.down.circle")
                         }
                         .help("Import Audio (⌘O)")
                     }
