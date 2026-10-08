@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Open screen recordings in a sheet from the **Show Video** button in the playback bar instead
+  of playing them inline above the summary. Every meeting now has the same bottom playback bar.
 - Name meetings with a separate **Name Meeting** button beside the title instead of as part of a
   summary. It sends one request with its own fixed prompt, using the meeting's summary, or its
   transcript when there is no summary. Summaries no longer change titles: a custom summary prompt

@@ -256,8 +256,8 @@ every clock reading the meeting passed through. Across a spring-forward change i
 clock time it finished. Across a fall-back change it includes both passes through the repeated
 hour, so meetings held in either pass still overlap it. Overlapping meetings share a column. The date math and the overlap columns are
 in `StillnoteCore/Models/CalendarLayout.swift`. The chosen tab, range, and date are kept per
-window in scene storage. Playback uses AVKit's `VideoPlayer` for
-recordings with screen video and a compact transport otherwise. Settings live in the
+window in scene storage. Playback is one compact transport for every
+meeting; recordings with screen video open AVKit's `VideoPlayer` in a sheet that shares its player. Settings live in the
 standard Settings scene. The main window is a single `Window` scene; a `MenuBarExtra` starts and
 stops a recording with the saved transcription defaults, shows the elapsed time while capturing,
 and opens the window or Settings, which keeps the app running after the window closes. Notes autosave after a 700 ms pause, with an unsaved draft kept in
