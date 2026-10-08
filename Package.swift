@@ -29,7 +29,10 @@ let package = Package(
         .executableTarget(
             name: "Stillnote",
             dependencies: ["StillnoteCore"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            // SwiftUI's VideoPlayer needs AVPlayerView at runtime, even when the linker
+            // sees only the _AVKit_SwiftUI overlay's symbols.
+            linkerSettings: [.linkedFramework("AVKit")]
         ),
         // Ships inside the app bundle as `stillnote`, beside StillnoteSpeechWorker.
         .executableTarget(

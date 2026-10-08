@@ -8,8 +8,8 @@ and associated media, but does not erase backups or guarantee forensic erasure.
 Network activity includes dependency installation, public Hugging Face model downloads,
 page-title and favicon requests for context links, and optional summary CLI requests.
 Summaries send transcript text and speaker labels to the provider chosen in
-**Settings → Summaries**; for recordings with screen video, **Send Video Path to AI** in the
-meeting's More menu also includes the local video path as text. **Name Meeting** sends the
+**Settings → Summaries**; recordings with screen video always include the local video path
+as text. The agent can access that path according to its own configuration and permissions. **Name Meeting** sends the
 meeting's summary, or the opening of its transcript and speaker labels when there is no summary.
 Choosing a provider in Settings is the consent: the window does not ask again for each request. Provider retention and
 account policies apply. No cloud transcription fallback is used.

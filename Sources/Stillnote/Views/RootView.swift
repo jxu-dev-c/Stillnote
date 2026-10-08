@@ -38,11 +38,11 @@ struct RootView: View {
                 .toolbar {
                     ToolbarItemGroup(placement: .primaryAction) {
                         Button { sheet = .record } label: {
-                            Label("New Recording", systemImage: "record.circle")
+                            ToolbarIcon("New Recording", systemImage: "record.circle")
                         }
                         .help("New Recording (⌘R)")
                         Button { sheet = .importAudio } label: {
-                            Label("Import Audio", systemImage: "square.and.arrow.down")
+                            ToolbarIcon("Import Audio", systemImage: "arrow.down.circle")
                         }
                         .help("Import Audio (⌘O)")
                     }
@@ -98,14 +98,12 @@ struct RootView: View {
                         .font(StillnoteTheme.detailBodyFont)
                         .badge(Text(model.meetings.count.formatted()).font(StillnoteTheme.detailSupportingFont))
                 }
-            } header: {
-                Text("Library").font(StillnoteTheme.detailSupportingFont.weight(.semibold))
             }
 
             Section {
                 ForEach(model.meetings) { meeting in
                     NavigationLink(value: meeting.id) {
-                        Label {
+                        HStack(spacing: 8) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(meeting.title).font(StillnoteTheme.detailBodyFont.weight(.medium)).lineLimit(1)
                                 Text(meeting.createdDate, format: .dateTime.month(.abbreviated).day())
@@ -113,12 +111,12 @@ struct RootView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .padding(.vertical, 5)
-                        } icon: {
                             if meeting.status.isBusy {
                                 ProgressView().controlSize(.mini)
-                            } else {
-                                Image(systemName: meeting.status == .error ? "exclamationmark.triangle" : "waveform")
-                                    .font(StillnoteTheme.detailBodyFont)
+                            } else if meeting.status == .error {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .foregroundStyle(.orange)
+                                    .accessibilityLabel("Error")
                             }
                         }
                     }

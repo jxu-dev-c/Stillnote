@@ -462,15 +462,7 @@ final class AppModel {
             alertMessage = "Create a transcript before generating a summary."
             return
         }
-        var videoPath: URL?
-        if meeting.summaryIncludeVideoPath {
-            let candidate = paths.videoURL(id)
-            guard meeting.hasVideo, FileManager.default.fileExists(atPath: candidate.path) else {
-                alertMessage = "The screen video is missing. Turn off Send video path to AI and retry."
-                return
-            }
-            videoPath = candidate
-        }
+        let videoPath = meeting.hasVideo ? paths.videoURL(id) : nil
         await edit(id) {
             $0.status = .summarizing
             $0.progress = 0

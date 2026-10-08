@@ -143,7 +143,19 @@ private struct FakeAgent {
                 let calls = try String(contentsOf: agent.argumentsURL, encoding: .utf8)
                 #expect(calls.components(separatedBy: provider == .codex ? "exec\n" : "-p\n").count - 1 == 1)
                 #expect(!stdin.contains("notes and reference links"))
+                #expect(!stdin.contains("video_path"))
             }
+        }
+
+        // Every video path is included for both providers, without a per-meeting opt-in
+        // or a filesystem preflight (the agent decides how to use the reference).
+        let video = agent.directory.appendingPathComponent("screen recording \"review\".mp4")
+        for provider in SummaryProvider.allCases {
+            _ = try Summarizer.summarize(meeting: meeting, settings: SummarySettings(provider: provider),
+                                        allowRemote: true, videoPath: video)
+            let prompt = try String(contentsOf: agent.stdinURL, encoding: .utf8)
+            #expect(prompt.contains(Summarizer.json(["video_path": video.path])))
+            #expect(!prompt.contains("do not infer visual details"))
         }
 
         // The user's notes and context links travel with the transcript.
@@ -223,7 +235,7 @@ private struct FakeAgent {
         let script = directory.appendingPathComponent("sleeper")
         try Data("""
             #!/bin/bash
-            ( sleep 5; touch "\(marker.path)" ) &
+            ( sleep 2 && touch "\(marker.path)" ) &
             sleep 5
             """.utf8).write(to: script)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
@@ -233,7 +245,9 @@ private struct FakeAgent {
             input: Data(), stdoutURL: directory.appendingPathComponent("out"), timeout: 0.5
         )
         #expect(result.timedOut)
-        Thread.sleep(forTimeInterval: 1.5)
+        // Wait past the child deadline. Only a successful sleep may write the marker;
+        // SIGKILL can reach sleep before its shell during group teardown.
+        Thread.sleep(forTimeInterval: 2.5)
         #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
 

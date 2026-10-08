@@ -140,7 +140,6 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     public var audioName: String
     public var audioURL: String
     public var videoURL: String?
-    public var summaryIncludeVideoPath: Bool
     public var language: String
     public var speakerCount: Int?
     public var speakerProfiles: [String: String]
@@ -168,7 +167,6 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         case audioName = "audio_name"
         case audioURL = "audio_url"
         case videoURL = "video_url"
-        case summaryIncludeVideoPath = "summary_include_video_path"
         case speakerProfiles = "speaker_profiles"
         case speakerCount = "speaker_count"
         case contextLinks = "context_links"
@@ -193,7 +191,6 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         audioURL = try values.decodeIfPresent(String.self, forKey: .audioURL) ?? ""
         // Legacy rows predate these fields; storage.py applied the same defaults on read.
         videoURL = try values.decodeIfPresent(String.self, forKey: .videoURL)
-        summaryIncludeVideoPath = try values.decodeIfPresent(Bool.self, forKey: .summaryIncludeVideoPath) ?? false
         language = try values.decodeIfPresent(String.self, forKey: .language) ?? "auto"
         speakerCount = try values.decodeIfPresent(Int.self, forKey: .speakerCount)
         speakerProfiles = try values.decodeIfPresent([String: String].self, forKey: .speakerProfiles) ?? [:]
@@ -241,7 +238,6 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         self.audioName = audioName
         self.audioURL = "/api/meetings/\(id)/audio"
         self.videoURL = videoName == nil ? nil : "/api/meetings/\(id)/video"
-        self.summaryIncludeVideoPath = false
         self.language = language
         self.speakerCount = speakerCount
         self.speakerProfiles = [:]

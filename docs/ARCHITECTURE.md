@@ -48,7 +48,7 @@ Claude Code, dropping obsolete API credentials, without touching saved meetings.
 
 ```
 Meeting = {id,title,created_at,updated_at,duration,status:'ready'|'transcribing'|'transcribed'|'summarizing'|'complete'|'error',
-  progress,stage,error,audio_name,audio_url,video_url,summary_include_video_path,language,speaker_count,
+  progress,stage,error,audio_name,audio_url,video_url,language,speaker_count,
   speakers:Record<string,string>,segments:Segment[],summary:Summary|null,notes,context_links:ContextLink[],
   cleanup:{original_duration,head,tail,applied_at}|null,recorded_at?,source?:'recording'|'import',automatic_title,title_ownership_version}
 Segment = {id,start,end,speaker,text}
@@ -185,11 +185,10 @@ validates the result. The meeting's notes and context links follow the transcrip
 own context, with a request to look the links up with the agent's skills. Consent is a
 precondition checked before any process starts.
 
-A meeting's `summary_include_video_path` preference adds its local screen-video path to
-the request as JSON-encoded text metadata. It defaults to false for new and legacy
-meetings, and the path is resolved from the app's own video store; Stillnote sends no
-video content. Changing it affects future summaries and preserves
-any existing one.
+For meetings with screen video, summaries always include the local screen-video path
+resolved from the app's own video store as JSON-encoded text. Stillnote sends no video
+bytes itself; the agent can use the path according to its own configuration and permissions.
+The retired `summary_include_video_path` field is ignored when reading older meetings.
 
 ## Launch
 

@@ -170,7 +170,6 @@ func temporaryPaths() throws -> Paths {
         #expect(meeting.speakerProfiles.isEmpty)
         #expect(meeting.contextLinks.isEmpty)
         #expect(meeting.videoURL == nil)
-        #expect(meeting.summaryIncludeVideoPath == false)
         #expect(meeting.segments.first?.text == "hi")
         #expect(meeting.speakerName("speaker_1") == "Ada")
     }
