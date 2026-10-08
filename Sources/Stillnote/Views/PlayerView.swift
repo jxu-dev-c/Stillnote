@@ -193,17 +193,33 @@ private struct VideoSheet: View {
     let player: PlayerModel
 
     var body: some View {
-        VStack(spacing: 16) {
-            VideoPlayer(player: player.player)
-                .aspectRatio(16 / 9, contentMode: .fit)
-                .clipShape(.rect(cornerRadius: StillnoteTheme.cornerRadius))
-            HStack {
-                Spacer()
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+        VideoPlayer(player: player.player)
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .clipShape(.rect(cornerRadius: StillnoteTheme.cornerRadius))
+            // AVKit keeps its own buttons on the leading edge and along the bottom.
+            .overlay(alignment: .topTrailing) {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 28, height: 28)
+                }
+                .modifier(CloseButtonStyle())
+                .keyboardShortcut(.cancelAction)
+                .help("Close")
+                .accessibilityLabel("Close video")
+                .padding(12)
             }
+            .padding(20)
+            .frame(minWidth: 720, idealWidth: 960, minHeight: 420, idealHeight: 580)
+    }
+}
+
+private struct CloseButtonStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *) {
+            content.buttonStyle(.glass).buttonBorderShape(.circle)
+        } else {
+            content.buttonStyle(.bordered).buttonBorderShape(.circle)
         }
-        .padding(20)
-        .frame(minWidth: 720, idealWidth: 960, minHeight: 460, idealHeight: 600)
     }
 }
