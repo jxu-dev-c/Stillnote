@@ -13,7 +13,7 @@ build/
 .claude/
 skills-lock.json
 
-# MOSS inference runtime and local data
+# Retired Python inference runtime and local data
 .venv-moss/
 __pycache__/
 *.py[cod]

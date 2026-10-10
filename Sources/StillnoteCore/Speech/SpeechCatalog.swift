@@ -10,6 +10,8 @@ public enum SpeechModelKind: String, Codable, Sendable {
     case transcription
     /// A supporting model the app uses on its own, never offered as an engine.
     case vad
+    /// Speaker detection, paired with a transcription engine rather than chosen.
+    case diarization
 }
 
 public struct SpeechModelSpec: Codable, Sendable {
@@ -44,11 +46,23 @@ public struct SpeechModelSpec: Codable, Sendable {
     public var infoURL: URL? { URL(string: "https://huggingface.co/\(repo)") }
 }
 
-/// The pinned speech model manifest. MOSS 0.9B is the only supported engine.
+/// The pinned speech model manifest.
 public enum SpeechCatalog {
-    public static let defaultModel = "moss-0.9b"
+    /// The Nemotron ASR engine: transcription only, paired with `diarizationModel` for
+    /// speaker labels.
+    public static let nemotronModel = "nemotron-asr-0.6b"
+    /// Nemotron 3 Diarization, which labels speakers for the Nemotron ASR engine. It is
+    /// paired with that engine rather than selected, so its `kind` keeps it out of
+    /// `transcriptionModels`.
+    public static let diarizationModel = "nemotron-diarize-100m"
     /// Silero VAD, used to locate speech for the silence trim and non-speech suppression.
     public static let vadModel = "silero-vad"
+    public static let defaultModel = nemotronModel
+
+    /// Whether an engine needs the separate diarizer installed alongside it. MOSS labeled
+    /// speakers inside one model; Nemotron does not, so the pair is installed together and
+    /// neither half transcribes without the other.
+    public static func requiresDiarizer(_ model: String) -> Bool { model == nemotronModel }
 
     /// Only these may be selected as a transcription engine.
     public static var transcriptionModels: [String: SpeechModelSpec] {

@@ -3,9 +3,9 @@ import Testing
 
 @testable import StillnoteCore
 
-/// End-to-end transcription against the real installed MOSS checkpoint and the real
-/// MOSS worker process. Opt in with STILLNOTE_INTEGRATION=1; it needs the downloaded
-/// model and native worker, and it occupies the GPU for a minute or two.
+/// End-to-end transcription against the real installed models and the real worker process.
+/// Opt in with STILLNOTE_INTEGRATION=1; it needs the downloaded models and native worker,
+/// and it occupies the Neural Engine for a minute or two.
 @Suite(
     .enabled(if: ProcessInfo.processInfo.environment["STILLNOTE_INTEGRATION"] == "1"),
     .serialized,
@@ -20,10 +20,16 @@ struct TranscriptionIntegrationTests {
 
     private func installedPaths() throws -> Paths {
         let paths = try Paths.standard()
+        let installed = ModelInstaller.isInstalled(
+            modelDirectory: paths.modelDirectory, model: SpeechCatalog.defaultModel
+        )
+        let diarizer = !SpeechCatalog.requiresDiarizer(SpeechCatalog.defaultModel)
+            || ModelInstaller.isInstalled(
+                modelDirectory: paths.modelDirectory, model: SpeechCatalog.diarizationModel
+            )
         try #require(
-            ModelInstaller.isInstalled(modelDirectory: paths.modelDirectory, model: SpeechCatalog.defaultModel)
-                && SpeechWorkerLocator.runtimeReady(worker: workerURL),
-            "Download MOSS and run ./scripts/setup.sh before the integration tests."
+            installed && diarizer && SpeechWorkerLocator.runtimeReady(worker: workerURL),
+            "Download the speech models and run ./scripts/setup.sh before the integration tests."
         )
         return paths
     }
@@ -42,7 +48,10 @@ struct TranscriptionIntegrationTests {
         #expect(result.duration > 0)
         #expect(result.segments.allSatisfy { $0.end >= $0.start && $0.end <= result.duration })
         #expect(result.segments.allSatisfy { result.speakers[$0.speaker] != nil })
-        #expect(stages.withLock { $0.contains { $0.contains("Apple GPU") } })
+        #expect(stages.withLock { $0.contains { $0.contains("Neural Engine") } })
+        // Speaker ids are numbered by first appearance, with no gaps.
+        #expect(Set(result.speakers.keys)
+            == Set((1...result.speakers.count).map { "speaker_\($0)" }))
     }
 
     /// Cleanup must not cost recognition. Measured on an 80-second real recording: 187 words
@@ -84,13 +93,33 @@ struct TranscriptionIntegrationTests {
         #expect(Double(overlap) / Double(max(before.count, 1)) > 0.8)
     }
 
+    /// The fusion is where a two-model engine can go wrong: words and speakers come from
+    /// independent models. `scripts/verify-native.py` passes four alternating turns from two
+    /// synthetic voices, which must come back as exactly two speakers in A-B-A-B order.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["STILLNOTE_TWO_SPEAKER_AUDIO"] != nil))
+    func separatesTwoAlternatingSpeakers() async throws {
+        let paths = try installedPaths()
+        let audio = try #require(ProcessInfo.processInfo.environment["STILLNOTE_TWO_SPEAKER_AUDIO"])
+        let result = try await TranscriptionService(modelDirectory: paths.modelDirectory, workerURL: workerURL).transcribe(
+            audioURL: URL(fileURLWithPath: audio), model: SpeechCatalog.defaultModel,
+            language: "en", speakerCount: nil
+        ) { _, _ in }
+        #expect(result.speakers.count == 2)
+        // Collapse consecutive segments, ignoring one-segment interjections under a second.
+        var turns: [String] = []
+        for segment in result.segments where segment.end - segment.start >= 1 {
+            if turns.last != segment.speaker { turns.append(segment.speaker) }
+        }
+        #expect(turns == ["speaker_1", "speaker_2", "speaker_1", "speaker_2"])
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["STILLNOTE_HOT_WORDS_AUDIO"] != nil))
     func transcribesWithHotWords() async throws {
         let paths = try installedPaths()
         let audio = try #require(ProcessInfo.processInfo.environment["STILLNOTE_HOT_WORDS_AUDIO"])
         let result = try await TranscriptionService(modelDirectory: paths.modelDirectory, workerURL: workerURL).transcribe(
             audioURL: URL(fileURLWithPath: audio), model: SpeechCatalog.defaultModel,
-            language: "en", speakerCount: 1, hotWords: ["Stillnote", "OpenMOSS"]
+            language: "en", speakerCount: 1, hotWords: ["Stillnote", "Nemotron"]
         ) { _, _ in }
         #expect(!result.segments.isEmpty)
         #expect(result.segments.allSatisfy { $0.end >= $0.start && $0.end <= result.duration })
@@ -132,13 +161,13 @@ struct TranscriptionIntegrationTests {
                 model: SpeechCatalog.defaultModel, language: "auto", speakerCount: nil
             ) { _, _ in }
         }
-        // Cancel while MOSS is still loading or encoding, before it can finish.
+        // Cancel while the engine is still loading or transcribing, before it can finish.
         try await Task.sleep(for: .seconds(3))
         task.cancel()
         await #expect(throws: Error.self) { try await task.value }
 
         try await Task.sleep(for: .seconds(4))
-        #expect(runningWorkerCount() == 0, "A MOSS worker survived cancellation.")
+        #expect(runningWorkerCount() == 0, "A speech worker survived cancellation.")
     }
 
     private func fixtureAudio(paths: Paths) async throws -> URL {

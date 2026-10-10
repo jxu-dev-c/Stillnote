@@ -110,7 +110,11 @@ struct TranscriptionOptionFields: View {
         }
         Picker("Speakers", selection: $speakerCount) {
             Text("Detect automatically").tag(Int?.none)
-            ForEach(1...10, id: \.self) { Text("\($0)").tag(Int?.some($0)) }
+            // The diarizer predicts eight arrival-ordered channels and cannot be asked
+            // for more, so offering more would be offering something we cannot deliver.
+            ForEach(1...NemotronWorkerRequest.maxSpeakers, id: \.self) {
+                Text("\($0)").tag(Int?.some($0))
+            }
         }
     }
 }

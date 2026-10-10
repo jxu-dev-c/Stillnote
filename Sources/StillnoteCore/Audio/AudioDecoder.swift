@@ -9,7 +9,7 @@ public struct DecodedAudio: Sendable {
     public let peak: Float
 }
 
-/// Decodes a local recording to the 16 kHz mono float32 stream MOSS expects.
+/// Decodes a local recording to the 16 kHz mono float32 stream the speech models expect.
 /// External media references are forbidden, so a container cannot pull in another file.
 public enum AudioDecoder {
     public static let sampleRate = 16_000
@@ -91,7 +91,7 @@ public enum AudioDecoder {
         let duration = Double(frames) / Double(sampleRate)
         guard frames > 0, finite else { throw SpeechError.message("This recording contains no valid audio.") }
         guard duration <= Validation.maxRecordingSeconds else {
-            throw SpeechError.message("MOSS supports recordings up to 90 minutes. Import a shorter recording.")
+            throw SpeechError.message("Stillnote transcribes recordings up to 90 minutes. Import a shorter recording.")
         }
         return DecodedAudio(pcmURL: pcmURL, duration: duration, frames: frames, peak: peak)
     }

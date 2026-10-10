@@ -1,60 +1,4 @@
 {
-  "moss-0.9b": {
-    "repo": "vanch007/mlx-MOSS-Transcribe-Diarize-8bit",
-    "revision": "7210aef739be6b9e068fba9b1d60369ec053655b",
-    "name": "MOSS 0.9B",
-    "tier": "Fast / light",
-    "files": {
-      "added_tokens.json": {
-        "size": 707,
-        "sha256": "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680"
-      },
-      "chat_template.jinja": {
-        "size": 4762,
-        "sha256": "8641466a16b184ebaf7c4903391e607cfd532ab937e81a64120628ab79d827f4"
-      },
-      "config.json": {
-        "size": 2543,
-        "sha256": "9c94b3ce7403222c462a2851f39a205aa14456eb6c550156721152a3f12ae797"
-      },
-      "generation_config.json": {
-        "size": 107,
-        "sha256": "e53a4b3ce4f944230cf1ca8fed0c42f4ff0d8c1443eaf98b5315d987334dd9e4"
-      },
-      "merges.txt": {
-        "size": 1671853,
-        "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
-      },
-      "model.safetensors": {
-        "size": 1258427152,
-        "sha256": "a7ed3c83a357347472ea35f7266c916c15a59b6700c5f4e861db532743fe7c86"
-      },
-      "preprocessor_config.json": {
-        "size": 315,
-        "sha256": "ba2e601484abc80f4cded977f9a4fd4a53175b7d35c2f2511f0cfc3a32ad2499"
-      },
-      "processor_config.json": {
-        "size": 292,
-        "sha256": "a978c2dd54a65b576c3dae4b654fe9bcbac1184c6db2df0afb2c90fcdc872ae7"
-      },
-      "special_tokens_map.json": {
-        "size": 613,
-        "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd"
-      },
-      "tokenizer.json": {
-        "size": 11423222,
-        "sha256": "bcf03774334462d6e34b5005cb11120a62275f146ee2953e68731ecdbce84fbb"
-      },
-      "tokenizer_config.json": {
-        "size": 474,
-        "sha256": "e1be11414f6b66d01085411aead0704662fd9515ed30d7c509e1474755c76144"
-      },
-      "vocab.json": {
-        "size": 2776833,
-        "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
-      }
-    }
-  },
   "silero-vad": {
     "repo": "mlx-community/silero-vad",
     "revision": "7bc17f22d3c0451bd3a6cd71e759b009271ff49a",
@@ -70,6 +14,146 @@
       "model.safetensors": {
         "size": 2179454,
         "sha256": "185e0bc3ee2c48ce425a37209fe917a1aca22ab6b85799430dd1b4894087a8b8"
+      }
+    }
+  },
+  "nemotron-asr-0.6b": {
+    "repo": "aufklarer/Nemotron-3.5-ASR-Streaming-0.6B-CoreML-INT8",
+    "revision": "447095fe87b480b5e6a15367f135303d479de8ac",
+    "name": "Nemotron 3.5 ASR 0.6B",
+    "tier": "Transcription",
+    "kind": "transcription",
+    "directory": "nemotron-asr-0.6b",
+    "files": {
+      "config.json": {
+        "size": 589,
+        "sha256": "f211a2802eae75d05309c4978f129819fa94083fd0c3bc55d7dab06335953113"
+      },
+      "decoder.mlmodelc/analytics/coremldata.bin": {
+        "size": 243,
+        "sha256": "4d58297228f44ca23752d3850c60a0559af78a6d4455b348cd8dc6364b8ed0d4"
+      },
+      "decoder.mlmodelc/coremldata.bin": {
+        "size": 404,
+        "sha256": "15a3baf01a47f013b388b76b940ab5ec33ba84a8bc6025e5d5dba1ec9bf28762"
+      },
+      "decoder.mlmodelc/model.mil": {
+        "size": 8981,
+        "sha256": "d0cd6c15e2898f834c7fb268e0684f291ac20869639c49cfeab88504a1112e9e"
+      },
+      "decoder.mlmodelc/weights/weight.bin": {
+        "size": 29870592,
+        "sha256": "dcdeccd4ccf46e2675224f9f030d46c1a89e2bda4abb316e901e1a21f1597f8f"
+      },
+      "encoder.mlmodelc/analytics/coremldata.bin": {
+        "size": 243,
+        "sha256": "cdd661c54b5e6f6389b58567c144cba6fad0d9e2c998d8a9048f87e857f9f32b"
+      },
+      "encoder.mlmodelc/coremldata.bin": {
+        "size": 701,
+        "sha256": "c37a6fb1813130e71e0a19e58c235974234f1b9b3984ec1afa9323bf3c192e8d"
+      },
+      "encoder.mlmodelc/model.mil": {
+        "size": 821810,
+        "sha256": "28c91a4bf90a15fa0c65c62bdc67e8755ad43f5f5ff42503b13e05768035d8ce"
+      },
+      "encoder.mlmodelc/weights/weight.bin": {
+        "size": 591932416,
+        "sha256": "5fab9a684e34183d5f19cd1c63c19eefd7b02cc5a68af1367c6489702e746508"
+      },
+      "joint.mlmodelc/analytics/coremldata.bin": {
+        "size": 243,
+        "sha256": "e76f3618638fd5cf64805d4ba57942cbc7fcb1b38edd13851a151978871e57c4"
+      },
+      "joint.mlmodelc/coremldata.bin": {
+        "size": 355,
+        "sha256": "1b4924670d16462ab2de77fb7e5f7fa721af139939e5ab2ddcd903734894ce9d"
+      },
+      "joint.mlmodelc/model.mil": {
+        "size": 3921,
+        "sha256": "8a4c0bab78d227f82c2cdf72ecaf0b4b61ce1a26c1299ea1c879cd71af65ede2"
+      },
+      "joint.mlmodelc/weights/weight.bin": {
+        "size": 18911744,
+        "sha256": "c0ef0a3a6598f962d2aad598dc6850e4428874033419817121e11f1fff4a9cfe"
+      },
+      "languages.json": {
+        "size": 2020,
+        "sha256": "a1efe863e1057d4658bce8175c978020ac35a63a3c9a65ae899f324a32c8e4f6"
+      },
+      "tokenizer.model": {
+        "size": 406554,
+        "sha256": "ce3895e40806f02a26c3a225161b96ef682d6c0054bae32a245dec4258d7d291"
+      },
+      "vocab.json": {
+        "size": 236127,
+        "sha256": "fd726dc25cc0c0b46403675127e831bab56ca56b8c7ae3ee7781f5c6d7692f4f"
+      }
+    }
+  },
+  "nemotron-diarize-100m": {
+    "repo": "aufklarer/Nemotron-3-Diarization-100M-CoreML-INT8",
+    "revision": "db823d36c2230d5535a6165c932f8a5369484b7a",
+    "name": "Nemotron 3 Diarization",
+    "tier": "Speaker detection",
+    "kind": "diarization",
+    "directory": "nemotron-diarize-100m",
+    "files": {
+      "LICENSE": {
+        "size": 2619,
+        "sha256": "2ab44b68365473c112f5092211a38f231cb23e50de68b75a13369adbd76a74df"
+      },
+      "NOTICE": {
+        "size": 255,
+        "sha256": "32318cfb5e97ad0da7067bb56cd3f05279df932efeddbac1ab85c9ad6d008a98"
+      },
+      "Nemotron3Head.mlmodelc/analytics/coremldata.bin": {
+        "size": 243,
+        "sha256": "b83762ffca520790211707c5c57c99cf9b9a8a93d35f6cf509fb6111f9133de1"
+      },
+      "Nemotron3Head.mlmodelc/coremldata.bin": {
+        "size": 418,
+        "sha256": "aa5a39243351deb724153a6c41315da577ed3e401c4b90041972ea9d8bf77e99"
+      },
+      "Nemotron3Head.mlmodelc/metadata.json": {
+        "size": 2786,
+        "sha256": "8f4c0d178795bd2af2015f1e1197c8116a372308011dffa4dfa0f64a4979e57c"
+      },
+      "Nemotron3Head.mlmodelc/model.mil": {
+        "size": 422835,
+        "sha256": "d433c8c1f1b0b5aed63accfadb2e8abecd0f3d9562a9c00e630e618b86b36006"
+      },
+      "Nemotron3Head.mlmodelc/weights/weight.bin": {
+        "size": 106087744,
+        "sha256": "07a473fa166ceadbe750f3fae68632188ffa42fc21dcf2618f1f9c2ec8368402"
+      },
+      "Nemotron3PreEncoder.mlmodelc/analytics/coremldata.bin": {
+        "size": 243,
+        "sha256": "b186aeaa8744776d56343c3a8e23eb7ba6ccb76416493f0bfa111145350c38d8"
+      },
+      "Nemotron3PreEncoder.mlmodelc/coremldata.bin": {
+        "size": 325,
+        "sha256": "8ebc335e5a14f1f58a5c4f0591ed2685556298c7406b05cffd3eba9413aef3a2"
+      },
+      "Nemotron3PreEncoder.mlmodelc/metadata.json": {
+        "size": 1665,
+        "sha256": "b30bb69b4625293335d55bc20bf2333b661d0bca53186d34576da9819f4acdf2"
+      },
+      "Nemotron3PreEncoder.mlmodelc/model.mil": {
+        "size": 1544,
+        "sha256": "9776cec88d6713286da0b163280d467433760606dabaa5a556a6ccf1501fb5cf"
+      },
+      "Nemotron3PreEncoder.mlmodelc/weights/weight.bin": {
+        "size": 558336,
+        "sha256": "6e4de3172736850d9adbd97ce3b7c6364cd6d131e3f8171f48b444f00dbcb538"
+      },
+      "config.json": {
+        "size": 2174,
+        "sha256": "e79ce1f621da90f6bb7b66bd1bcc4670623f1f12a448fc8d8985baa511f103b8"
+      },
+      "learnable_silence.f32": {
+        "size": 2048,
+        "sha256": "d4417b3c0eabdf7c47032fac2b5b5a7ee83d819a6ddda8fd8eaf74e2b5cc4ac7"
       }
     }
   }

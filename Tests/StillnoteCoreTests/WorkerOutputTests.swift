@@ -33,22 +33,35 @@ struct WorkerFailureTests {
         let pipe = Pipe()
         let collector = WorkerOutput { _, _ in }
         let read = Task { await collector.read(from: pipe.fileHandleForReading) }
-        let bytes = Data("untrusted library diagnostic\nSTILLNOTE_EVENT invalid\nSTILLNOTE_EVENT {\"type\":\"result\",\"text\":\"示例\"}".utf8)
+        let event = #"STILLNOTE_EVENT {"type":"transcript","transcript":{"language":"zh-CN","#
+            + #""words":[{"text":"示例","start":0.5,"end":1.0}],"activity":[{"speaker":0,"start":0,"end":1.5}]}}"#
+        let bytes = Data("untrusted library diagnostic\nSTILLNOTE_EVENT invalid\n\(event)".utf8)
         for byte in bytes { try pipe.fileHandleForWriting.write(contentsOf: Data([byte])) }
         try pipe.fileHandleForWriting.close()
         await read.value
-        #expect(await collector.text == "示例")
+        let transcript = await collector.transcript
+        #expect(transcript?.words.map(\.text) == ["示例"])
+        #expect(transcript?.activity.map(\.speaker) == [0])
         #expect(await collector.error == nil)
     }
 
     @Test func abnormalExitIsNotASuccessfulTranscript() async throws {
-        let service = TranscriptionService(modelDirectory: URL(fileURLWithPath: "/models"))
         for _ in 0..<20 {
             await #expect(throws: Error.self) {
-                try await service.runWorker(worker: URL(fileURLWithPath: "/usr/bin/false"),
-                    pcmURL: URL(fileURLWithPath: "/unused"), model: SpeechCatalog.defaultModel,
-                    language: "auto", speakerCount: nil, hotWords: []) { _, _ in }
+                try await SpeechWorkerProcess.run(
+                    worker: URL(fileURLWithPath: "/usr/bin/false"), arguments: [],
+                    failureMessage: "failed"
+                ) { _, _ in }
             }
         }
+    }
+
+    /// A clean exit that never emitted a transcript leaves nothing to save; the service turns
+    /// that into a failure rather than an empty transcript.
+    @Test func cleanExitWithoutATranscriptCarriesNone() async throws {
+        let collector = try await SpeechWorkerProcess.run(
+            worker: URL(fileURLWithPath: "/usr/bin/true"), arguments: [], failureMessage: "failed"
+        ) { _, _ in }
+        #expect(await collector.transcript == nil)
     }
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Drives MOSS inference in a separate native Swift process. Isolation means a native model
+/// Drives speech inference in a separate native Swift process. Isolation means a native model
 /// crash cannot take the app down, and stopping a job is a process termination rather
 /// than an unwinding of in-process GPU work.
 public struct TranscriptionService: Sendable {
@@ -21,8 +21,8 @@ public struct TranscriptionService: Sendable {
     /// handed to the model. It never touches `audioURL`, so playback and exports keep whatever
     /// was actually recorded, and `nil` skips the pass entirely.
     public func transcribe(
-        audioURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String] = [], mode: TranscriptionMode = .quality,
-        cleanup: AudioCleanupSettings? = nil,
+        audioURL: URL, model: String, language: String, speakerCount: Int?,
+        hotWords: [String] = [], cleanup: AudioCleanupSettings? = nil,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> TranscriptionResult {
         _ = try SpeechCatalog.spec(model)
@@ -65,17 +65,66 @@ public struct TranscriptionService: Sendable {
         try Task.checkCancellation()
         progress(8, "Loading \(status.modelName) locally")
 
-        let text = try await runWorker(
-            worker: worker, pcmURL: cleaned.pcmURL, model: model, language: language,
-            speakerCount: speakerCount, hotWords: hotWords, mode: mode, progress: progress
-        )
-        // Timestamps come back relative to the audio the model saw; the offset puts them
+        // Timestamps come back relative to the audio the models saw; the offset puts them
         // back on the stored recording's timeline.
-        let result = try MossParser.parse(
-            text, duration: decoded.duration, language: language, offset: cleaned.offset
+        let result = try await runNemotron(
+            worker: worker, pcmURL: cleaned.pcmURL, model: model, language: language,
+            speakerCount: speakerCount, hotWords: hotWords, duration: decoded.duration,
+            offset: cleaned.offset, progress: progress
         )
         progress(100, "Local transcription complete")
         return result
+    }
+
+    /// Builds the Nemotron worker invocation. Both model directories are resolved here, so
+    /// the worker is handed verified local paths and never a model name to look up.
+    func nemotronArguments(
+        pcmURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String],
+        geometry: NemotronWorkerRequest.Geometry = .offline
+    ) throws -> [String] {
+        let request = NemotronWorkerRequest(
+            asrModelPath: SpeechCatalog.directory(
+                modelDirectory: modelDirectory, model: model
+            ).path,
+            diarizerModelPath: SpeechCatalog.directory(
+                modelDirectory: modelDirectory, model: SpeechCatalog.diarizationModel
+            ).path,
+            pcmPath: pcmURL.path,
+            language: language.isEmpty ? "auto" : language,
+            speakerCount: speakerCount,
+            hotWords: hotWords,
+            geometry: geometry
+        )
+        return ["nemotron", try request.encoded()]
+    }
+
+    private func runNemotron(
+        worker: URL, pcmURL: URL, model: String, language: String, speakerCount: Int?,
+        hotWords: [String], duration: Double, offset: Double,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> TranscriptionResult {
+        let failed = "The local speech worker stopped unexpectedly. Your recording is saved. "
+            + "Try again, use a shorter recording, or reinstall Stillnote."
+        let collector = try await SpeechWorkerProcess.run(
+            worker: worker,
+            arguments: try nemotronArguments(
+                pcmURL: pcmURL, model: model, language: language, speakerCount: speakerCount,
+                hotWords: hotWords
+            ),
+            failureMessage: failed, progress: progress
+        )
+        // A zero exit with no transcript event is still a failure, not an empty transcript.
+        guard let transcript = await collector.transcript else {
+            throw SpeechError.message(failed)
+        }
+        progress(98, "Labeling speakers")
+        return try NemotronTranscript.build(
+            words: transcript.words, activity: transcript.activity, duration: duration,
+            language: language, offset: offset,
+            options: SpeakerAttribution.Options(
+                speakerLimit: speakerCount.map(NemotronWorkerRequest.clampSpeakers)
+            )
+        )
     }
 
     /// Applies the cleanup pass, falling back to the untouched audio whenever it cannot run.
@@ -118,40 +167,5 @@ public struct TranscriptionService: Sendable {
         } catch {
             return untouched
         }
-    }
-
-    func workerArguments(
-        pcmURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String], mode: TranscriptionMode = .quality
-    ) throws -> [String] {
-        var arguments = [
-            pcmURL.path,
-            SpeechCatalog.directory(modelDirectory: modelDirectory, model: model).path,
-            language.isEmpty ? "auto" : language, String(speakerCount ?? 0),
-        ]
-        let words = TranscriptionSettings.normalizeHotWords(hotWords)
-        if !words.isEmpty || mode != .quality {
-            arguments.append(String(decoding: try JSONEncoder().encode(words), as: UTF8.self))
-        }
-        if mode != .quality { arguments.append(mode.rawValue) }
-        return arguments
-    }
-
-    func runWorker(
-        worker: URL, pcmURL: URL, model: String, language: String, speakerCount: Int?, hotWords: [String], mode: TranscriptionMode = .quality,
-        progress: @escaping @Sendable (Double, String) -> Void
-    ) async throws -> String {
-        let failed = "The local speech worker stopped unexpectedly. Your recording is saved. "
-            + "Try again, use a shorter recording, or reinstall Stillnote."
-        let collector = try await SpeechWorkerProcess.run(
-            worker: worker,
-            arguments: try workerArguments(
-                pcmURL: pcmURL, model: model, language: language, speakerCount: speakerCount,
-                hotWords: hotWords, mode: mode
-            ),
-            failureMessage: failed, progress: progress
-        )
-        // A zero exit with no result event is still a failure, not an empty transcript.
-        guard let text = await collector.text else { throw SpeechError.message(failed) }
-        return text
     }
 }

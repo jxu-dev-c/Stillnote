@@ -5,10 +5,11 @@ let package = Package(
     name: "Stillnote",
     platforms: [.macOS(.v15)],
     dependencies: [
-        .package(path: "Vendor/MossTranscribeDiarize"),
         .package(url: "https://github.com/ml-explore/mlx-swift.git", exact: "0.31.6"),
-        // Same revision Vendor/MossTranscribeDiarize already pins; referenced directly here
-        // so the worker can link MLXAudioVAD (Silero VAD) for silence detection.
+        // Vendor/NemotronSpeech's AudioCommon needs `Hub`; already in the resolved graph.
+        .package(url: "https://github.com/huggingface/swift-transformers.git", .upToNextMajor(from: "1.1.6")),
+        // Silero VAD, used for the silence trim and non-speech suppression. It is the one
+        // remaining MLX model, which is why the worker still ships mlx.metallib.
         .package(
             url: "https://github.com/Blaizzy/mlx-audio-swift.git",
             revision: "01dec7c9bdce3088a6b6b7ab9f2e403458195efb"
@@ -17,7 +18,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "StillnoteSpeechWorker",
-            dependencies: ["StillnoteCore", .product(name: "MossTranscribeDiarize", package: "MossTranscribeDiarize"),
+            dependencies: ["StillnoteCore", "NemotronStreamingASR", "SpeechVAD",
                            .product(name: "MLX", package: "mlx-swift"),
                            .product(name: "MLXAudioVAD", package: "mlx-audio-swift")]
         ),
@@ -40,10 +41,53 @@ let package = Package(
             dependencies: ["StillnoteCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // Vendored from soniqo/speech-swift; see Vendor/NemotronSpeech/UPSTREAM.md for the
+        // pinned revision and patches. Upstream is swift-tools-version 5.10, so these keep
+        // Swift 5 language mode rather than being patched for strict concurrency.
+        .target(
+            name: "AudioCommon",
+            dependencies: [.product(name: "Hub", package: "swift-transformers")],
+            path: "Vendor/NemotronSpeech/Sources/AudioCommon",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .target(
+            name: "MLXCommon",
+            dependencies: [
+                "AudioCommon",
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+                .product(name: "MLXFast", package: "mlx-swift"),
+                .product(name: "MLXFFT", package: "mlx-swift"),
+            ],
+            path: "Vendor/NemotronSpeech/Sources/MLXCommon",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        // Nemotron 3 Diarization CoreML/MLX backends, plus the Sortformer mel extraction
+        // and streaming-state machinery Nemotron 3 reuses.
+        .target(
+            name: "SpeechVAD",
+            dependencies: [
+                "AudioCommon", "MLXCommon",
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+            ],
+            path: "Vendor/NemotronSpeech/Sources/SpeechVAD",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .target(
+            name: "NemotronStreamingASR",
+            dependencies: [
+                "AudioCommon", "MLXCommon",
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+                .product(name: "MLXFast", package: "mlx-swift"),
+            ],
+            path: "Vendor/NemotronSpeech/Sources/NemotronStreamingASR",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .testTarget(
             name: "StillnoteCoreTests",
-            dependencies: ["StillnoteCore", .product(name: "MossTranscribeDiarize", package: "MossTranscribeDiarize"),
-                           .product(name: "MLX", package: "mlx-swift")],
+            dependencies: ["StillnoteCore", .product(name: "MLX", package: "mlx-swift")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

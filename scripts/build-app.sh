@@ -32,7 +32,7 @@ for bundle in "$bin"/*.bundle; do
   cp -R "$bundle" "$contents/Resources/"
 done
 mkdir -p "$contents/Resources/licenses"
-cp Vendor/MossTranscribeDiarize/LICENSE "$contents/Resources/licenses/MossTranscribeDiarize-LICENSE"
+cp Vendor/NemotronSpeech/LICENSE "$contents/Resources/licenses/NemotronSpeech-LICENSE"
 # Preserve licenses/notices for embedded C/C++ components as well as Swift packages.
 while IFS= read -r -d '' license; do
   relative="${license#.build/checkouts/}"

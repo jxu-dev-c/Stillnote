@@ -286,11 +286,26 @@ private func readPCM(_ url: URL) throws -> [Float] {
 }
 
 @Suite struct CleanupTranscriptTests {
+    private let oneSpeaker = SpeakerAttribution.Options(emissionLag: 0)
+
+    private func build(
+        _ words: [TranscribedWord], duration: Double, offset: Double = 0
+    ) throws -> TranscriptionResult {
+        try NemotronTranscript.build(
+            words: words, activity: [SpeakerActivity(speaker: 0, start: 0, end: duration)],
+            duration: duration, language: "en", offset: offset, options: oneSpeaker
+        )
+    }
+
     /// Timestamps from a trimmed copy are put back on the stored recording's timeline, and
     /// still satisfy the validation the store applies before saving.
-    @Test func parserOffsetRestoresTheOriginalTimeline() throws {
-        let text = "[0.00][S01]Hello there[2.00][2.50][S02]Hi[4.00]"
-        let shifted = try MossParser.parse(text, duration: 600, language: "en", offset: 120)
+    @Test func offsetRestoresTheOriginalTimeline() throws {
+        let shifted = try build(
+            [TranscribedWord(text: "Hello", start: 0, end: 1),
+             TranscribedWord(text: "there.", start: 1, end: 2),
+             TranscribedWord(text: "Hi.", start: 3.5, end: 4)],
+            duration: 600, offset: 120
+        )
         #expect(shifted.segments.first?.start == 120)
         #expect(shifted.segments.first?.end == 122)
         #expect(shifted.segments.last?.end == 124)
@@ -301,15 +316,13 @@ private func readPCM(_ url: URL) throws -> [Float] {
 
     /// The offset never pushes a segment past the end of the recording.
     @Test func offsetStaysInsideTheRecording() throws {
-        let result = try MossParser.parse(
-            "[0.00][S01]Late[5.00]", duration: 10, language: "en", offset: 8
-        )
+        let result = try build([TranscribedWord(text: "Late", start: 0, end: 5)], duration: 10, offset: 8)
         #expect(result.segments.first?.start == 8)
         #expect(result.segments.first?.end == 10)
     }
 
     @Test func withoutAnOffsetTimestampsAreUnchanged() throws {
-        let result = try MossParser.parse("[1.00][S01]Plain[2.00]", duration: 60, language: "en")
+        let result = try build([TranscribedWord(text: "Plain", start: 1, end: 2)], duration: 60)
         #expect(result.segments.first?.start == 1)
         #expect(result.segments.first?.end == 2)
     }
@@ -370,16 +383,28 @@ private func readPCM(_ url: URL) throws -> [Float] {
         #expect(changed)
     }
 
-    /// MOSS predates the manifest's directory key, so its install path must not move.
+    /// MOSS predates the manifest's directory key. It is retired, but an existing library
+    /// still has 1.26 GB at that exact path, which the app keeps and must never mistake for
+    /// a current model.
     @Test func modelDirectoriesResolveFromTheManifest() {
         let root = URL(fileURLWithPath: "/models")
         #expect(
-            SpeechCatalog.directory(modelDirectory: root, model: SpeechCatalog.defaultModel).path
+            SpeechCatalog.directory(modelDirectory: root, model: "moss-0.9b").path
                 == "/models/speech/moss-0.9b-mlx-8bit"
         )
         #expect(
             SpeechCatalog.directory(modelDirectory: root, model: SpeechCatalog.vadModel).path
                 == "/models/speech/silero-vad"
+        )
+        #expect(
+            SpeechCatalog.directory(
+                modelDirectory: root, model: SpeechCatalog.nemotronModel
+            ).path == "/models/speech/nemotron-asr-0.6b"
+        )
+        #expect(
+            SpeechCatalog.directory(
+                modelDirectory: root, model: SpeechCatalog.diarizationModel
+            ).path == "/models/speech/nemotron-diarize-100m"
         )
     }
 }

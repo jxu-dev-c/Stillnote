@@ -14,6 +14,17 @@ meeting's summary, or the opening of its transcript and speaker labels when ther
 Choosing a provider in Settings is the consent: the window does not ask again for each request. Provider retention and
 account policies apply. No cloud transcription fallback is used.
 
+The only model files Stillnote downloads are public, pinned repositories:
+`aufklarer/Nemotron-3.5-ASR-Streaming-0.6B-CoreML-INT8` (transcription),
+`aufklarer/Nemotron-3-Diarization-100M-CoreML-INT8` (speaker detection), and
+`mlx-community/silero-vad` (silence detection). Each file is checked against its recorded size
+and SHA-256 before use. Inference itself makes no network requests.
+
+The live transcript shown while recording is computed by a local worker process from audio
+handed to it over a pipe. That audio is never written to disk beyond the recording files capture
+already writes, never leaves the Mac, and the preview text is discarded when the recording stops;
+only the transcript made from the saved recording is kept.
+
 ## Meeting reminders
 
 Meeting reminders are off until turned on in **Settings → Transcription**. While they are on,

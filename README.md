@@ -3,7 +3,9 @@
 An extremely lightweight, private meeting notebook for your Mac. Record meetings or import recordings,
 turn speech into speaker-labeled transcripts, and keep summaries and notes together.
 
-Transcription and speaker detection are powered by [OpenMOSS's MOSS-Transcribe-Diarize model](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize).
+Transcription is powered by NVIDIA's [Nemotron 3.5 ASR](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b)
+and speaker detection by [Nemotron 3 Diarization](https://huggingface.co/nvidia/Nemotron-3-Diarization),
+both running on your Mac's Neural Engine.
 
 <img width="1268" height="895" alt="image" src="https://github.com/user-attachments/assets/1dc6f398-8ca3-46db-832e-b40ef7d594d3" />
 
@@ -13,6 +15,7 @@ Transcription and speaker detection are powered by [OpenMOSS's MOSS-Transcribe-D
 ## Why Stillnote?
 
 - **Local transcription.** Transcription and Speaker Detection entirely stay on your Mac.
+- **Live transcript.** Watch speaker-labeled text appear while you record.
 - **AI Agent summaries.** Use **Codex or Claude Code CLI** for summaries, without needing extra API configurations. 
 - **Calendar view.** In All Meetings, switch from the list to a Day, Week, or Month calendar
   that looks like Apple's Calendar, with each meeting at the time it was recorded.
@@ -35,7 +38,7 @@ Open Stillnote from Applications. The app is currently ad-hoc signed; if macOS b
 its first launch, use [Open Anyway in Privacy & Security](https://support.apple.com/en-gb/102445).
 If that fails or the icon keeps bouncing, follow the self-signing steps below.
 
-In **Settings**, download the speech model once (about 1.3 GB). Grant microphone
+In **Settings**, download the speech models once (about 750 MB). Grant microphone
 and screen/system audio permissions when prompted. For AI summaries, install and
 sign in to the Codex or Claude Code CLI, then select it in Settings.
 
@@ -108,8 +111,10 @@ brew upgrade --cask jxu-dev-c/stillnote/stillnote
 ```
 
 To repair the bundled speech engine, run `brew reinstall --cask jxu-dev-c/stillnote/stillnote`
-or replace the app using a fresh ZIP. Existing installations need a one-time download
-of the converted 8-bit model in Settings. Existing meetings and old model files are preserved.
+or replace the app using a fresh ZIP. Updating from a MOSS-based version needs a one-time
+download of the Nemotron models (about 750 MB) in Settings. Existing meetings and transcripts
+are preserved, and the old MOSS model folder is left in place; delete
+`~/Library/Application Support/Stillnote/models/speech/moss-0.9b-mlx-8bit` to reclaim 1.3 GB.
 
 Uninstall with `brew uninstall --cask jxu-dev-c/stillnote/stillnote`. These preserve your meetings,
 settings, and models. Avoid `--zap` or deleting Application Support to keep your data.
@@ -164,27 +169,20 @@ Bug reports, suggestions, and pull requests are welcome. Read the
 `./scripts/check.sh` before submitting a pull request. Use synthetic examples
 instead of private meeting content.
 
-### Transcription modes
+### Live transcript
 
-Choose a mode in **Settings → Transcription → Mode**. **Quality** is the default and
-preserves the model's original context precision. **Balanced** compresses context
-memory moderately. **Low Memory** compresses it further; recognition and speaker
-labels can differ. Every mode uses the same installed model and keeps the whole
-meeting in context. No additional downloads are required.
-
-The choice is saved automatically and applies to jobs queued afterward, including
-retranscriptions. If the selected mode cannot fit the Mac's memory budget, the job
-stops and suggests a lower-memory mode or shorter recording. Existing transcripts
-remain intact. Compression reduces context storage; it does not guarantee faster
-transcription. See [performance verification](docs/TRANSCRIPTION-PERFORMANCE.md).
+While a recording runs, the recording window shows a live transcript: words appear within
+about a second, and their speaker label settles a moment later. The preview is never saved.
+When you stop, Stillnote transcribes the finished recording again and keeps that transcript,
+which is more accurate. Turn the preview off in **Settings → Transcription**.
 
 ### Transcription hot words
 
 In **Settings → Transcription → Hot words**, enter one word or phrase per line,
-then select **Save Hot Words**. Names, acronyms, and specialized terms guide MOSS
-recognition; they are hints, not guaranteed replacements. One list is saved locally
+then select **Save Hot Words**. Names, acronyms, and specialized terms are boosted while
+the recognizer decodes; they are hints, not guaranteed replacements. One list is saved locally
 for your macOS user and applies to all transcriptions and retranscriptions queued
 after saving. Existing transcripts are unchanged. To disable hints, clear the list
 and save. Blank lines and duplicate entries are removed.
 
-Hot words are supported by the bundled native speech engine.
+Hot words apply to the live transcript as well as the saved one.

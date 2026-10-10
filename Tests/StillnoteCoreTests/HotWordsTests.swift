@@ -34,23 +34,26 @@ import Testing
         #expect(try await store.settings().transcription.hotWords.isEmpty)
     }
 
-    @Test func workerArgumentsPreserveWordsAndEmptyCompatibility() throws {
+    @Test func workerRequestPreservesQueuedWordsAndEmptyCompatibility() throws {
         let service = TranscriptionService(modelDirectory: URL(fileURLWithPath: "/models"))
         let pcm = URL(fileURLWithPath: "/audio file.f32")
-        let empty = try service.workerArguments(pcmURL: pcm, model: SpeechCatalog.defaultModel,
-                                                language: "", speakerCount: nil, hotWords: [])
-        #expect(empty.count == 4)
-        #expect(Array(empty.suffix(2)) == ["auto", "0"])
+        let empty = try NemotronWorkerRequest(json: service.nemotronArguments(
+            pcmURL: pcm, model: SpeechCatalog.defaultModel, language: "", speakerCount: nil, hotWords: []
+        )[1])
+        #expect(empty.language == "auto")
+        #expect(empty.speakerCount == nil)
+        #expect(empty.hotWords.isEmpty)
         var settings = TranscriptionSettings(hotWords: ["示例", "New York", "a, b", "say \"hi\"", "$HOME"])
         let queuedWords = settings.hotWords
         settings.hotWords = ["Changed later"]
-        let arguments = try service.workerArguments(pcmURL: pcm, model: SpeechCatalog.defaultModel,
-                                                    language: "en", speakerCount: 2, hotWords: queuedWords)
-        #expect(arguments.count == 5)
-        #expect(arguments[0] == pcm.path)
-        #expect(try JSONDecoder().decode([String].self, from: Data(arguments[4].utf8)) == queuedWords)
-        #expect(arguments[2] == "en")
-        #expect(arguments[3] == "2")
+        let arguments = try service.nemotronArguments(
+            pcmURL: pcm, model: SpeechCatalog.defaultModel, language: "en", speakerCount: 2, hotWords: queuedWords
+        )
+        #expect(arguments.count == 2)
+        let request = try NemotronWorkerRequest(json: arguments[1])
+        #expect(request.pcmPath == pcm.path)
+        #expect(request.hotWords == queuedWords)
+        #expect(request.language == "en")
+        #expect(request.speakerCount == 2)
     }
-
 }

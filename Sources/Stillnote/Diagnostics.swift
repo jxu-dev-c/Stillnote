@@ -18,11 +18,12 @@ enum Diagnostics {
         lines.append("Data:            \(paths.dataDirectory.path)")
         lines.append("Models:          \(paths.modelDirectory.path)")
 
-        lines.append("MOSS worker:     \(SpeechWorkerLocator.workerURL()?.path ?? "not found")")
-        lines.append("MOSS runtime:    \(SpeechWorkerLocator.runtimeReady() ? "ready" : "missing dependencies")")
+        lines.append("Speech worker:   \(SpeechWorkerLocator.workerURL()?.path ?? "not found")")
+        lines.append("Speech runtime:  \(SpeechWorkerLocator.runtimeReady() ? "ready" : "missing dependencies")")
 
         let speech = SpeechStatus.current(modelDirectory: paths.modelDirectory)
-        lines.append("Speech model:    \(speech.modelInstalled ? "installed" : "not installed")")
+        lines.append("Speech models:   \(speech.modelInstalled ? "installed" : "not installed")")
+        lines.append("Speaker model:   \(speech.diarizerInstalled ? "installed" : "not installed")")
         lines.append("Transcription:   \(speech.ready ? "ready" : "unavailable — \(speech.detail)")")
 
         for agent in AgentRunner.availability() {

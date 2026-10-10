@@ -16,16 +16,6 @@ their details here.
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [skills/README.md](skills/README.md), and
   [scripts/check-skill.sh](scripts/check-skill.sh).
 - Speech changes and benchmarks: [docs/TRANSCRIPTION-PERFORMANCE.md](docs/TRANSCRIPTION-PERFORMANCE.md)
-  and [Vendor/MossTranscribeDiarize/UPSTREAM.md](Vendor/MossTranscribeDiarize/UPSTREAM.md).
+  and [Vendor/NemotronSpeech/UPSTREAM.md](Vendor/NemotronSpeech/UPSTREAM.md).
 - Privacy and security: [docs/PRIVACY.md](docs/PRIVACY.md) and [SECURITY.md](SECURITY.md).
 - Packaging and publishing: [docs/RELEASE.md](docs/RELEASE.md).
-
-## Working agreements
-
-- Complete authorized work end to end; make routine, reversible decisions without confirmation.
-- Treat suggestions as guidance and use judgment when choosing an implementation.
-- Never name branches `codex/...`.
-- Keep edits focused and preserve unrelated changes.
-- Follow the verification guidance above; expand testing only for failures or unresolved concerns.
-- Report the result concisely, including verification and remaining blockers.
-- Keep this guide short; update the linked source when details change.

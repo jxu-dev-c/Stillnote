@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **Breaking:** replace the MOSS-Transcribe-Diarize engine with NVIDIA's Nemotron 3.5 ASR and
+  Nemotron 3 Diarization, running as CoreML on the Neural Engine instead of MLX on the GPU.
+  Existing installations need a one-time download of the new models (about 750 MB, down from
+  1.3 GB) in Settings. Existing meetings and transcripts are unchanged, and the old MOSS model
+  folder is left on disk for you to delete.
+- Show a live, speaker-labeled transcript in the recording window while recording. It is a
+  preview: the saved transcript is still made from the finished recording. Turn it off in
+  **Settings → Transcription**.
+- Retire the Quality, Balanced, and Low Memory transcription modes. They traded accuracy for
+  MOSS's context memory, which the new engine does not have; the setting is ignored.
+- Expected speakers is capped at 8, the most the diarizer can separate. Larger saved values
+  are capped rather than ignored.
+- Hot words now boost recognition during decoding, in the live transcript as well as the saved
+  one.
+
 ## 0.9.0
 
 - Open screen recordings in a sheet from the **Show Video** button in the playback bar instead

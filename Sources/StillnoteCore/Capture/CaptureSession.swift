@@ -92,6 +92,8 @@ public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate, @
     private var timeline = CaptureTimeline(start: 0)
     private var microphone: PCMWriter?
     private var system: PCMWriter?
+    private var liveTap: LiveAudioTap?
+    private let liveAudio: (@Sendable ([Float]) -> Void)?
     private var video: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
     private var timer: DispatchSourceTimer?
@@ -104,9 +106,16 @@ public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate, @
     private var lastVideoPTS = CMTime.invalid
     private var finished: CheckedContinuation<Void, Never>?
 
-    public init(options: CaptureOptions, directory: URL) {
+    /// `liveAudio` receives 16 kHz mono float32 in 320 ms blocks while capture runs, mixed
+    /// across the sources. It is called on the capture queue, so it must not block: a
+    /// recording that stalls because a preview fell behind would be a bad trade.
+    public init(
+        options: CaptureOptions, directory: URL,
+        liveAudio: (@Sendable ([Float]) -> Void)? = nil
+    ) {
         self.options = options
         self.directory = directory
+        self.liveAudio = liveAudio
         var sink: AsyncStream<CaptureEvent>.Continuation!
         events = AsyncStream(bufferingPolicy: .bufferingNewest(32)) { sink = $0 }
         continuation = sink
@@ -160,6 +169,20 @@ public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate, @
 
         microphone = try PCMWriter(url: directory.appendingPathComponent("microphone.wav"))
         if options.systemAudio { system = try PCMWriter(url: directory.appendingPathComponent("system.wav")) }
+        if let liveAudio {
+            // A live transcript is a preview, so a tap that cannot be built is logged by its
+            // absence rather than failing the recording.
+            if let tap = try? LiveAudioTap(
+                sources: options.systemAudio ? 2 : 1, sink: liveAudio
+            ) {
+                liveTap = tap
+                let forward: @Sendable ([Float], Int) -> Void = { samples, position in
+                    tap.append(samples, at: position)
+                }
+                microphone?.liveSink = forward
+                system?.liveSink = forward
+            }
+        }
         if screen { try startVideoWriter(width: config.width, height: config.height) }
 
         let filter = SCContentFilter(display: display, excludingWindows: [])
@@ -355,6 +378,9 @@ public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate, @
     }
 
     private func finalizeFiles() {
+        // Flush before closing so the last partial block of speech reaches the preview.
+        liveTap?.flush()
+        liveTap = nil
         do {
             try microphone?.close()
             try system?.close()
