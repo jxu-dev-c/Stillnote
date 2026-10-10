@@ -1,7 +1,7 @@
 # Native macOS migration handoff
 
-> Historical notes for the earlier UI migration. The current speech engine is bundled
-> native Swift; see ARCHITECTURE.md and Vendor/MossTranscribeDiarize/UPSTREAM.md.
+> Historical notes for the earlier UI migration. The MOSS engine described here has since
+> been replaced by Nemotron over CoreML; see ARCHITECTURE.md and Vendor/NemotronSpeech/UPSTREAM.md.
 
 This records the migration's lessons and verification limits. It is a historical
 snapshot, not evidence of a new test run. Use [ARCHITECTURE.md](ARCHITECTURE.md) for the

@@ -6,7 +6,7 @@ public struct SpeechModelProgress: Sendable {
     public let detail: String
 }
 
-/// Downloads and verifies the pinned MOSS checkpoint. This transfers public model files only; other network activity is documented
+/// Downloads and verifies the pinned speech model bundles. This transfers public model files only; other network activity is documented
 /// in docs/PRIVACY.md.
 public actor ModelInstaller {
     public private(set) var isInstalling = false
@@ -23,12 +23,28 @@ public actor ModelInstaller {
               verified == spec.revision
         else { return false }
         return spec.files.allSatisfy { name, file in
-            hasExactSize(directory.appendingPathComponent(name), file.size)
+            guard let url = try? installPath(directory: directory, name: name) else { return false }
+            return hasExactSize(url, file.size)
         }
     }
 
     nonisolated static func hasExactSize(_ url: URL, _ size: Int) -> Bool {
         ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int) == size
+    }
+
+    /// Resolves one manifest key inside a model's install directory. A compiled CoreML model
+    /// is a directory, so keys are relative paths rather than plain file names. The manifest
+    /// ships inside the app bundle, but a key that climbed out of the install directory is
+    /// worth refusing whatever its provenance, and `appendingPathComponent` would happily
+    /// follow one.
+    nonisolated static func installPath(directory: URL, name: String) throws -> URL {
+        let parts = name.split(separator: "/", omittingEmptySubsequences: false)
+        guard !name.hasPrefix("/"), !parts.isEmpty,
+              !parts.contains(".."), !parts.contains("."), !parts.contains("")
+        else {
+            throw SpeechError.message("Model setup failed. Please retry setup.")
+        }
+        return parts.reduce(directory) { $0.appendingPathComponent(String($1)) }
     }
 
     public func install(model: String, progress: @escaping @Sendable (SpeechModelProgress) -> Void) async throws {
@@ -46,7 +62,10 @@ public actor ModelInstaller {
         var completed = 0.0
         for name in spec.files.keys.sorted() {
             let file = spec.files[name]!
-            let destination = directory.appendingPathComponent(name)
+            let destination = try ModelInstaller.installPath(directory: directory, name: name)
+            try FileManager.default.createDirectory(
+                at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
             try await download(
                 from: "https://huggingface.co/\(spec.repo)/resolve/\(spec.revision)/\(name)",
                 to: destination, size: file.size, sha256: file.sha256

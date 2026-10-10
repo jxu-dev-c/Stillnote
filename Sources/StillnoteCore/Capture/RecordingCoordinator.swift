@@ -97,7 +97,11 @@ public final class RecordingCoordinator {
 
     // MARK: - Lifecycle
 
-    public func start(options: CaptureOptions) async throws {
+    /// `liveAudio` receives 16 kHz mono float32 blocks while capture runs, for a live
+    /// transcript. It is optional and best-effort: capture does not depend on it.
+    public func start(
+        options: CaptureOptions, liveAudio: (@Sendable ([Float]) -> Void)? = nil
+    ) async throws {
         guard session == nil, !isSaving, !discarding else {
             throw RecordingError.message("Save or discard the current recording before starting another.")
         }
@@ -131,7 +135,9 @@ public final class RecordingCoordinator {
         session = state
         persist(state)
 
-        let capture = CaptureSession(options: options, directory: directory)
+        let capture = CaptureSession(
+            options: options, directory: directory, liveAudio: liveAudio
+        )
         self.capture = capture
         eventTask = Task { @MainActor [weak self] in
             for await event in capture.events {

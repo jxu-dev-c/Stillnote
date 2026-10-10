@@ -1,6 +1,6 @@
 import Foundation
 
-/// Transcript line produced by MOSS or edited by the user.
+/// Transcript line produced by the speech engine or edited by the user.
 public struct Segment: Codable, Hashable, Identifiable, Sendable {
     public var id: String
     public var start: Double

@@ -215,7 +215,7 @@ private func scratchDirectory() throws -> URL {
 }
 
 @Suite struct AudioDecoderTests {
-    /// Import decodes to the 16 kHz mono float32 stream MOSS expects, whatever the
+    /// Import decodes to the 16 kHz mono float32 stream the speech models expect, whatever the
     /// source rate and channel count were.
     @Test func decodesToSixteenKilohertzMono() async throws {
         let directory = try scratchDirectory()

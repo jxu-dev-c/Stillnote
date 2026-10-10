@@ -101,7 +101,7 @@ already published tag without rebuilding, which downloads that release's own ass
 ./scripts/publish-homebrew.sh v0.6.0
 ```
 
-Existing published assets are immutable, and reruns must match their checksums. Real GPU
+Existing published assets are immutable, and reruns must match their checksums. Real Neural Engine
 transcription and Finder first-launch approval still require acceptance testing. Quit
 Stillnote before testing app upgrades.
 

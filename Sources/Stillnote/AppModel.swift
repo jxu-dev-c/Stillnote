@@ -27,6 +27,20 @@ final class AppModel {
     /// failed request never marks the meeting as failed.
     private(set) var namingMeetings: Set<String> = []
 
+    /// The transcript shown while a recording is running.
+    ///
+    /// It is never written to the store. During a recording the meeting does not exist yet,
+    /// `Store.update` is a whole-document read-modify-write, and `TranscriptEdit.finish`
+    /// assumes a completed transcript — so keeping the preview in memory means the feature
+    /// touches none of those invariants. The transcript Stillnote keeps is always the pass
+    /// over the finished recording, which runs on silence-trimmed audio with the diarizer's
+    /// quality geometry.
+    private(set) var livePreview = TranscriptionResult(
+        duration: 0, language: "auto", speakers: [:], segments: []
+    )
+    private var liveSession: LiveTranscriptionSession?
+    private var liveAccumulator = LiveTranscriptAccumulator()
+
     /// Everything that needs the filesystem. It is built in `load()`, never in `init`:
     /// resolving paths can touch a folder macOS guards, and the permission prompt for
     /// that cannot appear until the app has a window. Probing during launch deadlocks.
@@ -98,7 +112,7 @@ final class AppModel {
         await refreshEnvironment()
     }
 
-    /// Probes the model, MOSS runtime, agent CLIs, and capture devices off the main
+    /// Probes the models, speech runtime, agent CLIs, and capture devices off the main
     /// actor. Each of those touches the filesystem, and a folder macOS guards can hold
     /// that read until the user answers a prompt — which must never freeze the window.
     func refreshEnvironment() async {
@@ -270,12 +284,72 @@ final class AppModel {
                 speakerCount: try Validation.speakerCount(settings.transcription.speakerCount),
                 automaticTitle: true
             )
-            try await recorder.start(options: options)
+            try await startRecording(options: options)
             return true
         } catch {
             report(error)
             return false
         }
+    }
+
+    /// Starts capture, with a live transcript when it is enabled and the models are ready.
+    ///
+    /// Every recording path goes through here so the live worker's lifetime is defined in one
+    /// place: it starts with capture and is gone before the final transcription job is
+    /// queued, which keeps the two from holding their models at the same time.
+    func startRecording(options: CaptureOptions) async throws {
+        let sink = startLiveTranscript(options: options)
+        do {
+            try await recorder.start(options: options, liveAudio: sink)
+        } catch {
+            await stopLiveTranscript()
+            throw error
+        }
+    }
+
+    /// Returns the capture sink, or nil when there is no live transcript to produce. A failure
+    /// here is never fatal: the recording proceeds without a preview, the same stance the
+    /// cleanup pass takes.
+    private func startLiveTranscript(options: CaptureOptions) -> (@Sendable ([Float]) -> Void)? {
+        guard settings.transcription.liveTranscript, speech.ready,
+              SpeechCatalog.requiresDiarizer(settings.transcription.model),
+              let worker = SpeechWorkerLocator.workerURL()
+        else { return nil }
+        liveAccumulator = LiveTranscriptAccumulator()
+        livePreview = TranscriptionResult(
+            duration: 0, language: options.language, speakers: [:], segments: []
+        )
+        do {
+            let session = try LiveTranscriptionSession.start(
+                modelDirectory: paths.modelDirectory, worker: worker,
+                model: settings.transcription.model, language: options.language,
+                speakerCount: options.speakerCount, hotWords: settings.transcription.hotWords
+            ) { [weak self] partial in
+                Task { @MainActor [weak self] in self?.apply(partial) }
+            }
+            liveSession = session
+            return { [weak session] samples in session?.append(samples) }
+        } catch {
+            liveSession = nil
+            return nil
+        }
+    }
+
+    private func apply(_ partial: NemotronWorkerPartial) {
+        liveAccumulator.apply(partial)
+        guard let preview = try? liveAccumulator.preview(
+            duration: recorder.session?.elapsed ?? 0,
+            speakerLimit: settings.transcription.speakerCount
+                .map(NemotronWorkerRequest.clampSpeakers)
+        ) else { return }
+        livePreview = preview
+    }
+
+    /// Tears the live worker down. Safe to call when none is running.
+    func stopLiveTranscript() async {
+        guard let session = liveSession else { return }
+        liveSession = nil
+        await session.finish()
     }
 
     /// Saves the current recording and queues transcription when the speech model is ready.
@@ -294,14 +368,28 @@ final class AppModel {
                     detector: SpeechActivityService(modelDirectory: paths.modelDirectory)
                 )
             )
+            // Capture has finalized by now, so the tap has flushed its last block and the
+            // preview is complete. The worker goes away before transcription is queued.
+            await stopLiveTranscript()
             // Other stop callers share this save; do not reset a meeting that one
             // of them has already queued for transcription.
             if self.meeting(meeting.id) == nil { apply(meeting) }
             return meeting
         } catch {
+            // A save that failed still ends the recording, so the worker must not outlive it.
+            await stopLiveTranscript()
             report(error)
             return nil
         }
+    }
+
+    /// Discards the current recording, tearing down the live worker with it.
+    func discardRecording() async {
+        await stopLiveTranscript()
+        await recorder.discard()
+        livePreview = TranscriptionResult(
+            duration: 0, language: "auto", speakers: [:], segments: []
+        )
     }
 
     // MARK: - Transcription
@@ -326,7 +414,6 @@ final class AppModel {
         let language = language ?? (meeting.language.isEmpty ? settings.transcription.language : meeting.language)
         let count = speakerCount ?? meeting.speakerCount
         let hotWords = settings.transcription.hotWords
-        let mode = settings.transcription.mode
         let cleanup = settings.cleanup
         // Reserve before the first await so overlapping stop callers queue one job.
         startingTranscriptions.insert(id)
@@ -346,7 +433,7 @@ final class AppModel {
         let task = await queue.enqueue { [weak self] in
             await self?.runTranscription(
                 id: id, service: service, audioURL: audioURL, model: model,
-                language: language, speakerCount: count, hotWords: hotWords, mode: mode,
+                language: language, speakerCount: count, hotWords: hotWords,
                 cleanup: cleanup
             )
         }
@@ -355,7 +442,7 @@ final class AppModel {
 
     private func runTranscription(
         id: String, service: TranscriptionService, audioURL: URL, model: String,
-        language: String, speakerCount: Int?, hotWords: [String], mode: TranscriptionMode,
+        language: String, speakerCount: Int?, hotWords: [String],
         cleanup: AudioCleanupSettings
     ) async {
         defer { transcriptions[id] = nil }
@@ -365,8 +452,8 @@ final class AppModel {
         }
         do {
             let result = try await service.transcribe(
-                audioURL: audioURL, model: model, language: language, speakerCount: speakerCount, hotWords: hotWords, mode: mode,
-                cleanup: cleanup
+                audioURL: audioURL, model: model, language: language,
+                speakerCount: speakerCount, hotWords: hotWords, cleanup: cleanup
             ) { [weak self] progress, stage in
                 Task { @MainActor in
                     guard let self, self.transcriptions[id] != nil else { return }
@@ -568,23 +655,29 @@ final class AppModel {
         let installer = workspace!.installer
         installTask = await queue.enqueue { [self] in
             do {
-                // The detector is 2 MB against the engine's 1.26 GB, so it downloads first
-                // and its progress occupies only the first slice of the bar.
-                try await installer.install(model: SpeechCatalog.vadModel) { update in
-                    Task { @MainActor [self] in
-                        self.installProgress = update.fraction * 2
-                        self.installDetail = update.detail
-                        self.speech.progress = self.installProgress
-                        self.speech.detail = update.detail
-                    }
+                // The engine, its diarizer, and the silence detector are separate downloads
+                // of wildly different sizes — 642 MB, 107 MB, 2 MB. Weighting the bar by
+                // bytes keeps it moving instead of parking at one percentage for minutes.
+                var plan = [SpeechCatalog.vadModel]
+                if SpeechCatalog.requiresDiarizer(model) {
+                    plan.append(SpeechCatalog.diarizationModel)
                 }
-                try await installer.install(model: model) { update in
-                    Task { @MainActor [self] in
-                        self.installProgress = 2 + update.fraction * 98
-                        self.installDetail = update.detail
-                        self.speech.progress = self.installProgress
-                        self.speech.detail = update.detail
+                plan.append(model)
+                let sizes = plan.map { (try? SpeechCatalog.spec($0))?.downloadBytes ?? 0 }
+                let total = Double(max(1, sizes.reduce(0, +)))
+                var finished = 0
+                for (index, item) in plan.enumerated() {
+                    let completed = Double(finished)
+                    let size = Double(sizes[index])
+                    try await installer.install(model: item) { update in
+                        Task { @MainActor [self] in
+                            self.installProgress = (completed + update.fraction * size) / total * 100
+                            self.installDetail = update.detail
+                            self.speech.progress = self.installProgress
+                            self.speech.detail = update.detail
+                        }
                     }
+                    finished += sizes[index]
                 }
                 await MainActor.run { [self] in
                     self.installing = false

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Maintainer acceptance test: synthetic speech, relocated app, offline native inference.
 
-Requires a built app, macOS voices Samantha/Daniel, and the downloaded native model.
+Requires a built app, macOS voices Samantha/Daniel, and the downloaded Nemotron models.
+This is the standing regression for two-speaker separation: the raw worker output must carry
+two diarizer channels in A-B-A-B order, and the app's fusion must turn that into two speakers.
 Python orchestrates testing only; it is never packaged or allowed in the worker sandbox.
 """
 import hashlib
@@ -53,19 +55,39 @@ def speech(voice, text, destination):
     raise AssertionError("Missing WAV samples")
 
 
-def main():
-    models = Path(os.environ.get("STILLNOTE_MODEL_DIR", str(Path.home() / "Library/Application Support/Stillnote/models")))
-    model = models / "speech/moss-0.9b-mlx-8bit"
-    spec = json.loads((ROOT / "Sources/StillnoteCore/Resources/speech_models.json").read_text())["moss-0.9b"]
-    assert (model / ".verified").read_text() == spec["revision"], "Download the native model in Settings first"
-    for name, expected in spec["files"].items():
-        file = model / name
-        assert file.stat().st_size == expected["size"], name
+MODELS = ["nemotron-asr-0.6b", "nemotron-diarize-100m"]
+
+
+def verify_model(models, manifest, name):
+    spec = manifest[name]
+    model = models / "speech" / spec["directory"]
+    assert (model / ".verified").read_text() == spec["revision"], f"Download the speech models in Settings first ({name})"
+    for key, expected in spec["files"].items():
+        file = model / key
+        assert file.stat().st_size == expected["size"], key
         digest = hashlib.sha256()
         with file.open("rb") as stream:
             while block := stream.read(1024 * 1024):
                 digest.update(block)
-        assert digest.hexdigest() == expected["sha256"], name
+        assert digest.hexdigest() == expected["sha256"], key
+    return model
+
+
+def dominant_runs(activity, minimum=1.0):
+    """Speaker channels in order of appearance, ignoring blips shorter than `minimum`."""
+    runs = []
+    for segment in sorted(activity, key=lambda value: value["start"]):
+        if segment["end"] - segment["start"] < minimum:
+            continue
+        if not runs or runs[-1] != segment["speaker"]:
+            runs.append(segment["speaker"])
+    return runs
+
+
+def main():
+    models = Path(os.environ.get("STILLNOTE_MODEL_DIR", str(Path.home() / "Library/Application Support/Stillnote/models")))
+    manifest = json.loads((ROOT / "Sources/StillnoteCore/Resources/speech_models.json").read_text())
+    asr, diarizer = (verify_model(models, manifest, name) for name in MODELS)
 
     with tempfile.TemporaryDirectory(prefix="stillnote-offline-") as temporary:
         directory = Path(temporary).resolve()
@@ -91,27 +113,32 @@ def main():
         for name, audio, speakers in [("short", short, 1), ("multi", multi, 2)]:
             pcm = directory / f"{name}.f32"
             pcm.write_bytes(audio)
+            request = {"asrModelPath": str(asr), "diarizerModelPath": str(diarizer), "pcmPath": str(pcm),
+                       "language": "en", "hotWords": [], "geometry": "offline"}
             started = time.monotonic()
-            run = subprocess.run(["/usr/bin/time", "-l"] + prefix + [str(pcm), str(model), "en", "0"],
+            run = subprocess.run(["/usr/bin/time", "-l"] + prefix + ["nemotron", json.dumps(request)],
                                  env=environment, cwd=directory, text=True, capture_output=True, timeout=180)
             (OUTPUT / f"offline-{name}.log").write_text(run.stdout + run.stderr)
             assert run.returncode == 0, run.stderr + run.stdout
             events = [json.loads(line.removeprefix("STILLNOTE_EVENT ")) for line in run.stdout.splitlines()
                       if line.startswith("STILLNOTE_EVENT ")]
-            results = [event["text"] for event in events if event["type"] == "result"]
-            assert len(results) == 1
-            text = results[0]
-            assert len(set(re.findall(r"\[S[0-9]+\]", text))) == speakers, text
-            times = [float(value) for value in re.findall(r"\[([0-9]+(?:\.[0-9]+)?)\]", text)]
+            transcripts = [event["transcript"] for event in events if event["type"] == "transcript"]
+            assert len(transcripts) == 1, run.stdout
+            words, activity = transcripts[0]["words"], transcripts[0]["activity"]
+            text = " ".join(word["text"] for word in words)
             duration = len(audio) / 64000
-            assert max(times) >= duration * 0.95 and max(times) <= duration + 1, text
+            assert all(0 <= word["start"] <= word["end"] <= duration + 0.5 for word in words), words
+            # Each turn is followed by a second of silence, so speech ends about a second early.
+            assert max(word["end"] for word in words) >= duration - 3, text
             assert "\ufffd" not in text
+            assert any("Neural Engine" in event.get("detail", "") for event in events)
+            channels = {segment["speaker"] for segment in activity}
+            assert len(channels) == speakers, activity
             if name == "multi":
-                assert any("3/3" in event.get("detail", "") for event in events)
-                # The alternating voices must keep the same identity across encoder windows.
-                ids = re.findall(r"\[S([0-9]+)\]", text)
-                runs = [value for index, value in enumerate(ids) if index == 0 or value != ids[index - 1]]
-                assert runs == ["01", "02", "01", "02"], runs
+                # The alternating voices must keep the same identity across diarizer chunks.
+                runs = dominant_runs(activity)
+                assert len(runs) == 4 and runs[0] == runs[2] and runs[1] == runs[3] and runs[0] != runs[1], runs
+                assert "database" in text.lower() and "announcement" in text.lower(), text
             else:
                 assert "hello world" in text.lower() and "monday" in text.lower(), text
             memory = int(re.search(r"([0-9]+)\s+peak memory footprint", run.stderr)[1])
@@ -125,6 +152,7 @@ def main():
                                         for value in struct.iter_unpack("<f", multi)))
         test_env = dict(os.environ, STILLNOTE_INTEGRATION="1", STILLNOTE_MODEL_DIR=str(models),
                         STILLNOTE_TEST_WORKER=str(worker), STILLNOTE_INTEGRATION_AUDIO=str(directory / "multi.wav"),
+                        STILLNOTE_TWO_SPEAKER_AUDIO=str(directory / "multi.wav"),
                         STILLNOTE_HOT_WORDS_AUDIO=str(directory / "short.wav"))
         test = subprocess.run(["swift", "test", "--no-parallel", "--filter", "TranscriptionIntegrationTests"],
                               cwd=ROOT, env=test_env, text=True, capture_output=True, timeout=300)
@@ -134,7 +162,7 @@ def main():
                                   cwd=directory, text=True, capture_output=True, timeout=30)
         assert diagnose.returncode == 0 and "Transcription:   ready" in diagnose.stdout, diagnose.stdout
         summary["checks"] = ["signature", "system libraries only", "offline", "checkout denied", "child execution denied",
-                             "full service transcription", "hot words", "silence", "cancellation", "relocated app diagnostics"]
+                             "full service transcription", "two-speaker fusion", "hot words", "silence", "cancellation", "relocated app diagnostics"]
         (OUTPUT / "acceptance.json").write_text(json.dumps(summary, indent=2) + "\n")
         print(json.dumps(summary, indent=2))
 

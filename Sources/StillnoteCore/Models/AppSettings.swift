@@ -24,33 +24,24 @@ public enum ReasoningEffort: String, Codable, CaseIterable, Sendable {
     }
 }
 
-public enum TranscriptionMode: String, Codable, CaseIterable, Sendable {
-    case quality, balanced
-    case lowMemory = "low-memory"
-    public var label: String { switch self { case .quality: "Quality"; case .balanced: "Balanced"; case .lowMemory: "Low Memory" } }
-    public var detail: String { switch self {
-    case .quality: "Prioritizes transcription accuracy and speaker consistency. Uses more memory."
-    case .balanced: "Uses less memory while keeping the whole meeting in context. Recognition may differ."
-    case .lowMemory: "Uses the least memory. Accuracy and speaker labels may differ."
-    } }
-    public var prefillStepSize: Int { switch self { case .quality: 512; case .balanced: 128; case .lowMemory: 64 } }
-}
-
 public struct TranscriptionSettings: Codable, Hashable, Sendable {
     public var model: String
     public var language: String
     public var speakerCount: Int?
     public var hotWords: [String]
-    public var mode: TranscriptionMode
+    /// Show a transcript while the recording is still running. The preview is never saved;
+    /// the transcript Stillnote keeps is always the pass over the finished recording.
+    public var liveTranscript: Bool
 
     enum CodingKeys: String, CodingKey {
-        case model, language, mode
+        case model, language
         case speakerCount = "speaker_count"
         case hotWords = "hot_words"
+        case liveTranscript = "live_transcript"
     }
 
-    public init(model: String = SpeechCatalog.defaultModel, language: String = "auto", speakerCount: Int? = nil, hotWords: [String] = [], mode: TranscriptionMode = .quality) {
-        self.mode = mode
+    public init(model: String = SpeechCatalog.defaultModel, language: String = "auto", speakerCount: Int? = nil, hotWords: [String] = [], liveTranscript: Bool = true) {
+        self.liveTranscript = liveTranscript
         self.model = model
         self.language = language
         self.speakerCount = speakerCount
@@ -70,7 +61,7 @@ public struct TranscriptionSettings: Codable, Hashable, Sendable {
             language: try values.decode(String.self, forKey: .language),
             speakerCount: try values.decodeIfPresent(Int.self, forKey: .speakerCount),
             hotWords: try values.decodeIfPresent([String].self, forKey: .hotWords) ?? [],
-            mode: (try values.decodeIfPresent(String.self, forKey: .mode)).flatMap(TranscriptionMode.init(rawValue:)) ?? .quality
+            liveTranscript: try values.decodeIfPresent(Bool.self, forKey: .liveTranscript) ?? true
         )
     }
 }
@@ -263,9 +254,12 @@ public struct AppSettings: Codable, Hashable, Sendable {
         )
     }
 
-    /// Speech models retired before MOSS became the only supported engine.
+    /// Engines that no longer exist. A stored model missing from the manifest already
+    /// migrates to the default, so this is the record of what was retired and when:
+    /// Whisper sizes and VibeVoice first, then MOSS when the Nemotron pair replaced it.
     static let retiredSpeechModels: Set<String> = [
-        "tiny", "base", "small", "tiny.en", "base.en", "small.en", "vibevoice-1.5b", "vibevoice-7b",
+        "tiny", "base", "small", "tiny.en", "base.en", "small.en", "vibevoice-1.5b",
+        "vibevoice-7b", "moss-0.9b",
     ]
 
     /// Reads settings leniently so a record written by the Python app — including one
@@ -285,7 +279,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
             language: transcription["language"] as? String ?? "auto",
             speakerCount: transcription["speaker_count"] as? Int,
             hotWords: transcription["hot_words"] as? [String] ?? [],
-            mode: (transcription["mode"] as? String).flatMap(TranscriptionMode.init(rawValue:)) ?? .quality
+            liveTranscript: transcription["live_transcript"] as? Bool ?? true
         )
 
         let summary = object["summary"] as? [String: Any] ?? [:]

@@ -35,7 +35,7 @@ struct RecordingSheet: View {
         ) {
             Button("Discard Recording", role: .destructive) {
                 Task {
-                    await model.recorder.discard()
+                    await model.discardRecording()
                     dismiss()
                 }
             }
@@ -120,6 +120,10 @@ struct RecordingSheet: View {
             LabeledContent("Meeting", value: session.options.title)
             if session.options.screenVideo {
                 Label("Screen video enabled", systemImage: "display").font(.caption).foregroundStyle(.secondary)
+            }
+
+            if model.settings.transcription.liveTranscript, session.status != .starting {
+                LiveTranscriptView(transcript: model.livePreview)
             }
 
             if session.status == .starting {
@@ -228,7 +232,7 @@ struct RecordingSheet: View {
                 displayID: displayID, systemAudio: systemAudio, screenVideo: screenVideo,
                 automaticTitle: true
             )
-            try await model.recorder.start(options: options)
+            try await model.startRecording(options: options)
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }

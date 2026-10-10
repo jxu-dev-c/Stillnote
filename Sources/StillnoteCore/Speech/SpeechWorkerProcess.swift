@@ -61,9 +61,9 @@ enum SpeechWorkerProcess {
 actor WorkerOutput {
     private static let prefix = "STILLNOTE_EVENT "
     private let progress: @Sendable (Double, String) -> Void
-    private(set) var text: String?
     private(set) var error: String?
     private(set) var ranges: [SpeechRange]?
+    private(set) var transcript: NemotronWorkerTranscript?
 
     init(progress: @escaping @Sendable (Double, String) -> Void) {
         self.progress = progress
@@ -95,8 +95,17 @@ actor WorkerOutput {
         switch payload["type"] as? String {
         case "progress":
             progress(payload["progress"] as? Double ?? 0, payload["detail"] as? String ?? "")
-        case "result":
-            text = payload["text"] as? String ?? ""
+        case "transcript":
+            // Structured output: the recognizer's words and the diarizer's timeline, still
+            // unfused. A payload that does not decode is dropped rather than becoming a
+            // partial transcript, which is the same stance `ranges` takes below.
+            guard let object = payload["transcript"],
+                  let data = try? JSONSerialization.data(withJSONObject: object),
+                  let decoded = try? JSONDecoder().decode(
+                      NemotronWorkerTranscript.self, from: data
+                  )
+            else { return }
+            transcript = decoded
         case "ranges":
             // Pairs that are not two finite, ordered numbers are ignored rather than
             // becoming a range that could silence or truncate the wrong audio.

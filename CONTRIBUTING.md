@@ -24,10 +24,11 @@ cd Stillnote
 
 `./scripts/check.sh` builds the native worker and Metal library and runs Swift tests.
 `STILLNOTE_INTEGRATION=1 ./scripts/check.sh` also runs real local inference tests
-against the downloaded model. No Python speech environment is used. Python 3 is
+against the downloaded models. No Python speech environment is used. Python 3 is
 needed only for maintainer utilities such as generating the Homebrew cask.
 
 After `./scripts/package-app.sh` and the model download, run `python3 scripts/verify-native.py`
-for packaged acceptance: synthetic short/two-speaker audio, signatures, library paths,
-network/checkout/child-process denial, app diagnostics, and service cancellation.
+for packaged acceptance: synthetic short/two-speaker audio, two-speaker separation through the
+app's fusion, signatures, library paths, network/checkout/child-process denial, app
+diagnostics, and service cancellation.
 Logs and timing/memory measurements are written under `build/native-validation/`.

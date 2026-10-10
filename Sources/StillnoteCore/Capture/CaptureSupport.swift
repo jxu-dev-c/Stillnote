@@ -50,6 +50,11 @@ public final class PCMWriter {
     public private(set) var frames: Int64 = 0
     var converter: AVAudioConverter?
     let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(captureRate), channels: 1, interleaved: false)!
+    /// Receives the same samples that were just written, at the same position, for the live
+    /// transcript. Attached here because this is where the source format has already been
+    /// converted and the position resolved; a second converter elsewhere would be redundant
+    /// and could disagree about placement.
+    public var liveSink: (@Sendable ([Float], Int) -> Void)?
     public init(url: URL) throws {
         guard FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
             throw CaptureError.message("Could not create the recording on disk.")
@@ -84,10 +89,14 @@ public final class PCMWriter {
         guard count > 0, let samples = output.floatChannelData?[0] else { return (0, 0) }
         var energy: Double = 0; var peak: Double = 0
         var pcm = [Int16](repeating: 0, count: count)
+        var live: [Float]? = liveSink == nil ? nil : []
+        live?.reserveCapacity(count)
         for index in 0..<count {
             let value = samples[index].isFinite ? Double(samples[index]) : 0
             energy += value * value; peak = max(peak, abs(value))
-            pcm[index] = Int16(max(-1, min(1, value)) * 32767).littleEndian
+            let clamped = max(-1, min(1, value))
+            pcm[index] = Int16(clamped * 32767).littleEndian
+            live?.append(Float(clamped))
         }
         // Remove sub-buffer callback jitter without allowing cumulative clock drift.
         let desired = max(0, Int64((seconds * Double(captureRate)).rounded()))
@@ -95,6 +104,7 @@ public final class PCMWriter {
         try file.seek(toOffset: UInt64(44 + position * 2))
         try pcm.withUnsafeBytes { try file.write(contentsOf: Data($0)) }
         frames = max(frames, position + Int64(count)); try header()
+        if let live, let liveSink { liveSink(live, Int(position)) }
         return (min(1, sqrt(energy / Double(count))), min(1, peak))
     }
     public func close() throws { try header(); try file.synchronize(); try file.close() }

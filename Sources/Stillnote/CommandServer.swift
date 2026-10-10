@@ -551,7 +551,7 @@ final class CommandServer {
             options.displayID = display.id
         }
         do {
-            try await model.recorder.start(options: options)
+            try await model.startRecording(options: options)
         } catch {
             throw CLIError.failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
         }
@@ -599,7 +599,7 @@ final class CommandServer {
             guard !model.recorder.isSaving else {
                 throw CLIError.busy("The recording is being saved. Wait for it to finish.")
             }
-            await model.recorder.discard()
+            await model.discardRecording()
             return try CommandRunner.recordResponse(
                 "Discarded the recording. Its audio was deleted.", RecordPayload(session: nil)
             )

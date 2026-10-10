@@ -1,7 +1,8 @@
 # Stillnote implementation contract
 
-A native macOS 15+ app for Apple silicon: SwiftUI interface, SwiftPM package with a pinned native MLX dependency. Capture, storage, decoding, summaries, and exports are Swift and run
-in process. MOSS 0.9B inference runs in a short-lived bundled Swift worker using the vendored MOSS package. Nothing listens on
+A native macOS 15+ app for Apple silicon: SwiftUI interface, SwiftPM package with pinned native CoreML and MLX speech code. Capture, storage, decoding, summaries, and exports are Swift and run
+in process. Nemotron 3.5 ASR and Nemotron 3 Diarization run as CoreML on the Neural Engine in a bundled Swift worker
+built from the vendored `Vendor/NemotronSpeech` targets. Nothing listens on
 a network port; the bundled `stillnote` command reaches the app through a Unix domain socket
 inside the library folder. No recording or transcription leaves the computer. Summaries and Name Meeting
 send meeting text to the provider chosen in Settings; the CLI also requires `--allow-remote`.
@@ -12,7 +13,8 @@ send meeting text to the provider chosen in Settings; the CLI also requires `--a
 Stillnote.app
 ├── StillnoteCore   library target, no SwiftUI, fully unit-tested
 └── Stillnote       executable target: SwiftUI views + AppModel
-Sources/StillnoteSpeechWorker  bundled native MLX executable; models download separately
+Sources/StillnoteSpeechWorker  bundled native CoreML/MLX executable; models download separately
+Vendor/NemotronSpeech         vendored speech-swift targets, built as root package targets
 Sources/StillnoteCLI           bundled `stillnote` command; a client of the running app
 ```
 
@@ -20,9 +22,9 @@ Sources/StillnoteCLI           bundled `stillnote` command; a client of the runn
 | --- | --- |
 | `Sources/StillnoteCore/Models/` | `Meeting`, `Segment`, `MeetingSummary`, `ContextLink`, `AppSettings`, input bounds, formatting. |
 | `Sources/StillnoteCore/Store/` | `Paths` (Application Support layout, checkout adoption) and the `Store` actor over SQLite. |
-| `Sources/StillnoteCore/Capture/` | ScreenCaptureKit session, device and permission discovery, session persistence and recovery. |
+| `Sources/StillnoteCore/Capture/` | ScreenCaptureKit session, device and permission discovery, session persistence and recovery, the live audio tap. |
 | `Sources/StillnoteCore/Audio/` | Decoding to 16 kHz mono, bounded-memory mixing, silence trimming and non-speech suppression, MP4 muxing, extension resolution for stored media. |
-| `Sources/StillnoteCore/Speech/` | Model manifest, verified download, readiness, MOSS and silence-detection worker drivers, transcript parsing. |
+| `Sources/StillnoteCore/Speech/` | Model manifest, verified download, readiness, transcription, live-preview, and silence-detection worker drivers, word-to-speaker fusion. ML-free: all CoreML and MLX lives in the worker. |
 | `Sources/StillnoteCore/Summary/` | Headless Codex/Claude Code adapters over `posix_spawn`, chunking, validation, local merging. |
 | `Sources/StillnoteCore/Export/` | Markdown, plain text, SRT, and JSON exports. |
 | `Sources/StillnoteCore/CLI/` | Command catalog and parser, wire protocol, socket transport, transcript replacement, and library search. Every result and its rendering, so both processes answer identically. |
@@ -43,7 +45,7 @@ Each meeting is one JSON document. Fields added after a record was written defau
 read. Audio is `data/audio/<meeting-id>` and optional screen video is
 `data/video/<meeting-id>`, both without an extension; `MediaFile` resolves them through
 symlinks in `data/media/` because AVFoundation selects its demuxer from the path
-extension. Retired speech models migrate to MOSS and retired summary providers to Codex or
+extension. Retired speech models (Whisper, VibeVoice, MOSS) migrate to Nemotron and retired summary providers to Codex or
 Claude Code, dropping obsolete API credentials, without touching saved meetings.
 
 ```
@@ -90,7 +92,7 @@ current default.
 there is no polling. `Store` is an actor, and every mutation is a read-modify-write inside
 it, so a background job's progress write cannot clobber a concurrent user edit. `JobQueue`
 serializes transcription, summaries, and model downloads so they never compete for memory
-or the GPU; a job cancelled while still queued observes cancellation and returns. Jobs left
+or the Neural Engine; a job cancelled while still queued observes cancellation and returns. Jobs left
 running when the app quits are marked retryable on the next launch.
 
 Overlapping recording stops share one save task, claimed before any suspension, so only
@@ -129,6 +131,14 @@ mixed WAV; video is never supplied to transcription or summaries. Unsaved sessio
 `data/recordings/<id>/` and are offered for save or discard after an interrupted run.
 Capture permissions are requested only when a recording is started.
 
+When the live transcript is on, `PCMWriter` also hands each already-converted 48 kHz block
+and its resolved position to a `LiveAudioTap`. The tap mixes the sources at equal gain with
+`LiveAudioMixer`, keyed by the same pause-adjusted positions the WAVs use, and resamples to
+16 kHz in 320 ms blocks with one persistent converter. It runs on the capture queue and never
+blocks it: the hand-off to the worker is a bounded `LiveAudioBuffer` that drops the oldest
+audio when the worker falls behind. A dropped preview block is acceptable; a stalled
+recording is not.
+
 ## Speech
 
 The app decodes the recording to 16 kHz mono float32 with external media references
@@ -149,26 +159,57 @@ app process; it deliberately does not go through `JobQueue`, because saving a re
 not wait behind an unrelated transcription and a 2 MB detector is not the contention that
 queue exists to prevent.
 
-Inference then runs the bundled `StillnoteSpeechWorker <pcm> <model-dir> <language>
-<speaker-count> [<hot-words-json> [<mode>]]`. The model loader accepts a verified local directory;
-no inference downloads or external executable dependencies are used. The worker emits
-`STILLNOTE_EVENT {json}` lines for progress, the raw transcript, or an actionable error;
-anything else on the pipe is ignored and never becomes meeting content. Cancellation
-terminates the process and escalates to `SIGKILL` after two seconds, then restores the
-meeting's previous transcript and summary.
+Transcription uses two models. Nemotron 3.5 ASR (0.6B, a cache-aware FastConformer encoder
+with an RNN-T decoder) produces punctuated words with timings; Nemotron 3 Diarization (100M)
+produces a timeline of up to eight arrival-ordered speaker channels. Both are INT8 CoreML
+bundles that run on the Neural Engine, falling back to the CPU and GPU if a Mac cannot compile
+them for it. Inference runs the bundled `StillnoteSpeechWorker nemotron <request-json>`; the
+request (`NemotronWorkerRequest`) names both model directories, the PCM path, a locale, the
+expected speaker count capped at eight, hot words, and a diarizer geometry. It is one argv
+value handed to `Process`, never a shell string. The worker reads the PCM in one-second
+windows, so a 90-minute meeting is never resident, drains an autorelease pool per window so
+CoreML's IOSurface-backed outputs are released, and drives both models in lockstep on one
+thread because neither runtime is safe for concurrent inference. It emits
+`STILLNOTE_EVENT {json}` lines for progress, one `transcript` (words and speaker timeline,
+unfused), or an actionable error; anything else on the pipe is ignored and never becomes
+meeting content. Cancellation terminates the process and escalates to `SIGKILL` after two
+seconds, then restores the meeting's previous transcript and summary.
 
-Parsing lives in Swift so the transcript format is defined in one place: MOSS's
-`[start][S01]text[end]` output becomes stable `speaker_n` ids with display names, with
-timestamps clamped to the recording. Output that does not fully match the grammar is a
-truncated generation and is rejected rather than saved. Transcript or speaker edits
-invalidate the previous summary; a failed retranscription preserves existing corrections.
+Fusion lives in Core so it is pure and unit-tested, and so the live preview and the saved
+transcript cannot drift apart. `SpeakerAttribution` gives each word the channel it overlaps
+most, after shifting word times back by an 80 ms emission lag (RNN-T times are when a token
+was emitted, not when it was spoken). A tie goes to whoever was already speaking, so a word
+straddling a handover does not flip on a rounding difference; a word over silence inherits
+its neighbours' speaker. An expected speaker count keeps the most active channels, and words
+from a dropped channel fall through to the kept channel that overlaps them best. `NemotronTranscript` then groups words into segments on a speaker
+change, a pause of at least 0.7 s, or a sentence end once a segment passes 12 s, joins them
+with script-aware spacing (no spaces inserted into Chinese or Japanese), and produces stable
+`speaker_n` ids numbered by first appearance, `Speaker N` display names, and timestamps
+shifted by the removed head, clamped to the recording, and rounded to the millisecond. Word
+times that are not finite or run backwards are rejected rather than saved. Transcript or
+speaker edits invalidate the previous summary; a failed retranscription preserves existing
+corrections.
+
+The live transcript is a preview and is never persisted: while a recording runs the meeting
+does not exist yet, and the store writes whole documents. `AppModel` starts one long-lived
+`StillnoteSpeechWorker nemotron` process per recording with the `live` geometry (about one
+second of diarizer lookahead instead of the offline 27 s chunk) and feeds it raw PCM on stdin
+from the capture tap. The worker sends `partial` events twice a second carrying only the
+words added since the last one, holding back the trailing word until SentencePiece has
+finished assembling it, plus the whole speaker timeline; `LiveTranscriptAccumulator` folds
+them into the preview. Every recording entry point (window, menu bar, command interface)
+goes through `AppModel`, which stops the live worker before the final transcription job is
+queued, so the two never hold the models at once. The saved transcript always comes from the
+offline pass over the finished, silence-trimmed recording.
 
 Model setup is an explicit action that downloads public files only, verifying each file's
 size and SHA-256 before an atomic rename, and recording the publisher revision in
 `.verified`. Inference requires complete local files. Setup installs the engine and the
 silence detector together; a manifest entry declares its `kind`, so a supporting model can
-never be selected as a transcription engine, and its `directory`, so MOSS keeps the install
-path it has always used. The detector is not part of `ready`: an install that predates it
+never be selected as a transcription engine, and its `directory`. The ASR model and its
+diarizer are installed together and neither transcribes without the other. CoreML bundles
+are directories, so manifest keys may be nested paths; each resolves inside its model
+directory or is refused. The detector is not part of `ready`: an install that predates it
 keeps transcribing, with cleanup skipped until it is downloaded.
 
 ## Summaries
@@ -194,7 +235,7 @@ The retired `summary_include_video_path` field is ignored when reading older mee
 
 Nothing in `App.init()` touches the filesystem. The window appears first, then `load()`
 resolves paths, adopts a development checkout's data on first launch, opens the store, and
-probes the model, MOSS runtime, agent CLIs, and capture devices — the last four off the
+probes the models, speech runtime, agent CLIs, and capture devices — the last four off the
 main actor. Until that finishes the window shows a progress view, so a slow or blocked
 read degrades into a visible wait rather than an app that never draws.
 
@@ -308,13 +349,11 @@ The transcript’s speaker sheet provides a profile dropdown and assignment/unli
 ### Hot-word settings and worker protocol
 
 The per-user settings document stores `transcription.hot_words` as a string array;
-missing values default to an empty list. Jobs capture the saved list when queued.
-The worker accepts `<pcm> <model-dir> <language> <speaker-count> [<hot-words-json> [<mode>]]`.
-The optional argument is a JSON string array passed directly through `Process`
-(no shell); empty lists use the original four-argument protocol. The worker validates
-and appends nonempty lists to the existing diarized transcription prompt using
-MOSS's `热词提示：` format. No transcript replacement or meeting-specific list is used.
-The app bundles and signs the worker with `mlx.metallib` beside it. The vendored package
-revision and patches are recorded in `Vendor/MossTranscribeDiarize/UPSTREAM.md`.
-The converted 8-bit checkpoint uses `speech/moss-0.9b-mlx-8bit`; the old model directory
-is retained but never mistaken for a compatible native checkpoint.
+missing values default to an empty list. Jobs capture the saved list when queued, and the
+worker request carries it as a JSON array. The recognizer applies it as RNN-T decode-time word
+boosting (`WordBoostingConfig`), for the live preview and the saved transcript alike. No
+transcript replacement or meeting-specific list is used. The app bundles and signs the worker
+with `mlx.metallib` beside it: the vendored targets link MLX, and Silero VAD runs on it. The
+vendored revision and patches are recorded in `Vendor/NemotronSpeech/UPSTREAM.md`. The
+retired MOSS model directory, `speech/moss-0.9b-mlx-8bit`, is retained but never mistaken for
+an installed model; the retired Mode setting is ignored when settings are read.

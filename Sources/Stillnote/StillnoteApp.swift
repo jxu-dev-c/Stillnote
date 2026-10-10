@@ -5,7 +5,7 @@ import SwiftUI
 struct StillnoteApp: App {
     init() {
         // `Stillnote --diagnose` reports where the app resolved its data, model, and
-        // MOSS runtime paths, which is the fastest way to check a fresh install.
+        // speech runtime paths, which is the fastest way to check a fresh install.
         if CommandLine.arguments.contains("--diagnose") {
             print(Diagnostics.report())
             exit(0)
@@ -38,7 +38,8 @@ struct StillnoteApp: App {
                     .disabled(!model.isReady)
             }
             CommandGroup(replacing: .help) {
-                Link("MOSS speech model", destination: URL(string: "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize")!)
+                Link("Nemotron 3.5 ASR model", destination: URL(string: "https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b")!)
+                Link("Nemotron 3 Diarization model", destination: URL(string: "https://huggingface.co/nvidia/Nemotron-3-Diarization")!)
             }
         }
 

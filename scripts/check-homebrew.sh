@@ -33,7 +33,7 @@ printf 'preserve\n' > "$support/homebrew-test-sentinel"
 brew install "$tap/stillnote"
 (cd "$HOME" && /Applications/Stillnote.app/Contents/MacOS/Stillnote --diagnose) | tee "$candidate/diagnostics.txt"
 grep -F '/Applications/Stillnote.app/Contents/MacOS/StillnoteSpeechWorker' "$candidate/diagnostics.txt"
-grep -F 'MOSS runtime:    ready' "$candidate/diagnostics.txt"
+grep -F 'Speech runtime:  ready' "$candidate/diagnostics.txt"
 for definition in "$tap_dir"/Casks/*.rb.next; do mv "$definition" "${definition%.next}"; done
 brew upgrade --cask "$tap/stillnote"
 brew reinstall --cask "$tap/stillnote"

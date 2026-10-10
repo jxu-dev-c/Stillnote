@@ -27,7 +27,7 @@ struct TranscriptionSettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var language = "auto"
     @State private var speakerCount: Int?
-    @State private var mode = TranscriptionMode.quality
+    @State private var liveTranscript = true
     @State private var hotWordsText = ""
     @State private var savingHotWords = false
     @State private var trimRecording = true
@@ -37,11 +37,12 @@ struct TranscriptionSettingsView: View {
     var body: some View {
         Form {
             Section("Defaults") {
-                Picker("Mode", selection: $mode) {
-                    ForEach(TranscriptionMode.allCases, id: \.self) { Text($0.label).tag($0) }
-                }
-                Text(mode.detail).font(.caption).foregroundStyle(.secondary)
                 TranscriptionOptionFields(language: $language, speakerCount: $speakerCount)
+                Toggle("Show a live transcript while recording", isOn: $liveTranscript)
+                Text("Transcribes as you record, so you can see the conversation taking shape. "
+                    + "The preview is not saved: the transcript Stillnote keeps is always made "
+                    + "from the finished recording, which is more accurate.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Recording cleanup") {
@@ -71,7 +72,7 @@ struct TranscriptionSettingsView: View {
                     .frame(height: 90)
                     .overlay(alignment: .topLeading) {
                         if hotWordsText.isEmpty {
-                            Text("One entry per line. Keep phrases with spaces together.\nOpenMOSS\nAPI\nNew York")
+                            Text("One entry per line. Keep phrases with spaces together.\nStillnote\nAPI\nNew York")
                                 .font(.body)
                                 .foregroundStyle(.tertiary)
                                 .padding(.horizontal, 5)
@@ -133,7 +134,7 @@ struct TranscriptionSettingsView: View {
         }
         .formStyle(.grouped)
         .onAppear {
-            mode = model.settings.transcription.mode
+            liveTranscript = model.settings.transcription.liveTranscript
             language = model.settings.transcription.language
             speakerCount = model.settings.transcription.speakerCount
             hotWordsText = model.settings.transcription.hotWords.joined(separator: "\n")
@@ -141,7 +142,7 @@ struct TranscriptionSettingsView: View {
             suppressNonSpeech = model.settings.cleanup.suppressNonSpeech
             sensitivity = model.settings.cleanup.sensitivity
         }
-        .onChange(of: mode) { save() }
+        .onChange(of: liveTranscript) { save() }
         .onChange(of: language) { save() }
         .onChange(of: speakerCount) { save() }
         .onChange(of: trimRecording) { save() }
@@ -160,13 +161,14 @@ struct TranscriptionSettingsView: View {
 
     private func save() {
         var updated = model.settings
-        guard updated.transcription.mode != mode || updated.transcription.language != language
+        guard updated.transcription.liveTranscript != liveTranscript
+            || updated.transcription.language != language
             || updated.transcription.speakerCount != speakerCount
             || updated.cleanup.trimRecording != trimRecording
             || updated.cleanup.suppressNonSpeech != suppressNonSpeech
             || updated.cleanup.sensitivity != sensitivity
         else { return }
-        updated.transcription.mode = mode
+        updated.transcription.liveTranscript = liveTranscript
         updated.transcription.language = language
         updated.transcription.speakerCount = speakerCount
         updated.cleanup.trimRecording = trimRecording
