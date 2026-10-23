@@ -9,8 +9,9 @@ struct SpeakerEditor: View {
     let meetingID: String
     let speakerID: String
 
-    @State private var selectedProfileID = ""
+    @State private var selectedProfileID: String?
     @State private var profileSearch = ""
+    @FocusState private var searchFocused: Bool
     @State private var error: String?
     @State private var saving = false
 
@@ -27,41 +28,14 @@ struct SpeakerEditor: View {
             }
         }
     }
-    private var selectedProfileIsFilteredOut: Bool {
-        guard let selectedProfile else { return false }
-        return !matchingProfiles.contains { $0.id == selectedProfile.id }
-    }
     private var unavailable: Bool { saving || meeting == nil || meeting?.status.isBusy == true }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Speaker profile").font(.subheadline).foregroundStyle(.secondary)
-                if !model.speakerProfiles.isEmpty {
-                    TextField("Search speaker profiles", text: $profileSearch)
-                        .textFieldStyle(.roundedBorder)
-                        .accessibilityLabel("Search speaker profiles")
-                }
-                HStack(spacing: 12) {
-                    Picker("", selection: $selectedProfileID) {
-                        Text("Select a speaker").tag("")
-                        if let selectedProfile, selectedProfileIsFilteredOut {
-                            Text("Current: \(selectedProfile.name)").tag(selectedProfile.id)
-                        }
-                        ForEach(matchingProfiles) { profile in
-                            Text(profile.email.isEmpty ? profile.name : "\(profile.name) · \(profile.email)")
-                                .tag(profile.id)
-                        }
-                        if matchingProfiles.isEmpty {
-                            Text("No matching speaker profiles").disabled(true)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel("Speaker profile")
-                    .disabled(unavailable)
+                HStack {
+                    Text("Speaker profile").font(.subheadline).foregroundStyle(.secondary)
+                    Spacer()
                     Button("Edit Profiles") {
                         model.requestedSpeakerProfileID = selectedProfile?.id
                         model.settingsTab = "speakers"
@@ -73,6 +47,44 @@ struct SpeakerEditor: View {
                 if model.speakerProfiles.isEmpty {
                     Text("Add speaker profiles in Settings → Speakers.")
                         .font(.callout).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 120)
+                } else {
+                    TextField("Search by name, email, or phone", text: $profileSearch)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Search speaker profiles")
+                        .focused($searchFocused)
+                        .disabled(unavailable)
+                        .onChange(of: profileSearch) {
+                            // A hidden selection must never remain assignable after filtering.
+                            if !matchingProfiles.contains(where: { $0.id == selectedProfileID }) {
+                                selectedProfileID = nil
+                            }
+                        }
+                    List(selection: $selectedProfileID) {
+                        ForEach(matchingProfiles) { profile in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(profile.name)
+                                if !profile.email.isEmpty {
+                                    Text(profile.email).font(.caption).foregroundStyle(.secondary)
+                                } else if !profile.phone.isEmpty {
+                                    Text(profile.phone).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                            .tag(profile.id)
+                        }
+                    }
+                    .listStyle(.bordered)
+                    .frame(height: 200)
+                    .accessibilityLabel("Matching speaker profiles")
+                    .disabled(unavailable)
+                    .overlay {
+                        if matchingProfiles.isEmpty {
+                            Text("No matching speaker profiles")
+                                .foregroundStyle(.secondary)
+                                .allowsHitTesting(false)
+                        }
+                    }
                 }
             }
             if let error { Text(error).foregroundStyle(.red).font(.callout) }
@@ -96,7 +108,10 @@ struct SpeakerEditor: View {
         .padding(24)
         .frame(width: 420)
         .interactiveDismissDisabled(saving)
-        .onAppear { selectedProfileID = meeting?.speakerProfiles[speakerID] ?? "" }
+        .onAppear {
+            selectedProfileID = meeting?.speakerProfiles[speakerID]
+            searchFocused = true
+        }
     }
 
     private func assign(_ id: String?) {
