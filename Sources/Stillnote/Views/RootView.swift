@@ -49,6 +49,15 @@ struct RootView: View {
                 }
             }
         }
+        // All entry points (menu bar, CLI, reminders, and this window) share the
+        // recorder. Present its session even when it began outside this view.
+        .onChange(of: model.isReady ? model.recorder.session?.id : nil, initial: true) { _, sessionID in
+            if sessionID != nil {
+                sheet = .record
+            } else if sheet == .record {
+                sheet = nil
+            }
+        }
         .sheet(item: $sheet) { item in
             switch item {
             case .record:

@@ -96,6 +96,7 @@ struct MenuBarMenu: View {
     }
 
     private func start() async {
+        showMainWindow()
         await model.refreshEnvironment()
         // The main window is where a failure, or a macOS permission problem, is explained.
         if await !model.startQuickRecording() { showMainWindow() }
