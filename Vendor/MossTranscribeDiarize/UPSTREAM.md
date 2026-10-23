@@ -22,7 +22,8 @@ Local patches:
 - Stream only complete Unicode deltas from accumulated token decoding.
 - Check cancellation between encoder windows, prefill steps, and generated tokens.
 - Bound generation by available context; reject output exhaustion and repeated
-  128-token blocks instead of returning partial text as success.
+  128-token blocks or timestamp-advancing repeated transcript rows instead of
+  returning partial text as success.
 
 The app uses ModelLoader.load(directory:) and the synchronous generation callback in a
 short-lived signed Swift helper. The upstream application/tooling features are omitted from this vendor copy. Swift dependency versions are locked in the root Package.resolved.

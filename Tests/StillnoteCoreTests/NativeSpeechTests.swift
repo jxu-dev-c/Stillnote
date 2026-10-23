@@ -35,6 +35,16 @@ struct NativeSpeechTests {
         #expect(throws: Error.self) { try GenerationPolicy.checkRepetition(Array(repeating: Array(0..<128), count: 3).flatMap { $0 }) }
     }
 
+    @Test func repetitionGuardRejectsTimestampAdvancingTranscriptLoops() {
+        let repeatedLine = "This deliberately detailed sentence is long enough to distinguish a decoder loop from a natural repeated acknowledgement in the transcript."
+        let text = "[0.00][S01]\(repeatedLine)[4.00]"
+            + "[4.00][S01]\(repeatedLine)[8.00]"
+            + "[8.00][S01]\(repeatedLine)[12.00]"
+        #expect(throws: Error.self) {
+            try GenerationPolicy.checkRepetition(Array(0..<384), decodedText: text)
+        }
+    }
+
     @Test func streamingWaitsForCompleteUnicode() {
         let stream = StreamingText()
         #expect(stream.append("Hello ") == "Hello ")
