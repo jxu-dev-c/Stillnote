@@ -1,0 +1,7 @@
+Issue #75: actual regression test output (excerpt)
+Source: /tmp/stillnote-issue-75-check.log
+
+Build complete! (6.66s)
+◇ Test repetitionGuardRejectsTimestampAdvancingTranscriptLoops() started.
+✔ Test repetitionGuardRejectsTimestampAdvancingTranscriptLoops() passed after 0.002 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
