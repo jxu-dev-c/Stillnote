@@ -1,0 +1,7 @@
+Excerpt of the actual `./scripts/check.sh` output:
+
+✔ Test helpDescribesEveryCommandAndOneCommand() passed after 0.001 seconds.
+✔ Test run with 252 tests in 43 suites passed after 19.457 seconds.
+test_accepts_command_and_global_options (test_check_skill_commands.CheckSkillCommandsTests.test_accepts_command_and_global_options) ... ok
+test_rejects_a_documented_option_the_command_does_not_accept (test_check_skill_commands.CheckSkillCommandsTests.test_rejects_a_documented_option_the_command_does_not_accept) ... ok
+check-skill: 1 skill(s) validated against stillnote development build
