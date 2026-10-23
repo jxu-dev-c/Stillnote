@@ -56,11 +56,14 @@ for manifest in "${skills[@]}"; do
   fi
 done
 
-# Every `stillnote <command>` the skills mention has to be a real command, and every command has
-# to be documented somewhere. The catalog is the source of truth, so compare against it rather
-# than a second hand-kept list. Only code spans and fenced blocks count: a prose heading such as
-# "stillnote command reference" is not an instruction to run anything.
+# Every `stillnote <command>` and long option the skills mention has to be in the catalog, and
+# every command has to be documented somewhere. Only code spans and fenced blocks count: a prose
+# heading such as "stillnote command reference" is not an instruction to run anything.
 if ! "$cli" help --json | python3 scripts/lib/check_skill_commands.py skills; then
+  status=1
+fi
+
+if ! python3 -m unittest discover -v -s scripts/tests -p 'test_*.py'; then
   status=1
 fi
 

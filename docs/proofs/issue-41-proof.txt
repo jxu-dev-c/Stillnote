@@ -1,0 +1,6 @@
+Excerpt of the actual `./scripts/check.sh` output:
+
+◇ Test searchSpeakerFiltersTranscriptHitsAndExcludesUnattributedFields() started.
+✔ Test searchSpeakerFiltersTranscriptHitsAndExcludesUnattributedFields() passed after 0.001 seconds.
+✔ Test run with 253 tests in 43 suites passed after 18.589 seconds.
+check-skill: 1 skill(s) validated against stillnote development build

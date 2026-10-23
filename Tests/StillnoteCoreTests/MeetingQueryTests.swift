@@ -163,6 +163,28 @@ private let library: [Meeting] = [
         #expect(try MeetingQuery.search(library, query: "launch", filter: filter).isEmpty)
     }
 
+    @Test func searchSpeakerFiltersTranscriptHitsAndExcludesUnattributedFields() throws {
+        var meeting = library[0]
+        meeting.segments = [
+            Segment(id: "s0", start: 0, end: 9, speaker: "speaker_1", text: "Jackson shared launch details."),
+            Segment(id: "s1", start: 10, end: 19, speaker: "speaker_2", text: "Priya shared launch details."),
+        ]
+        meeting.notes = "launch notes"
+        meeting.summary = MeetingSummary(
+            overview: "launch overview", keyPoints: [], decisions: [], actionItems: [],
+            provider: "codex", model: "gpt-5-codex", generatedAt: "2026-09-08T16:00:00.000+00:00"
+        )
+
+        let results = try MeetingQuery.search(
+            [meeting], query: "launch", filter: MeetingFilter(speaker: "priya")
+        )
+
+        #expect(results.count == 1)
+        #expect(results[0].matches == 1)
+        #expect(results[0].hits.map(\.field) == [.transcript])
+        #expect(results[0].hits.map(\.speaker) == ["Priya"])
+    }
+
     @Test func rejectsAnEmptyQueryOrUnknownField() {
         #expect(throws: CLIError.self) { try MeetingQuery.search(library, query: "   ") }
         #expect(throws: CLIError.self) { try MeetingQuery.fields("transcript,nope") }

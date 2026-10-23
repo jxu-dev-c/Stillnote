@@ -230,7 +230,10 @@ import Testing
 
     @Test func helpDescribesEveryCommandAndOneCommand() throws {
         let all = CommandRunner.help(CLIRequest(command: ["help"]))
-        #expect(try all.payload?.decoded(HelpPayload.self).commands.count == CommandCatalog.commands.count)
+        let allPayload = try all.payload?.decoded(HelpPayload.self)
+        #expect(allPayload?.commands.count == CommandCatalog.commands.count)
+        #expect(allPayload?.globalValueOptions == CommandCatalog.globalValues)
+        #expect(allPayload?.globalBooleanOptions == CommandCatalog.globalBooleans)
         for spec in CommandCatalog.commands { #expect(all.message.contains(spec.name)) }
 
         let one = CommandRunner.help(CLIRequest(command: ["help"], positionals: ["transcript replace"]))

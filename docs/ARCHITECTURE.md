@@ -236,8 +236,8 @@ window's segment editor and the CLI, so the two cannot diverge. `summarize` requ
 may come from an agent, so it must consent on each request.
 
 `skills/stillnote` publishes this as an agent skill. `scripts/check-skill.sh`, run by
-`scripts/check.sh`, validates its frontmatter and proves the commands it documents and the commands
-the catalog provides are the same set in both directions.
+`scripts/check.sh`, validates its frontmatter and proves the commands and long options it documents
+match the catalog in both directions.
 
 ## Interface
 

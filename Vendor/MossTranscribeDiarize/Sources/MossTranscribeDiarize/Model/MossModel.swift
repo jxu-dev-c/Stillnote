@@ -663,10 +663,21 @@ extension MossModel {
             }
             generated.append(token)
 
-            try GenerationPolicy.checkRepetition(generated)
-            if generated.count % 32 == 0 && Date().timeIntervalSince(lastDecoded) >= 0.5 {
+            // Share the periodic progress decode with the timestamp-insensitive guard. The
+            // ordinary token check remains cheap enough to run for every generated token.
+            let shouldDecode = generated.count % 32 == 0 && Date().timeIntervalSince(lastDecoded) >= 0.5
+            let decodedText = shouldDecode
+                ? tokenizer?.decode(tokens: generated, skipSpecialTokens: true)
+                : nil
+            try GenerationPolicy.checkRepetition(
+                generated,
+                decodedText: generated.count >= 384
+                    ? decodedText.map { String($0.suffix(16_384)) }
+                    : nil
+            )
+            if let decodedText {
                 lastDecoded = Date()
-                progress(.decoded(tokenizer?.decode(tokens: generated, skipSpecialTokens: true) ?? ""))
+                progress(.decoded(decodedText))
             }
             if tokenIndex == limit - 1 { break }
 

@@ -61,14 +61,14 @@ struct SpeakerEditor: View {
                     .controlSize(.large)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityLabel("Speaker profile")
-                    Button("Edit Profile") {
-                        guard let profile = selectedProfile else { return }
-                        model.requestedSpeakerProfileID = profile.id
+                    .disabled(unavailable)
+                    Button("Edit Profiles") {
+                        model.requestedSpeakerProfileID = selectedProfile?.id
                         model.settingsTab = "speakers"
                         dismiss()
                         openSettings()
                     }
-                    .disabled(selectedProfile == nil)
+                    .help("Open speaker profile settings")
                 }
                 if model.speakerProfiles.isEmpty {
                     Text("Add speaker profiles in Settings → Speakers.")
@@ -91,10 +91,10 @@ struct SpeakerEditor: View {
                     .keyboardShortcut(.defaultAction)
             }
             .controlSize(.large)
+            .disabled(unavailable)
         }
         .padding(24)
         .frame(width: 420)
-        .disabled(unavailable)
         .interactiveDismissDisabled(saving)
         .onAppear { selectedProfileID = meeting?.speakerProfiles[speakerID] ?? "" }
     }
