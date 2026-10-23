@@ -10,6 +10,7 @@ struct SpeakerEditor: View {
     let speakerID: String
 
     @State private var selectedProfileID = ""
+    @State private var profileSearch = ""
     @State private var error: String?
     @State private var saving = false
 
@@ -17,18 +18,42 @@ struct SpeakerEditor: View {
     private var selectedProfile: SpeakerProfile? {
         model.speakerProfiles.first { $0.id == selectedProfileID }
     }
+    private var matchingProfiles: [SpeakerProfile] {
+        let query = profileSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return model.speakerProfiles }
+        return model.speakerProfiles.filter { profile in
+            [profile.name, profile.email, profile.phone].contains {
+                $0.localizedCaseInsensitiveContains(query)
+            }
+        }
+    }
+    private var selectedProfileIsFilteredOut: Bool {
+        guard let selectedProfile else { return false }
+        return !matchingProfiles.contains { $0.id == selectedProfile.id }
+    }
     private var unavailable: Bool { saving || meeting == nil || meeting?.status.isBusy == true }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Speaker profile").font(.subheadline).foregroundStyle(.secondary)
+                if !model.speakerProfiles.isEmpty {
+                    TextField("Search speaker profiles", text: $profileSearch)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Search speaker profiles")
+                }
                 HStack(spacing: 12) {
                     Picker("", selection: $selectedProfileID) {
                         Text("Select a speaker").tag("")
-                        ForEach(model.speakerProfiles) { profile in
+                        if let selectedProfile, selectedProfileIsFilteredOut {
+                            Text("Current: \(selectedProfile.name)").tag(selectedProfile.id)
+                        }
+                        ForEach(matchingProfiles) { profile in
                             Text(profile.email.isEmpty ? profile.name : "\(profile.name) · \(profile.email)")
                                 .tag(profile.id)
+                        }
+                        if matchingProfiles.isEmpty {
+                            Text("No matching speaker profiles").disabled(true)
                         }
                     }
                     .labelsHidden()
