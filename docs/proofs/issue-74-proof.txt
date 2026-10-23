@@ -1,0 +1,7 @@
+Issue #74: actual regression test output (excerpt)
+Source: /tmp/stillnote-issue-74-check.log
+
+Build complete! (6.84s)
+◇ Test retainsAnInvertedTimestampRowAsAZeroLengthCue() started.
+✔ Test retainsAnInvertedTimestampRowAsAZeroLengthCue() passed after 0.002 seconds.
+✔ Test run with 7 tests in 1 suite passed after 0.002 seconds.
