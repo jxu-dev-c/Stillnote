@@ -296,9 +296,25 @@ public struct TextPayload: Codable, Hashable, Sendable {
 
 public struct HelpPayload: Codable, Hashable, Sendable {
     public var commands: [CommandSpec]
+    /// Options accepted by every command, kept in help JSON so documentation checks can use the
+    /// same catalog as the parser.
+    public var globalValueOptions: [String]
+    public var globalBooleanOptions: [String]
 
-    public init(commands: [CommandSpec] = CommandCatalog.commands) {
+    enum CodingKeys: String, CodingKey {
+        case commands
+        case globalValueOptions = "global_value_options"
+        case globalBooleanOptions = "global_boolean_options"
+    }
+
+    public init(
+        commands: [CommandSpec] = CommandCatalog.commands,
+        globalValueOptions: [String] = CommandCatalog.globalValues,
+        globalBooleanOptions: [String] = CommandCatalog.globalBooleans
+    ) {
         self.commands = commands
+        self.globalValueOptions = globalValueOptions
+        self.globalBooleanOptions = globalBooleanOptions
     }
 }
 

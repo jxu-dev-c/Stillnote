@@ -40,7 +40,7 @@ the app's own compatibility; the CLI does not expose them.
   "status": "complete", "stage": "Summary ready", "error": null,
   "language": "en", "has_video": false, "segment_count": 148,
   "speakers": [ { "id": "speaker_1", "name": "Jackson", "profile": true } ],
-  "summary": { "title": "Launch readiness", "overview": "…", "key_points": ["…"], "decisions": ["…"],
+  "summary": { "overview": "…", "key_points": ["…"], "decisions": ["…"],
                "action_items": [ { "text": "…", "owner": "Jackson", "due": "2026-09-20" } ],
                "provider": "codex", "model": "gpt-5-codex", "generated_at": "…",
                "context_fingerprint": "…" },
