@@ -137,6 +137,12 @@ public enum MeetingQuery {
         }
     }
 
+    static func mentions(_ speaker: String, for segment: Segment, in meeting: Meeting) -> Bool {
+        let needle = speaker.lowercased()
+        return meeting.speakerName(segment.speaker).lowercased().contains(needle)
+            || segment.speaker.lowercased().contains(needle)
+    }
+
     /// Resolves a meeting reference: a full id, a unique id prefix, or `latest`.
     public static func resolve(_ reference: String, in meetings: [Meeting]) throws -> Meeting {
         let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -187,12 +193,14 @@ public enum MeetingQuery {
         // only after scoring.
         var unlimited = filter
         unlimited.limit = nil
+        let speaker = filter.speaker?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filtersSpeaker = speaker?.isEmpty == false
         var results: [SearchResult] = []
         for meeting in Self.filter(meetings, unlimited) {
             var hits: [SearchHit] = []
             var matches = 0
 
-            if fields.contains(.title) {
+            if !filtersSpeaker, fields.contains(.title) {
                 let count = occurrences(of: needle, in: meeting.title)
                 if count > 0 {
                     matches += count
@@ -201,6 +209,9 @@ public enum MeetingQuery {
             }
             if fields.contains(.transcript) {
                 for segment in meeting.segments {
+                    if let speaker, !speaker.isEmpty, !mentions(speaker, for: segment, in: meeting) {
+                        continue
+                    }
                     let count = occurrences(of: needle, in: segment.text)
                     guard count > 0 else { continue }
                     matches += count
@@ -212,7 +223,7 @@ public enum MeetingQuery {
                     ))
                 }
             }
-            if fields.contains(.summary), let summary = meeting.summary {
+            if !filtersSpeaker, fields.contains(.summary), let summary = meeting.summary {
                 let passages = [summary.overview] + summary.keyPoints + summary.decisions
                     + summary.actionItems.map(\.text)
                 for passage in passages {
@@ -224,7 +235,7 @@ public enum MeetingQuery {
                     ))
                 }
             }
-            if fields.contains(.notes) {
+            if !filtersSpeaker, fields.contains(.notes) {
                 let count = occurrences(of: needle, in: meeting.notes)
                 if count > 0 {
                     matches += count
