@@ -60,6 +60,9 @@ the start of its unit and `--until` the end, so `--since 2026-05 --until 2026-05
 
 **`--in`** — comma-separated: `title`, `transcript`, `summary`, `notes`. All four by default.
 
+**`search --speaker`** — searches only transcript segments attributed to the matching speaker.
+Title, summary, and notes matches are omitted because they have no speaker attribution.
+
 **`--status`** — `ready`, `transcribing`, `transcribed`, `summarizing`, `complete`, `error`.
 
 **`--mic` / `--screen`** — an exact device id from `stillnote devices`, or a substring of its name.
