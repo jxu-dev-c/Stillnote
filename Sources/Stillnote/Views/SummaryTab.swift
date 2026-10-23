@@ -14,8 +14,6 @@ struct SummaryTab: View {
                               systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button("Regenerate", action: requestSummary)
-                            .disabled(meeting.status.isBusy)
                     }
                 }
                 sections(summary)
