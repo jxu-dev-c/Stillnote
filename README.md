@@ -43,6 +43,9 @@ New recordings are titled `Meeting · <date>`, and imports with a blank **Title*
 filename. Click **Name Meeting** beside the title to have the summary provider suggest one from
 the meeting's summary, or its transcript when there is no summary. Summaries never change titles.
 
+Choose **Export → Copy Summary** to copy the overview, key takeaways, decisions, and next
+steps (including owners and due dates), without the transcript or provider/model details.
+
 ## If the icon keeps bouncing or Open Anyway does not work
 
 The current release is already ad-hoc signed, but it is **not Apple-notarized**.
