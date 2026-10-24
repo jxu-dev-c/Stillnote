@@ -80,7 +80,7 @@ For end-user installation and runtime setup, see [RELEASE-NOTES.md](RELEASE-NOTE
 
 ## Homebrew releases
 
-The source repository is private. Public binary downloads live in
+The source repository and agent skill are public. Public binary downloads live in
 `jxu-dev-c/homebrew-stillnote` releases; never point public formula URLs at private assets.
 The tap is what `brew install` reads, so a source release without it ships a version nobody
 can install, and the publication job fails rather than skipping the tap quietly.

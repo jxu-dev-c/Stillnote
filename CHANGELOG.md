@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.0
+
+- Split long audio-only recordings into 20-minute parts after confirmation. The default
+  eligibility threshold is 50 minutes and can be set to any positive whole number in Settings.
+  Parts keep their transcript timestamps relative to their own audio, notes, and context links;
+  summaries start empty. Splitting replaces the original meeting and audio.
+- Copy a meeting's summary from Export → Copy Summary, including decisions and action items.
+- Load meeting details on demand and search in the database to reduce library startup time,
+  memory use, and navigation delays. The sidebar shows the latest 50 meetings; All Meetings
+  retains the full history, and an opened older meeting remains visible under Selected Meeting.
+- Save edited meeting titles when editing ends.
+- Make speaker assignment searchable and keep Edit Profiles available in Settings.
+- Restrict speaker-filtered search results to transcript segments attributed to that speaker.
+- Repair inverted transcription timestamp rows and detect repetition loops even when timestamps advance.
+- Show recording controls for recordings started through the menu bar or command interface.
+- Show only one summary regeneration action.
+- Validate documented skill command options against the CLI catalog and refresh the skill's
+  speaker-search guidance and summary output example.
+
 ## 0.9.0
 
 - Open screen recordings in a sheet from the **Show Video** button in the playback bar instead
