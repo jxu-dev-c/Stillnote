@@ -16,6 +16,8 @@ struct MeetingDetailView: View {
 
     @State private var tab: MeetingTab = .summary
     @State private var title = ""
+    @FocusState private var titleFocused: Bool
+    @State private var pendingTitle: String?
     @State private var player: PlayerModel?
     @State private var confirmingDelete = false
     @State private var confirmingSplit = false
@@ -61,6 +63,7 @@ struct MeetingDetailView: View {
             title = meeting.title
             if player == nil { player = PlayerModel(meeting: meeting, paths: model.paths) }
         }
+        .onDisappear(perform: commitTitle)
         .confirmationDialog(
             "Delete “\(meeting.title)”?", isPresented: $confirmingDelete, titleVisibility: .visible
         ) {
@@ -127,7 +130,11 @@ struct MeetingDetailView: View {
                     .font(StillnoteTheme.detailTitleFont)
                     .accessibilityLabel("Meeting title")
                     .disabled(meeting.status.isBusy || naming)
+                    .focused($titleFocused)
                     .onSubmit(commitTitle)
+                    .onChange(of: titleFocused) {
+                        if !titleFocused { commitTitle() }
+                    }
                     .onChange(of: meeting.id) { title = meeting.title }
                     // Name Meeting replaces the title from outside this field.
                     .onChange(of: meeting.title) { title = meeting.title }
@@ -377,15 +384,22 @@ struct MeetingDetailView: View {
     }
 
     private func commitTitle() {
-        guard let cleaned = try? Validation.title(title), cleaned != meeting.title else {
-            title = meeting.title
+        // The detail can disappear after deletion or after a previous save has finished.
+        guard let current = model.meeting(meeting.id) else { return }
+        guard let cleaned = try? Validation.title(title), cleaned != current.title else {
+            title = current.title
             return
         }
+        // Submit, focus loss, and disappearance can all describe the same edit.
+        guard pendingTitle != cleaned else { return }
+        pendingTitle = cleaned
+        let meetingID = meeting.id
         Task {
-            await model.edit(meeting.id) {
+            await model.edit(meetingID) {
                 $0.title = cleaned
                 $0.automaticTitle = false
             }
+            if pendingTitle == cleaned { pendingTitle = nil }
         }
     }
 }
