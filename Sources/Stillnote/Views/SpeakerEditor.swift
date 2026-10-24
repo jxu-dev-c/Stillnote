@@ -104,7 +104,10 @@ struct SpeakerEditor: View {
                                 Spacer(minLength: 8)
                                 if selectedProfileID == profile.id {
                                     Image(systemName: "checkmark")
-                                        .font(.body.weight(.semibold))
+                                        .resizable()
+                                        .scaledToFit()
+                                        .fontWeight(.semibold)
+                                        .frame(width: 12, height: 12)
                                         .accessibilityHidden(true)
                                 }
                             }
@@ -113,7 +116,8 @@ struct SpeakerEditor: View {
                             .tag(profile.id)
                         }
                     }
-                    .listStyle(.inset)
+                    .listStyle(.plain)
+                    .contentMargins(.horizontal, 0, for: .scrollContent)
                     .scrollContentBackground(.hidden)
                     .frame(height: matchingProfiles.isEmpty ? 112 : CGFloat(min(matchingProfiles.count, 5)) * 56 + 16)
                     .accessibilityLabel("Matching speaker profiles")
