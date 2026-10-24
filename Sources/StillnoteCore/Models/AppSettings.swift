@@ -264,7 +264,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
             meetingReminders: try values.decodeIfPresent(MeetingReminderSettings.self, forKey: .meetingReminders) ?? .init()
         )
         let threshold = try values.decodeIfPresent(Int.self, forKey: .splitThresholdMinutes) ?? 50
-        splitThresholdMinutes = RecordingSplit.thresholdRange.contains(threshold) ? threshold : 50
+        splitThresholdMinutes = threshold > 0 ? threshold : 50
     }
 
     /// Speech models retired before MOSS became the only supported engine.
@@ -276,7 +276,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
     /// holding retired providers and API credentials — loads and migrates in place.
     public static func migrating(from object: [String: Any]) -> (settings: AppSettings, changed: Bool) {
         var settings = AppSettings()
-        if let threshold = object["split_threshold_minutes"] as? Int, RecordingSplit.thresholdRange.contains(threshold) {
+        if let threshold = object["split_threshold_minutes"] as? Int, threshold > 0 {
             settings.splitThresholdMinutes = threshold
         }
         var changed = false

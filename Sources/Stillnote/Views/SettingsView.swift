@@ -76,7 +76,7 @@ struct TranscriptionSettingsView: View {
                     }
                 }
                 if splitThresholdValue == nil {
-                    Text("Enter a whole number from 21 to 90. The last valid threshold remains in use.")
+                    Text("Enter a positive whole number of minutes. The last valid threshold remains in use.")
                         .font(.caption).foregroundStyle(.red)
                 }
                 Text("Shows Split Recording for saved audio at this length. Each part is 20 minutes; the last keeps the remainder. Screen recordings cannot be split.")
@@ -182,7 +182,7 @@ struct TranscriptionSettingsView: View {
     private var splitThresholdValue: Int? {
         let text = splitThresholdText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.allSatisfy({ $0.isASCII && $0.isNumber }),
-              let value = Int(text), RecordingSplit.thresholdRange.contains(value) else { return nil }
+              let value = Int(text), value > 0 else { return nil }
         return value
     }
 

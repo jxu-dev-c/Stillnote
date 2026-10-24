@@ -4,7 +4,6 @@ import Foundation
 /// Pure planning and transcript mapping, shared by the confirmation sheet and writer.
 public enum RecordingSplit {
     public static let partSeconds: Double = 1_200
-    public static let thresholdRange = 21...90
     public static func eligible(_ meeting: Meeting, thresholdMinutes: Int) -> Bool {
         !meeting.hasVideo && meeting.duration.isFinite
             && meeting.duration >= Double(thresholdMinutes) * 60

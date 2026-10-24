@@ -25,6 +25,16 @@ import Testing
         #expect(AppSettings.migrating(from: object).settings.splitThresholdMinutes == 50)
     }
 
+    @Test(arguments: [1, 20, 21, 90, 91, 120, 1440]) func positiveThresholdsPersist(_ minutes: Int) throws {
+        var settings = AppSettings()
+        settings.splitThresholdMinutes = minutes
+        let data = try JSONEncoder().encode(settings)
+        #expect(try JSONDecoder().decode(AppSettings.self, from: data).splitThresholdMinutes == minutes)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(AppSettings.migrating(from: object).settings.splitThresholdMinutes == minutes)
+        #expect(!RecordingSplit.eligible(meeting(20), thresholdMinutes: minutes))
+    }
+
     @Test(arguments: [50.0, 60, 90, 120]) func durations(_ minutes: Double) throws {
         let parts = try RecordingSplit.parts(meeting(minutes))
         #expect(parts.count == Int(ceil(minutes / 20)))

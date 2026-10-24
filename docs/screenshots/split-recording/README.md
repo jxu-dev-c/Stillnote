@@ -2,7 +2,7 @@
 
 Captured from the native debug app with an isolated `STILLNOTE_DATA_DIR` and synthetic audio, transcripts and context. No private meeting content is included.
 
-The progress capture uses a separate 90-minute synthetic workshop with the QA process temporarily CPU-throttled using STOP/CONT signals. No artificial delay or screenshot hook is present in the application code. All other captures use the normal-speed 50-minute flow.
+The progress capture uses the 50-minute synthetic recording with the QA process temporarily CPU-throttled using STOP/CONT signals. No artificial delay or screenshot hook is present in the application code. All other captures use the normal-speed 50-minute flow.
 
 Verified: cancel leaves the original untouched; changing the threshold immediately changes visibility; successful replacement persists after restart; all four source sentences appear exactly once across the three parts; original audio is removed only after replacement; notes, links and speaker identities survive.
 
@@ -10,9 +10,9 @@ Verified: cancel leaves the original untouched; changing the threshold immediate
 
 ![Default 50-minute threshold](01-default-threshold.jpg)
 
-## Threshold changed to 51 minutes
+## Threshold changed to 120 minutes
 
-![Threshold changed to 51 minutes](02-custom-threshold.jpg)
+![Threshold changed to 120 minutes](02-custom-threshold.jpg)
 
 ## 50-minute recording hidden below the custom threshold
 
@@ -61,14 +61,20 @@ Verified: cancel leaves the original untouched; changing the threshold immediate
 ## Revision: direct input and trim visibility
 
 The threshold now uses a text field; valid integers save immediately. Empty, nonnumeric,
-and out-of-range input retain the last valid saved value and show an inline message.
-The default/custom screenshots above have been replaced with the final text-input UI.
+and nonpositive input retain the last valid saved value and show an inline message.
+Any positive whole number of minutes is accepted; there is no 21–90 restriction.
+The default/custom screenshots above show the final text-input UI. The invalid-input
+screenshot now uses zero, not 91.
 
 A synthetic recording with three minutes of cleanup metadata shows only the split action
-when eligible. Raising its threshold to 51 minutes restores the trim label and hides split.
+when eligible. Raising its threshold to 120 minutes restores the trim label and hides split.
 
 ![Split action hides trim metadata](13-split-hides-trim.jpg)
 
 ![Trim remains when split is unavailable](14-trim-without-split.jpg)
 
 ![Invalid threshold retains the saved value](15-invalid-threshold.jpg)
+
+## Positive thresholds below 21 minutes are accepted
+
+![One minute is accepted](16-one-minute-threshold.jpg)
