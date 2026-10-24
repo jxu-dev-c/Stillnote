@@ -189,7 +189,7 @@ struct MeetingDetailView: View {
         HStack(spacing: 16) {
             if model.canSplit(meeting) {
                 Button { confirmingSplit = true } label: {
-                    Label("Split Recording…", systemImage: "scissors")
+                    Label("Split Recording", systemImage: "scissors")
                 }
                 .font(StillnoteTheme.detailSupportingFont)
                 .buttonStyle(.borderless)

@@ -323,7 +323,7 @@ is retained but never mistaken for a compatible native checkpoint.
 
 `AppSettings.split_threshold_minutes` defaults to 50 and accepts 21–90 minutes.
 The threshold is edited directly in a text field; invalid input keeps the last saved
-value. The detail header offers **Split Recording…** for saved audio-only meetings at or
+value. The detail header offers **Split Recording** for saved audio-only meetings at or
 above that threshold. While that action is visible, the trim badge is hidden to avoid
 competing for header space; stored cleanup metadata is preserved. Screen recordings
 are excluded. A confirmation sheet previews

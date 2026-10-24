@@ -194,7 +194,7 @@ Hot words are supported by the bundled native speech engine.
 
 ### Split a long recording
 
-Saved audio-only meetings of 50 minutes or longer show **Split Recording…** in the
+Saved audio-only meetings of 50 minutes or longer show **Split Recording** in the
 meeting header. Change the threshold (21–90 minutes) in **Settings → Transcription →
 Long recordings**. Screen recordings cannot be split.
 
