@@ -8,7 +8,13 @@ import StillnoteCore
 @MainActor
 @Observable
 final class AppModel {
-    private(set) var meetings: [Meeting] = []
+    private(set) var meetings: [MeetingListItem] = []
+    private(set) var selectedMeeting: Meeting?
+    private(set) var detailError: String?
+    @ObservationIgnored private var detailID: String?
+    @ObservationIgnored private var detailRequest = 0
+    @ObservationIgnored private var removedMeetingIDs: Set<String> = []
+    private(set) var meetingSearchRevision = 0
     private(set) var speakerProfiles: [SpeakerProfile] = []
     var settingsTab = "transcription"
     var requestedSpeakerProfileID: String?
@@ -41,6 +47,7 @@ final class AppModel {
     @ObservationIgnored let meetingReminder = MeetingReminder()
     private var transcriptions: [String: Task<Void, Never>] = [:]
     private var startingTranscriptions: Set<String> = []
+    private var startingSummaries: Set<String> = []
     private var installTask: Task<Void, Never>?
     private var installProgress = 0.0
     private var installDetail: String?
@@ -83,7 +90,10 @@ final class AppModel {
             try? await RecordingSplitJournal.recover(paths: paths, store: store)
             try await store.markInterruptedJobs()
             try await store.migrateNamedSpeakers()
-            meetings = try await store.list()
+            startupStage = "Preparing library search…"
+            try await store.prepareLibrarySearch()
+            meetings = try await store.libraryItems()
+            meetingSearchRevision += 1
             settings = try await store.settings()
             speakerProfiles = try await store.profiles()
             startupStage = "Recovering interrupted recordings…"
@@ -122,15 +132,72 @@ final class AppModel {
         capabilities = probe.2
     }
 
-    func meeting(_ id: String) -> Meeting? { meetings.first { $0.id == id } }
+    func meeting(_ id: String) -> Meeting? {
+        selectedMeeting?.id == id ? selectedMeeting : nil
+    }
 
-    private func apply(_ meeting: Meeting) {
-        if let index = meetings.firstIndex(where: { $0.id == meeting.id }) {
-            meetings[index] = meeting
-        } else {
-            meetings.append(meeting)
+    func libraryItem(_ id: String) -> MeetingListItem? { meetings.first { $0.id == id } }
+
+    func loadDetail(_ id: String?) async {
+        detailRequest += 1
+        let request = detailRequest
+        detailID = id
+        selectedMeeting = nil
+        detailError = nil
+        guard let id else { return }
+        do {
+            var snapshot = try await store.snapshot(id)
+            // A CLI edit can land while this read returns to the main actor.
+            while let current = libraryItem(id), snapshot.item.revision < current.revision {
+                try Task.checkCancellation()
+                snapshot = try await store.snapshot(id)
+            }
+            try Task.checkCancellation()
+            guard detailID == id, detailRequest == request else { return }
+            guard accept(snapshot.item) else { return }
+            selectedMeeting = snapshot.meeting
+        } catch is CancellationError {
+        } catch {
+            guard detailID == id, detailRequest == request else { return }
+            detailError = error.localizedDescription
         }
-        meetings.sort { $0.createdAt > $1.createdAt }
+    }
+
+    func searchMeetings(_ query: String) async throws -> Set<String> {
+        let paths = paths
+        let worker = Task.detached(priority: .userInitiated) {
+            let reader = try Store(paths: paths, readOnly: true)
+            return try await reader.searchLibrary(query)
+        }
+        return try await withTaskCancellationHandler {
+            let result = try await worker.value
+            try Task.checkCancellation()
+            return result
+        } onCancel: { worker.cancel() }
+    }
+
+    @discardableResult
+    private func accept(_ item: MeetingListItem) -> Bool {
+        guard !removedMeetingIDs.contains(item.id) else { return false }
+        let previousRevision = libraryItem(item.id)?.searchRevision
+        guard MeetingLibrary.apply(item, to: &meetings) else { return false }
+        if previousRevision != item.searchRevision { meetingSearchRevision += 1 }
+        return true
+    }
+
+    private func apply(_ meeting: Meeting) async {
+        do {
+            if detailID == meeting.id {
+                let snapshot = try await store.snapshot(meeting.id)
+                if accept(snapshot.item), detailID == meeting.id {
+                    selectedMeeting = snapshot.meeting
+                }
+            } else {
+                accept(try await store.libraryItem(meeting.id))
+            }
+        } catch StoreError.notFound {
+            // A concurrent delete won; never resurrect a removed row or detail.
+        } catch { report(error) }
     }
 
     private func report(_ error: Error) {
@@ -142,7 +209,7 @@ final class AppModel {
     func deleteSpeakerProfile(_ id: String) async throws -> [Meeting] {
         guard splittingMeetings.isEmpty else { throw ValidationError("Wait for recording splitting to finish.") }
         let changed = try await store.deleteProfile(id)
-        changed.forEach { apply($0) }
+        for meeting in changed { await apply(meeting) }
         speakerProfiles.removeAll { $0.id == id }
         return changed
     }
@@ -163,14 +230,14 @@ final class AppModel {
     func createSpeakerProfile(_ profile: SpeakerProfile, meetingID: String, speakerID: String) async throws {
         guard splittingMeetings.isEmpty else { throw ValidationError("Wait for recording splitting to finish.") }
         let validated = try profile.validated()
-        apply(try await store.createProfile(validated, meetingID: meetingID, speakerID: speakerID))
+        await apply(try await store.createProfile(validated, meetingID: meetingID, speakerID: speakerID))
         rememberProfile(validated)
     }
 
     func assignSpeakerProfile(_ profileID: String?, meetingID: String, speakerID: String,
                               localName: String? = nil) async throws {
         guard !splittingMeetings.contains(meetingID) else { throw ValidationError("Wait for recording splitting to finish.") }
-        apply(try await store.assignProfile(profileID, meetingID: meetingID,
+        await apply(try await store.assignProfile(profileID, meetingID: meetingID,
                                             speakerID: speakerID, localName: localName))
     }
 
@@ -181,7 +248,7 @@ final class AppModel {
         guard !splittingMeetings.contains(id) else { return nil }
         do {
             let updated = try await store.update(id, mutate)
-            apply(updated)
+            await apply(updated)
             return updated
         } catch {
             report(error)
@@ -213,7 +280,7 @@ final class AppModel {
 
     func delete(_ id: String) async {
         guard !splittingMeetings.contains(id) else { return }
-        guard let meeting = meeting(id), !meeting.status.isBusy else {
+        guard let meeting = libraryItem(id), !meeting.status.isBusy else {
             alertMessage = "This meeting is processing. Wait for it to finish."
             return
         }
@@ -222,7 +289,10 @@ final class AppModel {
         try? FileManager.default.removeItem(at: paths.videoURL(id))
         do {
             try await store.delete(id)
+            removedMeetingIDs.insert(id)
             meetings.removeAll { $0.id == id }
+            if selectedMeeting?.id == id { selectedMeeting = nil }
+            meetingSearchRevision += 1
             discardNotesDraft(id)
         } catch {
             report(error)
@@ -237,16 +307,16 @@ final class AppModel {
     }
 
     func splitRecording(_ id: String) async -> [Meeting]? {
-        guard let saved = meeting(id), canSplit(saved), !saved.status.isBusy,
-              !namingMeetings.contains(id), !startingTranscriptions.contains(id),
-              splittingMeetings.isEmpty else { return nil }
+        guard !namingMeetings.contains(id), !startingTranscriptions.contains(id),
+              !startingSummaries.contains(id), splittingMeetings.isEmpty else { return nil }
         splittingMeetings.insert(id)
         splitProgress[id] = "Preparing audio…"
         defer { splittingMeetings.remove(id); splitProgress[id] = nil }
+        guard let saved = try? await store.get(id), canSplit(saved), !saved.status.isBusy else { return nil }
         do {
             let flushed = await NotesDraft.flush(meetingID: id, savedText: saved.notes) { pending in
                 do {
-                    self.apply(try await self.store.update(id) { $0.notes = pending })
+                    await self.apply(try await self.store.update(id) { $0.notes = pending })
                     return true
                 } catch { return false }
             }
@@ -279,8 +349,11 @@ final class AppModel {
                 try? await RecordingSplitJournal.recover(paths: paths, store: store)
                 throw error
             }
+            removedMeetingIDs.insert(id)
             meetings.removeAll { $0.id == id }
-            parts.forEach { apply($0) }
+            if selectedMeeting?.id == id { selectedMeeting = nil }
+            meetingSearchRevision += 1
+            for part in parts { await apply(part) }
             discardNotesDraft(id)
             // A failed deletion leaves the journal for next launch; committed parts stay usable.
             try? await RecordingSplitJournal.recover(paths: paths, store: store)
@@ -314,7 +387,7 @@ final class AppModel {
                 [.posixPermissions: 0o600], ofItemAtPath: destination.path
             )
             _ = try await store.insert(meeting)
-            apply(meeting)
+            await apply(meeting)
             return meeting
         } catch {
             report(error)
@@ -364,7 +437,7 @@ final class AppModel {
             )
             // Other stop callers share this save; do not reset a meeting that one
             // of them has already queued for transcription.
-            if self.meeting(meeting.id) == nil { apply(meeting) }
+            if self.libraryItem(meeting.id) == nil { await apply(meeting) }
             return meeting
         } catch {
             report(error)
@@ -378,9 +451,11 @@ final class AppModel {
 
     func transcribe(_ id: String, language: String? = nil, speakerCount: Int?? = nil) async {
         guard !splittingMeetings.contains(id) else { return }
-        guard !startingTranscriptions.contains(id), transcriptions[id] == nil else { return }
-        guard let meeting = meeting(id) else { return }
-        guard !meeting.status.isBusy else {
+        guard !startingTranscriptions.contains(id), !startingSummaries.contains(id), transcriptions[id] == nil else { return }
+        startingTranscriptions.insert(id)
+        defer { startingTranscriptions.remove(id) }
+        guard let meeting = try? await store.get(id) else { return }
+        guard !splittingMeetings.contains(id), !meeting.status.isBusy else {
             alertMessage = "This meeting is processing. Wait for it to finish."
             return
         }
@@ -397,9 +472,6 @@ final class AppModel {
         let hotWords = settings.transcription.hotWords
         let mode = settings.transcription.mode
         let cleanup = settings.cleanup
-        // Reserve before the first await so overlapping stop callers queue one job.
-        startingTranscriptions.insert(id)
-        defer { startingTranscriptions.remove(id) }
         guard let queued = await edit(id, { meeting in
             meeting.status = .transcribing
             meeting.progress = 0
@@ -511,8 +583,11 @@ final class AppModel {
     // MARK: - Summary
 
     func summarize(_ id: String, allowRemote: Bool) async {
-        guard !splittingMeetings.contains(id) else { return }
-        guard let saved = meeting(id) else { return }
+        guard !splittingMeetings.contains(id), !startingSummaries.contains(id),
+              !startingTranscriptions.contains(id) else { return }
+        startingSummaries.insert(id)
+        defer { startingSummaries.remove(id) }
+        guard let saved = try? await store.get(id) else { return }
         // Notes autosave shortly after typing stops. A summary started sooner, or after a failed
         // save, must not quietly use older notes.
         let notesSaved = await NotesDraft.flush(meetingID: id, savedText: saved.notes) { pending in
@@ -523,7 +598,7 @@ final class AppModel {
                 + "Save them on the Context tab, then retry."
             return
         }
-        guard let meeting = meeting(id), !splittingMeetings.contains(id) else { return }
+        guard let meeting = try? await store.get(id), !splittingMeetings.contains(id) else { return }
         guard !meeting.status.isBusy else {
             alertMessage = "This meeting is processing. Wait for it to finish."
             return
@@ -587,7 +662,10 @@ final class AppModel {
     /// prompt cannot leave meetings unnamed. Only an explicit request renames a meeting.
     func suggestTitle(_ id: String, allowRemote: Bool) async {
         guard !splittingMeetings.contains(id) else { return }
-        guard let meeting = meeting(id), !namingMeetings.contains(id) else { return }
+        guard !namingMeetings.contains(id) else { return }
+        namingMeetings.insert(id)
+        defer { namingMeetings.remove(id) }
+        guard let meeting = try? await store.get(id), !splittingMeetings.contains(id) else { return }
         guard !meeting.status.isBusy else {
             alertMessage = "This meeting is processing. Wait for it to finish."
             return
@@ -596,15 +674,13 @@ final class AppModel {
             alertMessage = "Create a transcript before naming this meeting."
             return
         }
-        namingMeetings.insert(id)
-        defer { namingMeetings.remove(id) }
         let settings = settings.summary
         do {
             let title = try await Task.detached(priority: .userInitiated) {
                 try MeetingNamer.suggestTitle(meeting: meeting, settings: settings, allowRemote: allowRemote)
             }.value
             // The meeting may have been deleted while the provider was working.
-            guard self.meeting(id) != nil else { return }
+            guard self.libraryItem(id) != nil else { return }
             await edit(id) { $0.applySuggestedTitle(title) }
         } catch {
             alertMessage = (error as? SummaryError)?.message

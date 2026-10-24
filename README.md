@@ -14,6 +14,7 @@ Transcription and speaker detection are powered by [OpenMOSS's MOSS-Transcribe-D
 
 - **Local transcription.** Transcription and Speaker Detection entirely stay on your Mac.
 - **AI Agent summaries.** Use **Codex or Claude Code CLI** for summaries, without needing extra API configurations. 
+- **Recent meetings.** The sidebar keeps your latest 50 meetings close at hand. Find the full history in All Meetings; an opened older meeting stays visible under Selected Meeting.
 - **Calendar view.** In All Meetings, switch from the list to a Day, Week, or Month calendar
   that looks like Apple's Calendar, with each meeting at the time it was recorded.
 - **Meeting reminders (opt-in).** When Teams, Zoom, Google Meet, or another meeting app starts using the microphone, Stillnote can offer to start recording. Turn it on in **Settings → Transcription**.

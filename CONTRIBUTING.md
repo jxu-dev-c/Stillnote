@@ -31,3 +31,8 @@ After `./scripts/package-app.sh` and the model download, run `python3 scripts/ve
 for packaged acceptance: synthetic short/two-speaker audio, signatures, library paths,
 network/checkout/child-process denial, app diagnostics, and service cancellation.
 Logs and timing/memory measurements are written under `build/native-validation/`.
+
+Library navigation/storage changes also run the app-model lifecycle regression in
+`scripts/check-library-model.sh` through `check.sh`. For synthetic large-library
+measurements and the metadata/detail loading contract, see
+[Library performance verification](docs/LIBRARY-PERFORMANCE.md).

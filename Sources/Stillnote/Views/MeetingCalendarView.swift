@@ -4,7 +4,7 @@ import SwiftUI
 /// All Meetings laid out like Calendar.app: a month grid, or a day or week timeline where
 /// each meeting is placed at its start time and sized by its length.
 struct MeetingCalendarView: View {
-    let meetings: [Meeting]
+    let meetings: [MeetingListItem]
     @Binding var selection: String?
     var onDelete: (String) -> Void
 
@@ -19,7 +19,7 @@ struct MeetingCalendarView: View {
         nonmutating set { anchorTime = newValue.timeIntervalSinceReferenceDate }
     }
 
-    private var meetingsByDay: [Date: [Meeting]] {
+    private var meetingsByDay: [Date: [MeetingListItem]] {
         // `startDate` parses a timestamp, so read it once per meeting.
         let dated = meetings.map { ($0.startDate, $0) }.sorted { $0.0 < $1.0 }
         return Dictionary(grouping: dated) { layout.calendar.startOfDay(for: $0.0) }
@@ -126,7 +126,7 @@ struct MeetingCalendarView: View {
 }
 
 /// The color a meeting is drawn in. Busy and failed meetings stand out from the rest.
-private extension Meeting {
+private extension MeetingListItem {
     var calendarTint: Color {
         switch status {
         case .error: return .orange
@@ -143,7 +143,7 @@ private extension Meeting {
 
 /// Open and delete actions shared by both event styles, matching the table's context menu.
 private struct MeetingEventMenu: ViewModifier {
-    let meeting: Meeting
+    let meeting: MeetingListItem
     let open: (String) -> Void
     let onDelete: (String) -> Void
 
@@ -165,7 +165,7 @@ private struct MonthGrid: View {
     let layout: CalendarLayout
     let month: Date
     let today: Date
-    let meetingsByDay: [Date: [Meeting]]
+    let meetingsByDay: [Date: [MeetingListItem]]
     let open: (String) -> Void
     let onDelete: (String) -> Void
     let showDay: (Date) -> Void
@@ -208,7 +208,7 @@ private struct MonthDayCell: View {
     let day: Date
     let inMonth: Bool
     let isToday: Bool
-    let meetings: [Meeting]
+    let meetings: [MeetingListItem]
     let open: (String) -> Void
     let onDelete: (String) -> Void
     let showDay: (Date) -> Void
@@ -261,7 +261,7 @@ private struct MonthDayCell: View {
 }
 
 private struct MonthEventChip: View {
-    let meeting: Meeting
+    let meeting: MeetingListItem
     let open: (String) -> Void
     @State private var hovering = false
 
@@ -304,7 +304,7 @@ private struct TimelineGrid: View {
     let layout: CalendarLayout
     let days: [Date]
     let now: Date
-    let meetingsByDay: [Date: [Meeting]]
+    let meetingsByDay: [Date: [MeetingListItem]]
     let open: (String) -> Void
     let onDelete: (String) -> Void
 
@@ -456,7 +456,7 @@ private struct TimelineGrid: View {
 }
 
 private struct TimelineEventBlock: View {
-    let meeting: Meeting
+    let meeting: MeetingListItem
     let compact: Bool
     let open: (String) -> Void
     @State private var hovering = false
