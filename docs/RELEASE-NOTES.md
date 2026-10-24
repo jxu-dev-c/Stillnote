@@ -2,48 +2,24 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
-## What's new in 0.9.0
+## What's new in 0.10.0
 
-### Summaries use your own Codex or Claude Code setup
-
-- A summary is now one plain `codex exec` or `claude -p` request, run as if you typed it in
-  Terminal. Your CLI's sign-in, skills, MCP servers, instruction files, and permissions apply, so
-  a summary prompt can ask the agent to use your skills.
-- The whole transcript goes out in one request instead of being summarized in sections and
-  merged.
-- A meeting's **notes** and **context links** are now sent with its summary request. The agent is
-  asked to look the links up with your skills, such as work items or emails, and use what it
-  finds as context. When notes or links change after a summary was made, the **Summary** tab says
-  so and offers **Regenerate**.
-- For recordings with screen video, summary requests always include the local video path. The
-  agent can open it according to its own configuration and permissions.
-- Summaries start right away, without a confirmation sheet: choosing the provider and model in
-  **Settings → Summaries** is the consent. `stillnote summarize` still needs `--allow-remote`.
-- **Settings → Summaries** keeps provider, model, effort, and prompt. The YOLO, shell-path, and
-  inherit-shell-environment options are gone: the CLI always gets your login shell's environment.
-
-### Name Meeting
-
-- A **Name Meeting** button beside the title asks the provider from Settings for a short title,
-  using the meeting's summary, or its transcript when there is no summary. It replaces any title,
-  because you asked for it.
-- Summaries no longer change titles. New recordings keep their dated default title, and imports
-  keep their filename, until you rename them or click **Name Meeting**.
-
-### Video in a sheet
-
-- Screen recordings no longer play above the summary. Every meeting has the same bottom playback
-  bar, and meetings with screen video add a **Show Video** button that opens the video in a
-  resizable sheet. Playback, speed, and transcript timestamps stay in sync, and playback continues
-  in the bar after you close the sheet.
-
-### Fixes and polish
-
-- Calendar meetings show durations with explicit units, and keep them visible in narrow and
-  overlapping Day and Week columns. Hovering a meeting shows its full time range.
-- Toolbar pickers have balanced spacing, toolbar icons are centered, and the Import Audio icon
-  matches the recording button. The sidebar drops the Library heading and the waveform icons on
-  recent meetings.
+- Split long audio-only recordings into 20-minute parts after confirmation. The default
+  eligibility threshold is 50 minutes and can be set to any positive whole number in Settings.
+  Parts keep their transcript timestamps relative to their own audio, notes, and context links;
+  summaries start empty. Splitting replaces the original meeting and audio.
+- Copy a meeting's summary from Export → Copy Summary, including decisions and action items.
+- Load meeting details on demand and search in the database to reduce library startup time,
+  memory use, and navigation delays. The sidebar shows the latest 50 meetings; All Meetings
+  retains the full history, and an opened older meeting remains visible under Selected Meeting.
+- Save edited meeting titles when editing ends.
+- Make speaker assignment searchable and keep Edit Profiles available in Settings.
+- Restrict speaker-filtered search results to transcript segments attributed to that speaker.
+- Repair inverted transcription timestamp rows and detect repetition loops even when timestamps advance.
+- Show recording controls for recordings started through the menu bar or command interface.
+- Show only one summary regeneration action.
+- Validate documented skill command options against the CLI catalog and refresh the skill's
+  speaker-search guidance and summary output example.
 
 ## The `stillnote` command and AI agents
 
@@ -65,6 +41,12 @@ still asks for consent, as `stillnote summarize <id> --allow-remote`.
 
 To let a coding agent drive it, install the published skill with
 `npx skills add jxu-dev-c/Stillnote`.
+
+## Upgrading from 0.9.0
+
+Existing meetings, settings, and downloaded models are preserved. No new model download is
+needed. The sidebar shows your latest 50 meetings; open All Meetings for the full history.
+Recording splitting is optional and requires confirmation before replacing the original.
 
 ## Upgrading from 0.8.0
 
