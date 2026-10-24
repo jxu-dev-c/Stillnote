@@ -224,6 +224,13 @@ struct MeetingDetailView: View {
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Menu {
+                Button("Copy Summary", systemImage: "doc.on.doc") {
+                    guard let summary = meeting.summary else { return }
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(Exporter.summaryText(summary), forType: .string)
+                }
+                .disabled(meeting.summary == nil)
+                Divider()
                 ForEach(ExportFormat.allCases, id: \.self) { format in
                     Button(format.label) {
                         exporting = ExportDocument(text: Exporter.text(meeting, format: format), format: format)

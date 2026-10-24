@@ -123,6 +123,41 @@ private func meeting(segments: [Segment], speakers: [String: String] = [:]) -> M
         #expect(text.contains("[00:00:02] Grace: Agreed"))
     }
 
+    @Test func copiesAllSummaryContentWithoutGenerationMetadata() throws {
+        let summary = try #require(complete().summary)
+        let text = Exporter.summaryText(summary)
+        #expect(text == """
+        Overview
+
+        Short overview.
+
+        Key takeaways
+
+        - One
+
+        Decisions
+
+        - Ship it
+
+        Next steps
+
+        - Follow up — Owner: Ada — Due: Friday
+        """)
+    }
+
+    @Test func copiesSummaryWithEmptySectionsAndOptionalActionDetails() throws {
+        var summary = try #require(complete().summary)
+        summary.keyPoints = []
+        summary.decisions = []
+        summary.actionItems = []
+        let text = Exporter.summaryText(summary)
+        #expect(text.contains("Key takeaways\n\nNo key points."))
+        #expect(text.contains("Decisions\n\nNo decisions."))
+        #expect(text.contains("Next steps\n\nNo action items."))
+        summary.actionItems = [ActionItem(text: "Review")]
+        #expect(Exporter.summaryText(summary).hasSuffix("Next steps\n\n- Review"))
+    }
+
     @Test func writesPlainTextAndSubtitles() {
         let source = complete()
         #expect(!Exporter.text(source, format: .text).contains("# "))

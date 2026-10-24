@@ -19,6 +19,26 @@ public enum ExportFormat: String, CaseIterable, Sendable {
 }
 
 public enum Exporter {
+    /// Summary content for sharing, without transcript or generation metadata.
+    public static func summaryText(_ summary: MeetingSummary) -> String {
+        let actions = summary.actionItems.map { item in
+            var text = item.text
+            if let owner = item.owner { text += " — Owner: \(owner)" }
+            if let due = item.due { text += " — Due: \(due)" }
+            return text
+        }
+        func section(_ title: String, items: [String], empty: String) -> String {
+            let body = items.isEmpty ? empty : items.map { "- \($0)" }.joined(separator: "\n")
+            return "\(title)\n\n\(body)"
+        }
+        return [
+            "Overview\n\n\(summary.overview)",
+            section("Key takeaways", items: summary.keyPoints, empty: "No key points."),
+            section("Decisions", items: summary.decisions, empty: "No decisions."),
+            section("Next steps", items: actions, empty: "No action items."),
+        ].joined(separator: "\n\n")
+    }
+
     public static func text(_ meeting: Meeting, format: ExportFormat) -> String {
         switch format {
         case .json:
