@@ -58,3 +58,17 @@ Verified: cancel leaves the original untouched; changing the threshold immediate
 
 ![Original replaced by 20-, 20-, and 10-minute parts](12-result-list.jpg)
 
+## Revision: direct input and trim visibility
+
+The threshold now uses a text field; valid integers save immediately. Empty, nonnumeric,
+and out-of-range input retain the last valid saved value and show an inline message.
+The default/custom screenshots above have been replaced with the final text-input UI.
+
+A synthetic recording with three minutes of cleanup metadata shows only the split action
+when eligible. Raising its threshold to 51 minutes restores the trim label and hides split.
+
+![Split action hides trim metadata](13-split-hides-trim.jpg)
+
+![Trim remains when split is unavailable](14-trim-without-split.jpg)
+
+![Invalid threshold retains the saved value](15-invalid-threshold.jpg)

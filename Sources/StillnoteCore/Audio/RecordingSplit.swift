@@ -13,12 +13,12 @@ public enum RecordingSplit {
 
     public static func parts(_ meeting: Meeting) throws -> [Meeting] {
         guard !meeting.hasVideo, meeting.duration.isFinite,
-              meeting.duration > partSeconds, meeting.duration <= Validation.maxRecordingSeconds else {
-            throw ValidationError("Choose a pure audio recording longer than 20 minutes and at most 90 minutes.")
+              meeting.duration > partSeconds,
+              let count = Int(exactly: ceil(meeting.duration / partSeconds)) else {
+            throw ValidationError("Choose a pure audio recording longer than 20 minutes with a valid duration.")
         }
         let hasRecordingTime = meeting.recordedAt != nil || meeting.source == .recording
             || (meeting.source == nil && meeting.audioName == "recording.wav")
-        let count = Int(ceil(meeting.duration / partSeconds))
         var parts = (0..<count).map { index -> Meeting in
             let offset = Double(index) * partSeconds
             let suffix = " part\(index + 1)"

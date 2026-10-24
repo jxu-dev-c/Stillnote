@@ -224,9 +224,9 @@ struct MeetingDetailView: View {
             }
             Label(meeting.speakers.isEmpty ? "No speakers" : "\(meeting.speakers.count) \(meeting.speakers.count == 1 ? "speaker" : "speakers")",
                   systemImage: "person.2")
-            // The raw captures are gone once a session is saved, so this is the only
-            // surviving record that the recording was shortened.
-            if let cleanup = meeting.cleanup, cleanup.removedDuration > 0 {
+            // Keep the split action and trim badge mutually exclusive in this row.
+            // Cleanup metadata remains on the meeting when the badge is hidden.
+            if !model.canSplit(meeting), let cleanup = meeting.cleanup, cleanup.removedDuration > 0 {
                 Label {
                     Text("Trimmed \(Formatting.duration(cleanup.removedDuration)) of silence from \(Formatting.duration(cleanup.originalDuration))")
                         .monospacedDigit()

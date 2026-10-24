@@ -25,13 +25,25 @@ import Testing
         #expect(AppSettings.migrating(from: object).settings.splitThresholdMinutes == 50)
     }
 
-    @Test(arguments: [50.0, 60, 90]) func durations(_ minutes: Double) throws {
+    @Test(arguments: [50.0, 60, 90, 120]) func durations(_ minutes: Double) throws {
         let parts = try RecordingSplit.parts(meeting(minutes))
         #expect(parts.count == Int(ceil(minutes / 20)))
         #expect(parts.reduce(0) { $0 + $1.duration } == minutes * 60)
         #expect(parts.allSatisfy { $0.duration > 0 && $0.duration <= 1200 })
         #expect(parts.enumerated().allSatisfy { $0.element.title == "Design review part\($0.offset + 1)" })
         #expect(Set(parts.map(\.id)).count == parts.count)
+    }
+
+    @Test func importedAudioBeyondSpeechLimitCanBeSplit() throws {
+        var original = meeting(120)
+        original.source = .import
+        original.recordedAt = nil
+        original.audioName = "long-interview.m4a"
+        #expect(RecordingSplit.eligible(original, thresholdMinutes: 50))
+        let parts = try RecordingSplit.parts(original)
+        #expect(parts.count == 6)
+        #expect(parts.allSatisfy { $0.duration == 1200 && $0.source == .import && $0.recordedAt == nil })
+        #expect(parts.last?.title == "Design review part6")
     }
 
     @Test func transcriptAndMetadata() throws {

@@ -322,10 +322,15 @@ is retained but never mistaken for a compatible native checkpoint.
 ### Splitting long recordings
 
 `AppSettings.split_threshold_minutes` defaults to 50 and accepts 21–90 minutes.
-The detail header offers **Split Recording…** for saved audio-only meetings at or
-above that threshold. Screen recordings are excluded. A confirmation sheet previews
+The threshold is edited directly in a text field; invalid input keeps the last saved
+value. The detail header offers **Split Recording…** for saved audio-only meetings at or
+above that threshold. While that action is visible, the trim badge is hidden to avoid
+competing for header space; stored cleanup metadata is preserved. Screen recordings
+are excluded. A confirmation sheet previews
 names and durations and explicitly warns that splitting replaces the original meeting
 and audio and clears its summary. Each part is 1,200 seconds except the remainder.
+Splitting also supports saved imports longer than the speech engine’s 90-minute limit;
+that limit applies to transcription, not to the source being split.
 
 `RecordingSplit` plans independent meetings named `<original title> partN`, reserving
 space for the suffix within the title limit. It streams decoded audio to float32 WAVs
