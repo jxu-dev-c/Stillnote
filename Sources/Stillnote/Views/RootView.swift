@@ -27,9 +27,20 @@ struct RootView: View {
                 NavigationSplitView {
                     sidebar
                 } detail: {
-                    if let selection, let meeting = model.meeting(selection) {
-                        MeetingDetailView(meeting: meeting, selection: $selection)
-                            .id(meeting.id)
+                    if let selection {
+                        if let meeting = model.meeting(selection) {
+                            MeetingDetailView(meeting: meeting, selection: $selection)
+                                .id(meeting.id)
+                        } else if let error = model.detailError {
+                            ContentUnavailableView {
+                                Label("Could not load meeting", systemImage: "exclamationmark.triangle")
+                            } description: { Text(error) } actions: {
+                                Button("Try Again") { Task { await model.loadDetail(selection) } }
+                            }
+                        } else {
+                            ProgressView("Loading meeting…")
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
                     } else {
                         MeetingListView(selection: $selection, search: $search, sheet: $sheet)
                     }
@@ -47,6 +58,12 @@ struct RootView: View {
                         .help("Import Audio (⌘O)")
                     }
                 }
+            }
+        }
+        .task(id: selection) { await model.loadDetail(selection) }
+        .onChange(of: model.meetings.count) { _, _ in
+            if let selection, model.libraryItem(selection) == nil {
+                self.selection = nil
             }
         }
         // All entry points (menu bar, CLI, reminders, and this window) share the
@@ -110,37 +127,50 @@ struct RootView: View {
             }
 
             Section {
-                ForEach(model.meetings) { meeting in
-                    NavigationLink(value: meeting.id) {
-                        HStack(spacing: 8) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(meeting.title).font(StillnoteTheme.detailBodyFont.weight(.medium)).lineLimit(1)
-                                Text(meeting.createdDate, format: .dateTime.month(.abbreviated).day())
-                                    .font(StillnoteTheme.detailSupportingFont)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(.vertical, 5)
-                            if meeting.status.isBusy {
-                                ProgressView().controlSize(.mini)
-                            } else if meeting.status == .error {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .foregroundStyle(.orange)
-                                    .accessibilityLabel("Error")
-                            }
-                        }
-                    }
-                    .contextMenu {
-                        Button("Delete…", role: .destructive) {
-                            Task { await model.delete(meeting.id) }
-                        }
-                    }
+                ForEach(model.meetings.prefix(MeetingLibrary.recentLimit)) { meeting in
+                    sidebarRow(meeting)
                 }
             } header: {
                 Text("Recent Meetings").font(StillnoteTheme.detailSupportingFont.weight(.semibold))
             }
+
+            if let selection,
+               !model.meetings.prefix(MeetingLibrary.recentLimit).contains(where: { $0.id == selection }),
+               let meeting = model.libraryItem(selection) {
+                Section("Selected Meeting") {
+                    sidebarRow(meeting)
+                }
+            }
         }
         .listStyle(.sidebar)
         .frame(maxHeight: .infinity)
+    }
+
+    private func sidebarRow(_ meeting: MeetingListItem) -> some View {
+        NavigationLink(value: meeting.id) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(meeting.title).font(StillnoteTheme.detailBodyFont.weight(.medium)).lineLimit(1)
+                    Text(meeting.createdDate, format: .dateTime.month(.abbreviated).day())
+                        .font(StillnoteTheme.detailSupportingFont)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 5)
+                if meeting.status.isBusy {
+                    ProgressView().controlSize(.mini)
+                } else if meeting.status == .error {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .accessibilityLabel("Error")
+                }
+            }
+        }
+        .tag(meeting.id)
+        .contextMenu {
+            Button("Delete…", role: .destructive) {
+                Task { await model.delete(meeting.id) }
+            }
+        }
     }
 
     @ViewBuilder

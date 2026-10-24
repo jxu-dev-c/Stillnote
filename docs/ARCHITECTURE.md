@@ -349,3 +349,39 @@ transaction, only after all audio files exist. Filesystem changes use a durable 
 under `data/splits/`: before commit, recovery removes partial outputs and retains the
 original; after commit, it removes the retired original. Failed cleanup leaves the
 journal for a later launch. A failed export/transaction never deletes the original.
+
+### Library loading and search
+
+The sidebar shows the 50 most recently created meetings. An opened older meeting
+appears separately under Selected Meeting; All Meetings and its calendar cover the
+whole library. `AppModel.meetings` contains `MeetingListItem` metadata, not full
+`Meeting` documents. Only the selected detail is retained; jobs hold their own snapshots
+for their lifetimes. Selection requests are cancellable, revisions reject stale reads,
+and returning to All Meetings releases the selected transcript, summary and notes.
+Ordinary metadata updates replace one row without sorting the entire library.
+
+`meeting_library` is a derived SQLite table containing a body-free JSON projection,
+a row revision, a search-content revision and a cached search document. The original
+`meetings(id,data)` schema and JSON format stay authoritative and unchanged. A transaction
+creates and backfills the derived table on first writable open. SQLite triggers maintain
+metadata and invalidate search text, including when an older app writes a meeting.
+Insert/update savepoints rebuild invalidated search text in the same commit; profile
+and recording-split transactions include those changes and roll them back together.
+Legacy cache rebuilds and speaker migration process one meeting at a time. Read-only
+CLI opens never migrate or write a database.
+
+Search documents contain only the title and transcript joined with spaces, lowercased
+and normalized to Unicode NFC. A 200 ms input debounce starts a cancellable scan on a
+separate read-only Store connection, leaving the writer and detail navigation available.
+SQLite `instr` filters candidates before Foundation verifies canonical substring
+semantics. Results contain IDs and render the latest metadata. Query/content revisions
+reject obsolete results; progress, notes and speaker-label-only changes do not restart
+search. A legacy writer's invalidated cache falls back to that single meeting's text until
+rebuilt. Clearing the query immediately restores the library; failures have a retry state.
+
+CLI writes resolve their target from metadata and read the full meeting explicitly, so
+commands work even when its detail has never been opened. Existing full-document CLI
+read/bulk operations retain their contracts and can transiently load multiple meetings;
+they do not populate the UI's detail cache. The index remains in the same private database
+and adds disk space, not a resident full-library text cache. See
+[measurements and verification](LIBRARY-PERFORMANCE.md).

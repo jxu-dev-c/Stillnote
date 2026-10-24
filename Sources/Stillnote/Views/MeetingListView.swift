@@ -15,12 +15,47 @@ struct MeetingListView: View {
     // Scene storage survives this view being rebuilt when a meeting is opened and closed.
     @SceneStorage("libraryTab") private var tab: LibraryTab = .list
 
-    private var filtered: [Meeting] {
-        let query = search.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !query.isEmpty else { return model.meetings }
-        return model.meetings.filter { meeting in
-            let haystack = ([meeting.title] + meeting.segments.map(\.text)).joined(separator: " ").lowercased()
-            return haystack.contains(query)
+    private struct SearchRequest: Equatable {
+        var query: String
+        var revision: Int
+    }
+
+    @State private var matchingIDs = Set<String>()
+    @State private var completedRequest: SearchRequest?
+    @State private var searchError: String?
+
+    private var request: SearchRequest {
+        SearchRequest(query: MeetingLibrary.normalizedQuery(search), revision: model.meetingSearchRevision)
+    }
+
+    private var isSearching: Bool {
+        !request.query.isEmpty && completedRequest != request
+    }
+
+    private var filtered: [MeetingListItem] {
+        request.query.isEmpty ? model.meetings : model.meetings.filter { matchingIDs.contains($0.id) }
+    }
+
+    private func updateSearch(_ requested: SearchRequest) async {
+        searchError = nil
+        guard !requested.query.isEmpty else {
+            matchingIDs = []
+            completedRequest = requested
+            return
+        }
+        do {
+            try await Task.sleep(for: .milliseconds(200))
+            let matches = try await model.searchMeetings(requested.query)
+            try Task.checkCancellation()
+            guard request == requested else { return }
+            matchingIDs = matches
+            completedRequest = requested
+        } catch is CancellationError {
+            // A newer query, content change, or navigation owns the next result.
+        } catch {
+            guard request == requested else { return }
+            searchError = error.localizedDescription
+            completedRequest = requested
         }
     }
 
@@ -37,6 +72,18 @@ struct MeetingListView: View {
                         .controlSize(.large)
                     Button("Import Audio") { sheet = .importAudio }
                 }
+            } else if isSearching {
+                ProgressView("Searching meetings…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let searchError {
+                ContentUnavailableView {
+                    Label("Could not search meetings", systemImage: "exclamationmark.triangle")
+                } description: { Text(searchError) } actions: {
+                    Button("Try Again") {
+                        completedRequest = nil
+                        Task { await updateSearch(request) }
+                    }
+                }
             } else if tab == .list && filtered.isEmpty {
                 ContentUnavailableView.search(text: search)
             } else if tab == .calendar {
@@ -47,6 +94,7 @@ struct MeetingListView: View {
                 table
             }
         }
+        .task(id: request) { await updateSearch(request) }
         .toolbar {
             if !model.meetings.isEmpty {
                 ToolbarItem(placement: .principal) {

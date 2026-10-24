@@ -59,6 +59,7 @@ public actor Store {
         try Store.run(database, "CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
         try Store.run(database, "CREATE TABLE IF NOT EXISTS speaker_profiles (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
         try Store.run(database, "CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL)")
+        try Self.prepareLibrary(database)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: paths.databaseURL.path)
     }
 
@@ -84,16 +85,35 @@ public actor Store {
     private func execute(_ sql: String, _ bindings: [String]) throws {
         guard !readOnly else { throw StoreError.readOnly }
         let database = try self.database()
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
-            throw StoreError.query(String(cString: sqlite3_errmsg(database)))
-        }
-        defer { sqlite3_finalize(statement) }
-        for (index, value) in bindings.enumerated() {
-            sqlite3_bind_text(statement, Int32(index + 1), value, -1, transient)
-        }
-        guard sqlite3_step(statement) == SQLITE_DONE else {
-            throw StoreError.query(String(cString: sqlite3_errmsg(database)))
+        let meetingID: String?
+        if sql.hasPrefix("INSERT INTO meetings") { meetingID = bindings.first }
+        else if sql.hasPrefix("UPDATE meetings SET data=") { meetingID = bindings.last }
+        else { meetingID = nil }
+        // Savepoints compose with profile/split transactions and keep the derived search
+        // document in the same commit as the authoritative meeting.
+        if meetingID != nil { try Self.run(database, "SAVEPOINT library_write") }
+        do {
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
+                throw StoreError.query(String(cString: sqlite3_errmsg(database)))
+            }
+            defer { sqlite3_finalize(statement) }
+            for (index, value) in bindings.enumerated() {
+                sqlite3_bind_text(statement, Int32(index + 1), value, Int32(value.utf8.count), transient)
+            }
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw StoreError.query(String(cString: sqlite3_errmsg(database)))
+            }
+            if let meetingID {
+                try refreshSearchText(meetingID)
+                try Self.run(database, "RELEASE library_write")
+            }
+        } catch {
+            if meetingID != nil {
+                try? Self.run(database, "ROLLBACK TO library_write")
+                try? Self.run(database, "RELEASE library_write")
+            }
+            throw error
         }
     }
 
@@ -105,7 +125,7 @@ public actor Store {
         }
         defer { sqlite3_finalize(statement) }
         for (index, value) in bindings.enumerated() {
-            sqlite3_bind_text(statement, Int32(index + 1), value, -1, transient)
+            sqlite3_bind_text(statement, Int32(index + 1), value, Int32(value.utf8.count), transient)
         }
         var rows: [Data] = []
         while sqlite3_step(statement) == SQLITE_ROW {
@@ -116,13 +136,186 @@ public actor Store {
         return rows
     }
 
+    // MARK: - Derived library index
+
+    /// SQLite triggers also cover writes from older app versions. The original two-column
+    /// meetings table remains authoritative, so downgrades and CLI readers stay compatible.
+    private static func prepareLibrary(_ db: OpaquePointer) throws {
+        var statement: OpaquePointer?
+        sqlite3_prepare_v2(db, "SELECT name FROM sqlite_master WHERE name='meeting_library'", -1, &statement, nil)
+        let exists = sqlite3_step(statement) == SQLITE_ROW
+        sqlite3_finalize(statement)
+        guard !exists else { return }
+        try run(db, "BEGIN IMMEDIATE")
+        do {
+            try run(db, """
+                CREATE TABLE meeting_library (
+                    id TEXT PRIMARY KEY, data TEXT NOT NULL,
+                    revision INTEGER NOT NULL, search_revision INTEGER NOT NULL, search_text TEXT
+                );
+                CREATE INDEX meeting_library_date ON meeting_library(json_extract(data, '$.created_at') DESC);
+                CREATE INDEX meeting_library_pending ON meeting_library(id) WHERE search_text IS NULL;
+                CREATE TRIGGER meeting_library_insert AFTER INSERT ON meetings BEGIN
+                    INSERT OR REPLACE INTO meeting_library VALUES (
+                        NEW.id, CASE WHEN json_valid(NEW.data) THEN json_remove(NEW.data,
+                            '$.segments', '$.summary', '$.notes', '$.context_links') ELSE '{}' END, 1, 1, NULL);
+                END;
+                CREATE TRIGGER meeting_library_update AFTER UPDATE ON meetings BEGIN
+                    UPDATE meeting_library SET
+                        data = CASE WHEN json_valid(NEW.data) THEN json_remove(NEW.data,
+                            '$.segments', '$.summary', '$.notes', '$.context_links') ELSE '{}' END,
+                        revision = revision + 1,
+                        search_revision = search_revision + CASE WHEN
+                            CASE WHEN json_valid(OLD.data) AND json_valid(NEW.data)
+                            THEN json_extract(OLD.data, '$.title') = json_extract(NEW.data, '$.title')
+                                AND (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(OLD.data, '$.segments'))
+                                    = (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(NEW.data, '$.segments'))
+                            ELSE 0 END
+                            THEN 0 ELSE 1 END,
+                        search_text = CASE WHEN
+                            CASE WHEN json_valid(OLD.data) AND json_valid(NEW.data)
+                            THEN json_extract(OLD.data, '$.title') = json_extract(NEW.data, '$.title')
+                                AND (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(OLD.data, '$.segments'))
+                                    = (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(NEW.data, '$.segments'))
+                            ELSE 0 END
+                            THEN search_text ELSE NULL END
+                    WHERE id = OLD.id;
+                END;
+                CREATE TRIGGER meeting_library_delete AFTER DELETE ON meetings BEGIN
+                    DELETE FROM meeting_library WHERE id = OLD.id;
+                END;
+                INSERT INTO meeting_library SELECT id,
+                    CASE WHEN json_valid(data) THEN json_remove(data,
+                        '$.segments', '$.summary', '$.notes', '$.context_links') ELSE '{}' END,
+                    1, 1, NULL FROM meetings;
+                COMMIT;
+                """)
+        } catch {
+            try? run(db, "ROLLBACK")
+            throw error
+        }
+    }
+
+    /// Complete/rebuild only invalidated search documents, one meeting at a time.
+    /// This is a one-time cost for legacy libraries, not a resident in-memory index.
+    public func prepareLibrarySearch() throws {
+        let ids = try documents("SELECT id FROM meeting_library WHERE search_text IS NULL")
+            .map { String(decoding: $0, as: UTF8.self) }
+        for id in ids {
+            try Task.checkCancellation()
+            try refreshSearchText(id)
+        }
+    }
+
+    private func refreshSearchText(_ id: String) throws {
+        guard let data = try documents("""
+            SELECT m.data FROM meetings m JOIN meeting_library l ON l.id=m.id
+            WHERE m.id=? AND l.search_text IS NULL
+            """, [id]).first else { return }
+        let meeting = try? decoder.decode(Meeting.self, from: data)
+        let text = meeting.map(MeetingLibrary.searchText) ?? ""
+        try execute("UPDATE meeting_library SET search_text=? WHERE id=?", [text, id])
+    }
+
+    public func libraryItems() throws -> [MeetingListItem] {
+        try libraryRows().map(\.item)
+    }
+
+    private func libraryRows(_ id: String? = nil) throws -> [(record: Meeting, item: MeetingListItem)] {
+        let db = try database()
+        var statement: OpaquePointer?
+        let sql = "SELECT data, revision, search_revision FROM meeting_library"
+            + (id == nil ? " ORDER BY json_extract(data, '$.created_at') DESC" : " WHERE id=?")
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw StoreError.query(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+        if let id { sqlite3_bind_text(statement, 1, id, -1, transient) }
+        var result: [(Meeting, MeetingListItem)] = []
+        var step = sqlite3_step(statement)
+        while step == SQLITE_ROW {
+            if let text = sqlite3_column_text(statement, 0),
+               let record = try? decoder.decode(Meeting.self, from: Data(String(cString: text).utf8)) {
+                result.append((record, MeetingListItem(record, revision: sqlite3_column_int64(statement, 1),
+                                                      searchRevision: sqlite3_column_int64(statement, 2))))
+            }
+            step = sqlite3_step(statement)
+        }
+        guard step == SQLITE_DONE else { throw StoreError.query(String(cString: sqlite3_errmsg(db))) }
+        return result
+    }
+
+    public func libraryItem(_ id: String) throws -> MeetingListItem {
+        guard let row = try libraryRows(id).first else { throw StoreError.notFound }
+        return row.item
+    }
+
+    public func snapshot(_ id: String) throws -> MeetingSnapshot {
+        // There is one writer (this actor); no actor suspension separates these reads.
+        MeetingSnapshot(meeting: try get(id), item: try libraryItem(id))
+    }
+
+    public func resolveMeeting(_ reference: String) throws -> Meeting {
+        let record = try MeetingQuery.resolve(reference, in: libraryRows().map(\.record))
+        return try get(record.id)
+    }
+
+    /// Use a separate read-only Store for searches so a long query cannot queue ahead
+    /// of edits, progress writes or detail navigation on the app's writer actor.
+    public func searchLibrary(_ query: String) throws -> Set<String> {
+        let query = MeetingLibrary.normalizedQuery(query)
+        let db = try database()
+        var statement: OpaquePointer?
+        try Task.checkCancellation()
+        if query.isEmpty { return Set(try libraryItems().map(\.id)) }
+        // Both sides use NFC. SQLite can reject literal non-candidates without allocating
+        // Swift strings; Foundation still verifies canonical substring/grapheme semantics.
+        guard sqlite3_prepare_v2(db, "SELECT id, search_text FROM meeting_library WHERE search_text IS NULL OR instr(search_text, ?) > 0", -1, &statement, nil) == SQLITE_OK else {
+            throw StoreError.query(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, query, Int32(query.utf8.count), transient)
+        sqlite3_progress_handler(db, 100, { _ in
+            var cancelled = false
+            withUnsafeCurrentTask { cancelled = $0?.isCancelled ?? false }
+            return cancelled ? 1 : 0
+        }, nil)
+        defer { sqlite3_progress_handler(db, 0, nil, nil) }
+        var matches = Set<String>()
+        var step = sqlite3_step(statement)
+        while step == SQLITE_ROW {
+            try Task.checkCancellation()
+            let id = String(cString: sqlite3_column_text(statement, 0))
+            let text: String
+            if let cached = sqlite3_column_text(statement, 1) {
+                text = String(decoding: UnsafeBufferPointer(start: cached, count: Int(sqlite3_column_bytes(statement, 1))), as: UTF8.self)
+            } else if let meeting = try? get(id) {
+                // A legacy writer may have invalidated the cache since migration.
+                text = MeetingLibrary.searchText(meeting)
+            } else {
+                step = sqlite3_step(statement)
+                continue
+            }
+            if query.isEmpty || text.contains(query) { matches.insert(id) }
+            step = sqlite3_step(statement)
+        }
+        try Task.checkCancellation()
+        guard step == SQLITE_DONE else { throw StoreError.query(String(cString: sqlite3_errmsg(db))) }
+        return matches
+    }
+
     // MARK: - Meetings
 
     /// Interrupted work cannot survive a relaunch; make it visibly retryable.
     @discardableResult
     public func markInterruptedJobs() throws -> [Meeting] {
         var recovered: [Meeting] = []
-        for meeting in try list() where meeting.status.isBusy {
+        let interrupted = try documents("""
+            SELECT m.data FROM meeting_library l JOIN meetings m ON m.id=l.id
+            WHERE json_extract(l.data, '$.status') IN ('transcribing', 'summarizing')
+            """).compactMap { try? decoder.decode(Meeting.self, from: $0) }
+            .sorted { $0.createdAt > $1.createdAt }
+        for meeting in interrupted {
             recovered.append(try update(meeting.id) {
                 $0.status = .error
                 $0.stage = "Interrupted"
@@ -202,7 +395,9 @@ public actor Store {
         try Self.run(db, "BEGIN IMMEDIATE")
         do {
             if try documents("SELECT id FROM migrations WHERE id='speaker_profiles_v1'").isEmpty {
-                for var meeting in try list() {
+                let ids = try documents("SELECT id FROM meetings").map { String(decoding: $0, as: UTF8.self) }
+                for id in ids {
+                    guard var meeting = try? get(id) else { continue }
                     var changed = false
                     for (speakerID, name) in meeting.speakers where meeting.speakerProfiles[speakerID] == nil {
                         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)

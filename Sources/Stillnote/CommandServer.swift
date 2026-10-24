@@ -148,11 +148,11 @@ final class CommandServer {
 
     // MARK: - Helpers
 
-    private func resolve(_ request: CLIRequest, model: AppModel) throws -> Meeting {
+    private func resolve(_ request: CLIRequest, model: AppModel) async throws -> Meeting {
         guard let reference = request.positionals.first else {
             throw CLIError.usage("Name a meeting, or use 'latest'.")
         }
-        return try MeetingQuery.resolve(reference, in: model.meetings)
+        return try await model.store.resolveMeeting(reference)
     }
 
     private func requireIdle(_ meeting: Meeting) throws {
@@ -206,13 +206,13 @@ final class CommandServer {
         )
         let targets: [Meeting]
         if let scoped {
-            let meeting = try MeetingQuery.resolve(scoped, in: model.meetings)
+            let meeting = try await model.store.resolveMeeting(scoped)
             try requireIdle(meeting)
             targets = [meeting]
         } else {
             // A busy meeting is skipped rather than failing the whole sweep: its transcript is
             // about to be rewritten by the job that owns it.
-            targets = model.meetings.filter { !$0.status.isBusy }
+            targets = try await model.store.list().filter { !$0.status.isBusy }
         }
         let dryRun = request.has("dry-run")
         var changes: [ReplaceChange] = []
@@ -243,7 +243,7 @@ final class CommandServer {
     }
 
     private func setSegment(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
-        let meeting = try resolve(request, model: model)
+        let meeting = try await resolve(request, model: model)
         try requireIdle(meeting)
         guard let segmentID = request.value("segment") else {
             throw CLIError.usage("Name the segment with --segment. 'stillnote show <id> --segments' lists them.")
@@ -280,7 +280,7 @@ final class CommandServer {
     }
 
     private func renameSpeaker(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
-        let meeting = try resolve(request, model: model)
+        let meeting = try await resolve(request, model: model)
         try requireIdle(meeting)
         guard let speakerID = request.value("speaker"), let name = request.value("name") else {
             throw CLIError.usage("Give --speaker <id> and --name <name>. 'stillnote show <id>' lists speakers.")
@@ -294,7 +294,7 @@ final class CommandServer {
         try await model.assignSpeakerProfile(
             nil, meetingID: meeting.id, speakerID: speakerID, localName: name
         )
-        guard let saved = model.meeting(meeting.id) else {
+        guard let saved = try? await model.store.get(meeting.id) else {
             throw CLIError.failed("The speaker rename could not be read back.")
         }
         return try CommandRunner.meetingResponse(
@@ -337,7 +337,7 @@ final class CommandServer {
         )
         let saved = try await saving { try await model.saveSpeakerProfile(draft) }
         return try CommandRunner.speakerResponse(
-            "Saved speaker profile '\(saved.name)'.", saved, meetings: model.meetings
+            "Saved speaker profile '\(saved.name)'.", saved, meetings: try await model.store.list()
         )
     }
 
@@ -365,7 +365,7 @@ final class CommandServer {
             message += " Meetings keep the speaker names they already show; "
                 + "'stillnote speaker assign' relinks one to pick up the new name."
         }
-        return try CommandRunner.speakerResponse(message, saved, meetings: model.meetings)
+        return try CommandRunner.speakerResponse(message, saved, meetings: try await model.store.list())
     }
 
     private func deleteSpeaker(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
@@ -382,7 +382,7 @@ final class CommandServer {
     }
 
     private func assignSpeaker(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
-        let meeting = try resolve(request, model: model)
+        let meeting = try await resolve(request, model: model)
         try requireIdle(meeting)
         guard let speakerID = request.value("speaker") else {
             throw CLIError.usage("Give --speaker <id>. 'stillnote show <id>' lists a meeting's speakers.")
@@ -399,7 +399,7 @@ final class CommandServer {
         try await saving {
             try await model.assignSpeakerProfile(profile?.id, meetingID: meeting.id, speakerID: speakerID)
         }
-        guard let saved = model.meeting(meeting.id) else {
+        guard let saved = try? await model.store.get(meeting.id) else {
             throw CLIError.failed("The speaker change could not be read back.")
         }
         var message = profile.map { "Linked \(speakerID) in '\(saved.title)' to '\($0.name)'." }
@@ -413,7 +413,7 @@ final class CommandServer {
     // MARK: - Summary and notes
 
     private func setSummary(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
-        let meeting = try resolve(request, model: model)
+        let meeting = try await resolve(request, model: model)
         try requireIdle(meeting)
         if request.has("json-stdin") {
             guard let body = request.standardInput, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -448,7 +448,7 @@ final class CommandServer {
     }
 
     private func setNotes(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
-        let meeting = try resolve(request, model: model)
+        let meeting = try await resolve(request, model: model)
         let text: String
         if request.has("stdin") {
             guard let body = request.standardInput else { throw CLIError.usage("--stdin expects notes on stdin.") }
@@ -474,7 +474,7 @@ final class CommandServer {
     // MARK: - Jobs
 
     private func transcribe(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
-        let meeting = try resolve(request, model: model)
+        let meeting = try await resolve(request, model: model)
         try requireIdle(meeting)
         guard model.speech.ready else { throw CLIError.failed(model.speech.detail) }
         let language = try request.value("language").map { try Validation.language($0) }
@@ -483,7 +483,7 @@ final class CommandServer {
         let speakers = try Validation.speakerCount(try request.integer("speakers"))
         let speakerOverride: Int?? = request.value("speakers") == nil ? nil : .some(speakers)
         await model.transcribe(meeting.id, language: language, speakerCount: speakerOverride)
-        guard let queued = model.meeting(meeting.id), queued.status == .transcribing else {
+        guard let queued = try? await model.store.get(meeting.id), queued.status == .transcribing else {
             throw CLIError.failed(model.alertMessage ?? "Transcription could not be queued.")
         }
         return try CommandRunner.meetingResponse(
@@ -493,7 +493,7 @@ final class CommandServer {
     }
 
     private func summarize(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
-        let meeting = try resolve(request, model: model)
+        let meeting = try await resolve(request, model: model)
         try requireIdle(meeting)
         guard meeting.segments.isEmpty == false else {
             throw CLIError.usage("Transcribe '\(meeting.title)' before summarizing it.")
@@ -507,7 +507,7 @@ final class CommandServer {
             )
         }
         await model.summarize(meeting.id, allowRemote: true)
-        guard let queued = model.meeting(meeting.id), queued.status == .summarizing else {
+        guard let queued = try? await model.store.get(meeting.id), queued.status == .summarizing else {
             throw CLIError.failed(model.alertMessage ?? "The summary could not be queued.")
         }
         return try CommandRunner.meetingResponse(
@@ -572,7 +572,7 @@ final class CommandServer {
         var transcribing = false
         if !request.has("no-transcribe"), model.speech.ready {
             await model.transcribe(meeting.id)
-            transcribing = model.meeting(meeting.id)?.status == .transcribing
+            transcribing = model.libraryItem(meeting.id)?.status == .transcribing
         }
         var message = "Saved '\(meeting.title)' as \(meeting.id) (\(Formatting.duration(meeting.duration)))."
         if transcribing {

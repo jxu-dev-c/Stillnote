@@ -9,3 +9,5 @@ bin="$(swift build --show-bin-path)"
 cp "$bin/mlx.metallib" "$bin/StillnotePackageTests.xctest/Contents/MacOS/mlx.metallib"
 swift test --skip-build --no-parallel
 ./scripts/check-skill.sh
+
+./scripts/check-library-model.sh
