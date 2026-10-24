@@ -62,6 +62,23 @@ struct TranscriptionSettingsView: View {
                 }
             }
 
+            Section("Long recordings") {
+                Stepper(value: Binding(
+                    get: { model.settings.splitThresholdMinutes },
+                    set: { value in
+                        var updated = model.settings
+                        updated.splitThresholdMinutes = value
+                        Task { await model.saveSettings(updated) }
+                    }
+                ), in: RecordingSplit.thresholdRange) {
+                    Text("Offer splitting after: \(model.settings.splitThresholdMinutes) minutes")
+                }
+                .accessibilityLabel("Offer splitting after")
+                .accessibilityValue("\(model.settings.splitThresholdMinutes) minutes")
+                Text("Shows Split Recording for saved audio at this length. Each part is 20 minutes; the last keeps the remainder. Screen recordings cannot be split.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             MeetingReminderSettingsSection()
 
             Section("Hot words") {

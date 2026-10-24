@@ -226,6 +226,7 @@ public struct MeetingReminderSettings: Codable, Hashable, Sendable {
 }
 
 public struct AppSettings: Codable, Hashable, Sendable {
+    public var splitThresholdMinutes: Int = 50
     public var transcription: TranscriptionSettings
     public var summary: SummarySettings
     public var cleanup: AudioCleanupSettings
@@ -234,6 +235,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case transcription, summary, cleanup, cli
+        case splitThresholdMinutes = "split_threshold_minutes"
         case meetingReminders = "meeting_reminders"
     }
 
@@ -261,6 +263,8 @@ public struct AppSettings: Codable, Hashable, Sendable {
             // Meeting reminders are opt-in, so records written before them decode as off.
             meetingReminders: try values.decodeIfPresent(MeetingReminderSettings.self, forKey: .meetingReminders) ?? .init()
         )
+        let threshold = try values.decodeIfPresent(Int.self, forKey: .splitThresholdMinutes) ?? 50
+        splitThresholdMinutes = RecordingSplit.thresholdRange.contains(threshold) ? threshold : 50
     }
 
     /// Speech models retired before MOSS became the only supported engine.
@@ -272,6 +276,9 @@ public struct AppSettings: Codable, Hashable, Sendable {
     /// holding retired providers and API credentials — loads and migrates in place.
     public static func migrating(from object: [String: Any]) -> (settings: AppSettings, changed: Bool) {
         var settings = AppSettings()
+        if let threshold = object["split_threshold_minutes"] as? Int, RecordingSplit.thresholdRange.contains(threshold) {
+            settings.splitThresholdMinutes = threshold
+        }
         var changed = false
 
         let transcription = object["transcription"] as? [String: Any] ?? [:]

@@ -18,6 +18,7 @@ struct MeetingDetailView: View {
     @State private var title = ""
     @State private var player: PlayerModel?
     @State private var confirmingDelete = false
+    @State private var confirmingSplit = false
     @State private var retranscribing = false
     @State private var exporting: ExportDocument?
     @State private var notesDirty = false
@@ -39,6 +40,7 @@ struct MeetingDetailView: View {
             .padding(StillnoteTheme.contentInset)
             .frame(maxWidth: .infinity)
         }
+        .disabled(splitting)
         .background(.background)
         .playbackBar {
             if let player {
@@ -70,6 +72,39 @@ struct MeetingDetailView: View {
             }
         } message: {
             Text("This permanently deletes the recording, transcript, summary, and context.")
+        }
+        .sheet(isPresented: $confirmingSplit) {
+            VStack(alignment: .leading, spacing: 20) {
+                Label("Split Recording?", systemImage: "scissors")
+                    .font(.title2.bold())
+                Text("This replaces “\(meeting.title)” and its complete audio with these parts. The original summary will be removed. This cannot be undone.")
+                if let parts = try? RecordingSplit.parts(meeting) {
+                    ForEach(parts) { part in
+                        HStack {
+                            Text(part.title).lineLimit(2)
+                            Spacer()
+                            Text(Formatting.duration(part.duration)).monospacedDigit()
+                        }
+                    }
+                }
+                Text("Transcript sentences are assigned by their midpoint and timestamps restart in each part. Notes and context links are copied to every part. Summaries start empty.")
+                    .font(.callout).foregroundStyle(.secondary)
+                HStack {
+                    Spacer()
+                    Button("Cancel", role: .cancel) { confirmingSplit = false }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Split and Replace Original", role: .destructive) {
+                        confirmingSplit = false
+                        player?.player.pause()
+                        Task {
+                            if let parts = await model.splitRecording(meeting.id) { selection = parts.first?.id }
+                        }
+                    }
+                    .disabled(meeting.status.isBusy || naming || !model.splittingMeetings.isEmpty)
+                }
+            }
+            .padding(24)
+            .frame(width: 480)
         }
         .sheet(isPresented: $retranscribing) {
             RetranscribeSheet(meeting: meeting)
@@ -114,11 +149,20 @@ struct MeetingDetailView: View {
                 }
             }
 
+            if splitting {
+                HStack {
+                    ProgressView().controlSize(.small)
+                    Text("Splitting recording…")
+                    Text(model.splitProgress[meeting.id] ?? "Preparing…").foregroundStyle(.secondary)
+                }
+            }
             if meeting.status.isBusy {
                 jobProgress
             }
         }
     }
+
+    private var splitting: Bool { model.splittingMeetings.contains(meeting.id) }
 
     private var naming: Bool { model.namingMeetings.contains(meeting.id) }
 
@@ -143,13 +187,21 @@ struct MeetingDetailView: View {
 
     private var headerActions: some View {
         HStack(spacing: 16) {
+            if model.canSplit(meeting) {
+                Button { confirmingSplit = true } label: {
+                    Label("Split Recording…", systemImage: "scissors")
+                }
+                .font(StillnoteTheme.detailSupportingFont)
+                .buttonStyle(.borderless)
+                .disabled(meeting.status.isBusy || naming || !model.splittingMeetings.isEmpty)
+            }
             if tab == .summary, meeting.summary != nil, !meeting.segments.isEmpty {
                 Button(action: summarize) {
                     Label("Regenerate", systemImage: "arrow.clockwise")
                 }
                 .font(StillnoteTheme.detailSupportingFont)
                 .buttonStyle(.borderless)
-                .disabled(meeting.status.isBusy)
+                .disabled(meeting.status.isBusy || splitting)
             }
             MeetingStatusLabel(status: meeting.status, font: StillnoteTheme.detailSupportingFont.weight(.medium))
         }
@@ -249,7 +301,7 @@ struct MeetingDetailView: View {
                 ToolbarIcon("Export", systemImage: "square.and.arrow.up")
             }
             .help("Export Meeting")
-            .disabled(meeting.status.isBusy)
+            .disabled(meeting.status.isBusy || splitting)
 
             Menu {
                 Button("Delete Meeting…", role: .destructive) {
@@ -259,7 +311,7 @@ struct MeetingDetailView: View {
                 ToolbarIcon("More", systemImage: "ellipsis")
             }
             .help("More Meeting Actions")
-            .disabled(meeting.status.isBusy)
+            .disabled(meeting.status.isBusy || splitting)
         }
         if #available(macOS 26, *) {
             ToolbarSpacer(.fixed, placement: .primaryAction)

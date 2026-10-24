@@ -318,3 +318,29 @@ The app bundles and signs the worker with `mlx.metallib` beside it. The vendored
 revision and patches are recorded in `Vendor/MossTranscribeDiarize/UPSTREAM.md`.
 The converted 8-bit checkpoint uses `speech/moss-0.9b-mlx-8bit`; the old model directory
 is retained but never mistaken for a compatible native checkpoint.
+
+### Splitting long recordings
+
+`AppSettings.split_threshold_minutes` defaults to 50 and accepts 21–90 minutes.
+The detail header offers **Split Recording…** for saved audio-only meetings at or
+above that threshold. Screen recordings are excluded. A confirmation sheet previews
+names and durations and explicitly warns that splitting replaces the original meeting
+and audio and clears its summary. Each part is 1,200 seconds except the remainder.
+
+`RecordingSplit` plans independent meetings named `<original title> partN`, reserving
+space for the suffix within the title limit. It streams decoded audio to float32 WAVs
+at the source sample rate/channel count. No speech or summary provider runs. Each
+transcript sentence belongs to the part containing its midpoint (an exact boundary
+belongs to the later part); text stays whole, timestamps become local and are clipped
+to that part. Thus a boundary-spanning sentence can include words audible in the
+adjacent part. Notes, links, speaker snapshots and profile associations are copied.
+Summaries, stale task errors and cleanup metadata are cleared. Recording dates advance
+by each part's offset; imports retain their import date.
+
+AppModel reserves splitting before its first suspension and flushes pending notes.
+Conflicting UI and command writes are refused during the operation. Store compares
+the original snapshot and inserts every part/removes the original in one SQLite
+transaction, only after all audio files exist. Filesystem changes use a durable journal
+under `data/splits/`: before commit, recovery removes partial outputs and retains the
+original; after commit, it removes the retired original. Failed cleanup leaves the
+journal for a later launch. A failed export/transaction never deletes the original.

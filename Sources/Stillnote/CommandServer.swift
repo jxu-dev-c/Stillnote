@@ -86,6 +86,9 @@ final class CommandServer {
         }
         do {
             if let response = try await CommandRunner.read(request, store: model.store) { return response }
+            guard model.splittingMeetings.isEmpty else {
+                throw ValidationError("Wait for recording splitting to finish before changing the library.")
+            }
             return try await run(request, model: model)
         } catch {
             return CLIResponse.failure(error)

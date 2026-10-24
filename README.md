@@ -191,3 +191,16 @@ after saving. Existing transcripts are unchanged. To disable hints, clear the li
 and save. Blank lines and duplicate entries are removed.
 
 Hot words are supported by the bundled native speech engine.
+
+### Split a long recording
+
+Saved audio-only meetings of 50 minutes or longer show **Split Recording…** in the
+meeting header. Change the threshold (21–90 minutes) in **Settings → Transcription →
+Long recordings**. Screen recordings cannot be split.
+
+Review the confirmation sheet before choosing **Split and Replace Original**. This
+replaces the original meeting and audio with 20-minute parts (plus any shorter final
+part), named `Original title part1`, `Original title part2`, and so on. Each part keeps
+its portion of the transcript with local timestamps, copies notes and context links,
+and starts with an empty summary. Generate a new summary when ready. A sentence that
+crosses a cut belongs to the part containing its midpoint; its words are not split.
