@@ -8,53 +8,53 @@ Verified: cancel leaves the original untouched; changing the threshold immediate
 
 ## Default 50-minute threshold
 
-![Default 50-minute threshold](01-default-threshold.png)
+![Default 50-minute threshold](01-default-threshold.jpg)
 
 ## Threshold changed to 51 minutes
 
-![Threshold changed to 51 minutes](02-custom-threshold.png)
+![Threshold changed to 51 minutes](02-custom-threshold.jpg)
 
 ## 50-minute recording hidden below the custom threshold
 
-![50-minute recording hidden below the custom threshold](02b-custom-threshold-applied.png)
+![50-minute recording hidden below the custom threshold](02b-custom-threshold-applied.jpg)
 
 ## Split action at the 50-minute threshold
 
-![Split action at the 50-minute threshold](03-eligible-recording.png)
+![Split action at the 50-minute threshold](03-eligible-recording.jpg)
 
 ## Replacement confirmation with all part names and durations
 
-![Replacement confirmation with all part names and durations](04-confirmation.png)
+![Replacement confirmation with all part names and durations](04-confirmation.jpg)
 
 ## Short recording without a split action
 
-![Short recording without a split action](05-below-threshold.png)
+![Short recording without a split action](05-below-threshold.jpg)
 
 ## Screen recording excluded
 
-![Screen recording excluded](06-video-excluded.png)
+![Screen recording excluded](06-video-excluded.jpg)
 
 ## Export in progress with conflicting actions disabled
 
-![Export in progress with conflicting actions disabled](07-splitting.png)
+![Export in progress with conflicting actions disabled](07-splitting.jpg)
 
 ## Part 1 opens with an empty summary
 
-![Part 1 opens with an empty summary](08-empty-summary.png)
+![Part 1 opens with an empty summary](08-empty-summary.jpg)
 
 ## Part 2 transcript starts at zero
 
-![Part 2 transcript starts at zero](09-local-transcript.png)
+![Part 2 transcript starts at zero](09-local-transcript.jpg)
 
 ## Independent part playback
 
-![Independent part playback](10-part-playback.png)
+![Independent part playback](10-part-playback.jpg)
 
 ## Notes and links preserved in each part
 
-![Notes and links preserved in each part](11-copied-context.png)
+![Notes and links preserved in each part](11-copied-context.jpg)
 
 ## Original replaced by 20-, 20-, and 10-minute parts
 
-![Original replaced by 20-, 20-, and 10-minute parts](12-result-list.png)
+![Original replaced by 20-, 20-, and 10-minute parts](12-result-list.jpg)
 
