@@ -113,13 +113,17 @@ struct SpeakerEditor: View {
                             }
                             .frame(minHeight: 44)
                             .padding(.vertical, 2)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                            .listRowSeparator(.hidden)
                             .tag(profile.id)
                         }
                     }
-                    .listStyle(.plain)
-                    .contentMargins(.horizontal, 0, for: .scrollContent)
+                    .listStyle(.inset)
                     .scrollContentBackground(.hidden)
                     .frame(height: matchingProfiles.isEmpty ? 112 : CGFloat(min(matchingProfiles.count, 5)) * 56 + 16)
+                    // Keep the native rounded selection while compensating for the
+                    // inset list’s 10-point outer margin on each side.
+                    .padding(.horizontal, -10)
                     .accessibilityLabel("Matching speaker profiles")
                     .disabled(unavailable)
                     .overlay {
