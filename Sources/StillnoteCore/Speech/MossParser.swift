@@ -48,9 +48,13 @@ public enum MossParser {
         var order: [String] = []
         var segments: [Segment] = []
         for row in try rows(from: text) {
-            guard row.start.isFinite, row.end.isFinite, row.end >= row.start else {
+            guard row.start.isFinite, row.end.isFinite else {
                 throw SpeechError.message("The model returned invalid timestamps. Please retry transcription.")
             }
+            // MOSS emits timestamps as free text. Preserve a finite row even when its closing
+            // value comes first: a zero-length cue keeps its text without attributing audio it
+            // does not own.
+            let end = max(row.start, row.end)
             let content = row.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if content.isEmpty { continue }
             if labels[row.speaker] == nil {
@@ -62,7 +66,7 @@ public enum MossParser {
                 Segment(
                     id: "segment_\(segments.count + 1)",
                     start: (max(0, min(row.start + offset, duration)) * 1000).rounded() / 1000,
-                    end: (max(0, min(row.end + offset, duration)) * 1000).rounded() / 1000,
+                    end: (max(0, min(end + offset, duration)) * 1000).rounded() / 1000,
                     speaker: labels[row.speaker]!,
                     text: content
                 )

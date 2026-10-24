@@ -29,6 +29,17 @@ import Testing
         #expect(result.segments[0].text == "real")
     }
 
+    @Test func retainsAnInvertedTimestampRowAsAZeroLengthCue() throws {
+        let result = try MossParser.parse(
+            "[0.00][S01]First[1.00][1.01][S02]Inverted[1.00][1.02][S01]Last[2.00]",
+            duration: 5,
+            language: "auto"
+        )
+        #expect(result.segments.map(\.text) == ["First", "Inverted", "Last"])
+        #expect(result.segments[1].start == 1.01)
+        #expect(result.segments[1].end == 1.01)
+    }
+
     /// Output that does not fully match the transcript grammar is a truncated
     /// generation, not a partial transcript worth saving.
     @Test func rejectsIncompleteOutput() {
