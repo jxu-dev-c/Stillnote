@@ -80,6 +80,7 @@ final class AppModel {
                 )
             }
             startupStage = "Loading meetings and settings…"
+            try? await RecordingSplitJournal.recover(paths: paths, store: store)
             try await store.markInterruptedJobs()
             try await store.migrateNamedSpeakers()
             meetings = try await store.list()
@@ -139,6 +140,7 @@ final class AppModel {
     /// Returns the meetings the profile was unlinked from.
     @discardableResult
     func deleteSpeakerProfile(_ id: String) async throws -> [Meeting] {
+        guard splittingMeetings.isEmpty else { throw ValidationError("Wait for recording splitting to finish.") }
         let changed = try await store.deleteProfile(id)
         changed.forEach { apply($0) }
         speakerProfiles.removeAll { $0.id == id }
@@ -159,6 +161,7 @@ final class AppModel {
     }
 
     func createSpeakerProfile(_ profile: SpeakerProfile, meetingID: String, speakerID: String) async throws {
+        guard splittingMeetings.isEmpty else { throw ValidationError("Wait for recording splitting to finish.") }
         let validated = try profile.validated()
         apply(try await store.createProfile(validated, meetingID: meetingID, speakerID: speakerID))
         rememberProfile(validated)
@@ -166,6 +169,7 @@ final class AppModel {
 
     func assignSpeakerProfile(_ profileID: String?, meetingID: String, speakerID: String,
                               localName: String? = nil) async throws {
+        guard !splittingMeetings.contains(meetingID) else { throw ValidationError("Wait for recording splitting to finish.") }
         apply(try await store.assignProfile(profileID, meetingID: meetingID,
                                             speakerID: speakerID, localName: localName))
     }
@@ -174,6 +178,7 @@ final class AppModel {
 
     @discardableResult
     func edit(_ id: String, _ mutate: @escaping (inout Meeting) -> Void) async -> Meeting? {
+        guard !splittingMeetings.contains(id) else { return nil }
         do {
             let updated = try await store.update(id, mutate)
             apply(updated)
@@ -207,6 +212,7 @@ final class AppModel {
     }
 
     func delete(_ id: String) async {
+        guard !splittingMeetings.contains(id) else { return }
         guard let meeting = meeting(id), !meeting.status.isBusy else {
             alertMessage = "This meeting is processing. Wait for it to finish."
             return
@@ -220,6 +226,68 @@ final class AppModel {
             discardNotesDraft(id)
         } catch {
             report(error)
+        }
+    }
+
+    var splittingMeetings: Set<String> = []
+    var splitProgress: [String: String] = [:]
+
+    func canSplit(_ meeting: Meeting) -> Bool {
+        RecordingSplit.eligible(meeting, thresholdMinutes: settings.splitThresholdMinutes)
+    }
+
+    func splitRecording(_ id: String) async -> [Meeting]? {
+        guard let saved = meeting(id), canSplit(saved), !saved.status.isBusy,
+              !namingMeetings.contains(id), !startingTranscriptions.contains(id),
+              splittingMeetings.isEmpty else { return nil }
+        splittingMeetings.insert(id)
+        splitProgress[id] = "Preparing audio…"
+        defer { splittingMeetings.remove(id); splitProgress[id] = nil }
+        do {
+            let flushed = await NotesDraft.flush(meetingID: id, savedText: saved.notes) { pending in
+                do {
+                    self.apply(try await self.store.update(id) { $0.notes = pending })
+                    return true
+                } catch { return false }
+            }
+            guard flushed else { throw ValidationError("Save your latest notes before splitting this recording.") }
+            let original = try await store.get(id)
+            guard !original.status.isBusy, !namingMeetings.contains(id) else {
+                throw ValidationError("Wait for this meeting's current task to finish.")
+            }
+            let parts = try RecordingSplit.parts(original)
+            let paths = paths
+            let store = store
+            let journal = RecordingSplitJournal(originalID: id, partIDs: parts.map(\.id))
+            let directory = try journal.prepare(paths: paths)
+            let source = MediaFile.audioURL(for: original, paths: paths)
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try RecordingSplit.writeAudio(source: source, parts: parts, directory: directory) { completed in
+                        Task { @MainActor in
+                            self.splitProgress[id] = "Saved part \(completed) of \(parts.count)…"
+                        }
+                    }
+                    for part in parts {
+                        try FileManager.default.moveItem(at: directory.appendingPathComponent(part.id + ".wav"),
+                                                         to: paths.audioURL(part.id))
+                    }
+                }.value
+                try await store.replaceWithSplit(original: original, parts: parts)
+            } catch {
+                // This operation is serialized; recovery removes only its uncommitted outputs.
+                try? await RecordingSplitJournal.recover(paths: paths, store: store)
+                throw error
+            }
+            meetings.removeAll { $0.id == id }
+            parts.forEach { apply($0) }
+            discardNotesDraft(id)
+            // A failed deletion leaves the journal for next launch; committed parts stay usable.
+            try? await RecordingSplitJournal.recover(paths: paths, store: store)
+            return parts
+        } catch {
+            report(error)
+            return nil
         }
     }
 
@@ -309,6 +377,7 @@ final class AppModel {
     var isTranscribing: Bool { !startingTranscriptions.isEmpty || !transcriptions.isEmpty }
 
     func transcribe(_ id: String, language: String? = nil, speakerCount: Int?? = nil) async {
+        guard !splittingMeetings.contains(id) else { return }
         guard !startingTranscriptions.contains(id), transcriptions[id] == nil else { return }
         guard let meeting = meeting(id) else { return }
         guard !meeting.status.isBusy else {
@@ -442,6 +511,7 @@ final class AppModel {
     // MARK: - Summary
 
     func summarize(_ id: String, allowRemote: Bool) async {
+        guard !splittingMeetings.contains(id) else { return }
         guard let saved = meeting(id) else { return }
         // Notes autosave shortly after typing stops. A summary started sooner, or after a failed
         // save, must not quietly use older notes.
@@ -453,7 +523,7 @@ final class AppModel {
                 + "Save them on the Context tab, then retry."
             return
         }
-        guard let meeting = meeting(id) else { return }
+        guard let meeting = meeting(id), !splittingMeetings.contains(id) else { return }
         guard !meeting.status.isBusy else {
             alertMessage = "This meeting is processing. Wait for it to finish."
             return
@@ -463,12 +533,12 @@ final class AppModel {
             return
         }
         let videoPath = meeting.hasVideo ? paths.videoURL(id) : nil
-        await edit(id) {
+        guard await edit(id, {
             $0.status = .summarizing
             $0.progress = 0
             $0.stage = "Queued for summary"
             $0.error = nil
-        }
+        }) != nil else { return }
         let settings = settings.summary
         let snapshot = meeting
         let resolvedVideoPath = videoPath
@@ -516,6 +586,7 @@ final class AppModel {
     /// Asks the summary provider for a title, separately from summaries so a custom summary
     /// prompt cannot leave meetings unnamed. Only an explicit request renames a meeting.
     func suggestTitle(_ id: String, allowRemote: Bool) async {
+        guard !splittingMeetings.contains(id) else { return }
         guard let meeting = meeting(id), !namingMeetings.contains(id) else { return }
         guard !meeting.status.isBusy else {
             alertMessage = "This meeting is processing. Wait for it to finish."

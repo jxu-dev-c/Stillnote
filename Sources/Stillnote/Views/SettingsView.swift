@@ -33,6 +33,7 @@ struct TranscriptionSettingsView: View {
     @State private var trimRecording = true
     @State private var suppressNonSpeech = true
     @State private var sensitivity = CleanupSensitivity.balanced
+    @State private var splitThresholdText = "50"
 
     var body: some View {
         Form {
@@ -60,6 +61,26 @@ struct TranscriptionSettingsView: View {
                     Text("Download the speech models to enable cleanup. Until then recordings are saved and transcribed in full.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+            }
+
+            Section("Long recordings") {
+                LabeledContent("Offer splitting after") {
+                    HStack(spacing: 6) {
+                        TextField("Minutes", text: $splitThresholdText)
+                            .labelsHidden()
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 70)
+                            .accessibilityLabel("Split threshold in minutes")
+                        Text("minutes").foregroundStyle(.secondary)
+                    }
+                }
+                if splitThresholdValue == nil {
+                    Text("Enter a positive whole number of minutes. The last valid threshold remains in use.")
+                        .font(.caption).foregroundStyle(.red)
+                }
+                Text("Shows Split Recording for saved audio at this length. Each part is 20 minutes; the last keeps the remainder. Screen recordings cannot be split.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             MeetingReminderSettingsSection()
@@ -133,6 +154,7 @@ struct TranscriptionSettingsView: View {
         }
         .formStyle(.grouped)
         .onAppear {
+            splitThresholdText = String(model.settings.splitThresholdMinutes)
             mode = model.settings.transcription.mode
             language = model.settings.transcription.language
             speakerCount = model.settings.transcription.speakerCount
@@ -141,12 +163,27 @@ struct TranscriptionSettingsView: View {
             suppressNonSpeech = model.settings.cleanup.suppressNonSpeech
             sensitivity = model.settings.cleanup.sensitivity
         }
+        .onChange(of: splitThresholdText) {
+            guard let value = splitThresholdValue else { return }
+            Task {
+                var updated = model.settings
+                updated.splitThresholdMinutes = value
+                await model.saveSettings(updated)
+            }
+        }
         .onChange(of: mode) { save() }
         .onChange(of: language) { save() }
         .onChange(of: speakerCount) { save() }
         .onChange(of: trimRecording) { save() }
         .onChange(of: suppressNonSpeech) { save() }
         .onChange(of: sensitivity) { save() }
+    }
+
+    private var splitThresholdValue: Int? {
+        let text = splitThresholdText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text.allSatisfy({ $0.isASCII && $0.isNumber }),
+              let value = Int(text), value > 0 else { return nil }
+        return value
     }
 
     private var normalizedHotWords: [String] {

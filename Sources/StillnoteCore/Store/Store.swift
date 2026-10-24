@@ -170,6 +170,25 @@ public actor Store {
         try execute("DELETE FROM meetings WHERE id=?", [id])
     }
 
+    /// Compare the exact snapshot and replace all records in one transaction.
+    public func replaceWithSplit(original: Meeting, parts: [Meeting]) throws {
+        guard !readOnly else { throw StoreError.readOnly }
+        let db = try database()
+        try Self.run(db, "BEGIN IMMEDIATE")
+        do {
+            guard try get(original.id) == original, !original.status.isBusy else {
+                throw ValidationError("This meeting changed during splitting. Retry with its latest content.")
+            }
+            guard parts.count >= 2 else { throw ValidationError("At least two parts are required.") }
+            for part in parts { try insert(part) }
+            try delete(original.id)
+            try Self.run(db, "COMMIT")
+        } catch {
+            try? Self.run(db, "ROLLBACK")
+            throw error
+        }
+    }
+
     private func encoded(_ meeting: Meeting) throws -> String {
         String(decoding: try encoder.encode(meeting), as: UTF8.self)
     }
