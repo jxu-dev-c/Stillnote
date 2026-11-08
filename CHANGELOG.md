@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0
 
 - Add `stillnote process`, which queues meetings already in the library through the whole
   **Stop, Transcribe & Summarize** pipeline — split, transcribe, auto-tag, summarize, and name —

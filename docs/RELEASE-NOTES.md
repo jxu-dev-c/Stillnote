@@ -2,37 +2,30 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
-## What's new in 0.11.0
+## What's new in 0.12.0
 
-### Recognize speakers by voice
+### Stop, Transcribe & Summarize runs the whole pipeline
 
-- Tag speakers in a few meetings, then click **Learn Voices** in **Settings → Speakers**.
-  Stillnote reads a voiceprint for every speaker you've linked to a profile, tests itself against
-  your own tags, and shows how often its matches were right and how many speakers it covered.
-- **Auto-Tag Speakers** on a meeting's transcript links untagged speakers whose voices match a
-  profile confidently. Uncertain speakers stay untagged, and speakers you tagged yourself are never
-  changed. **Auto-Tag All Meetings** does the same across your library and names any meeting it
-  had to skip, and an opt-in setting runs it after every transcription.
-- Speakers linked by voice show a waveform badge until you confirm or change them, and are not
-  learned from until you do. Like any speaker change, a link that changes a displayed name clears
-  that meeting's summary.
-- Voiceprints are computed on your Mac and kept in your private library. They are never sent to a
-  summary provider, exported, or printed by the `stillnote` command. **Forget Voices** deletes them
-  and keeps your speaker tags.
-- New commands: `stillnote speaker voices`, `stillnote speaker learn --wait`, and
-  `stillnote speaker autotag <meeting>` or `--all`, with `--dry-run` to preview. `show --json`
-  marks voice-matched speakers with `voice_match`.
+- A recording at or above the split threshold in **Settings → Transcription → Long recordings**
+  is now split into 20-minute parts before it is transcribed.
+- Once its summary is ready, each meeting is named with **Name Meeting**'s provider. Named parts
+  keep their `partN` suffix.
 
-### Stop Recording, or Stop, Transcribe & Summarize
+### Process meetings already in your library
 
-- The single **Stop & Transcribe** action in the menu bar, and **Finish & Transcribe** in the
-  recording window, are now two:
-  - **Stop Recording** only saves the recording. You can transcribe it later from the meeting.
-  - **Stop, Transcribe & Summarize** saves it, transcribes it, and then summarizes it with the
-    provider from **Settings → Summaries**, so the finished meeting needs no further clicks. If
-    auto-tagging after transcription is on, speakers are tagged first so the summary uses their
-    names.
-- Until the speech model is downloaded, only **Stop Recording** appears.
+- `stillnote process <meeting>` runs one meeting through the same pipeline — split, transcribe,
+  auto-tag, summarize, and name — and `stillnote process --all` does it for every unfinished
+  meeting. Each resumes where it stopped, so a transcribed meeting goes straight to its summary.
+- `--dry-run` shows the plan; `--status`, `--since`, `--until`, and `--limit` narrow the batch;
+  `--no-split` and `--keep-title` skip those steps.
+- `stillnote name <meeting> --allow-remote` titles one meeting.
+
+### Capture permissions survive updates
+
+- Releases are now signed with one persistent Stillnote certificate instead of a per-build ad-hoc
+  signature, which macOS treated as a new app every time. Updating from 0.11.0 or earlier asks for
+  microphone and screen/system audio permissions one last time. The app is still not
+  Apple-notarized.
 
 ## The `stillnote` command and AI agents
 
@@ -43,6 +36,7 @@ Stillnote bundles a `stillnote` command. Homebrew puts it on your `PATH`; otherw
 stillnote search "product launch" --in summary
 stillnote transcript replace ANE AEM --all --dry-run
 stillnote speaker autotag latest --dry-run
+stillnote process --all --dry-run
 stillnote record stop
 stillnote help
 ```
@@ -55,6 +49,15 @@ still asks for consent, as `stillnote summarize <id> --allow-remote`.
 
 To let a coding agent drive it, install the published skill with
 `npx skills add jxu-dev-c/Stillnote`.
+
+## Upgrading from 0.11.0
+
+Existing meetings, settings, speaker profiles, and downloaded models are preserved, and no new
+download is needed. macOS asks for microphone and screen/system audio permissions once more after
+this update; later updates keep them.
+
+**Changed:** **Stop, Transcribe & Summarize** now splits long recordings and replaces the
+meeting's title with a generated one. `stillnote record stop` is unchanged and only transcribes.
 
 ## Upgrading from 0.10.0
 
@@ -217,7 +220,7 @@ remove `stillnote-runtime`. Neither operation deletes meetings, settings, or mod
 ## Current limitations
 
 - First launch may require approval in macOS Privacy & Security.
-- Updates may require granting capture permissions again.
+- Updating from 0.11.0 or earlier asks for capture permissions one last time.
 - Speech models are downloaded separately in Settings.
 - Optional AI summaries use your configured Codex or Claude Code CLI with its own
   permissions, and send transcript text, notes, and context links to the provider chosen in
