@@ -1,16 +1,22 @@
 # Changelog
 
-## Unreleased
+## 0.11.0
 
 - Recognize speakers by voice. **Learn Voices** in Settings → Speakers reads a voiceprint for
   every speaker you've linked to a profile and tests itself against those tags, reporting how
   often its matches were right. **Auto-Tag Speakers** on the transcript links untagged speakers
   whose voices match a profile confidently and leaves uncertain ones alone; **Auto-Tag All
-  Meetings** does the same across the library, and an opt-in setting runs it after every
-  transcription. Speakers linked by voice show a waveform badge until you confirm or change them.
+  Meetings** does the same across the library and names any meeting it had to skip, and an
+  opt-in setting runs it after every transcription. Speakers linked by voice show a waveform badge until you confirm or change them.
   The first run downloads a 15 MB Core ML voice model; voices never leave the Mac.
 - Add `stillnote speaker voices`, `speaker learn`, and `speaker autotag` (with `--all` and
   `--dry-run`); `show --json` marks voice-matched speakers with `voice_match`.
+- Replace **Stop & Transcribe** in the menu bar and **Finish & Transcribe** in the recording
+  window with two actions: **Stop Recording** only saves the recording, and **Stop, Transcribe &
+  Summarize** also transcribes it and then summarizes it with the provider from Settings, after
+  any opt-in auto-tagging so the summary uses recognized names. Without the speech model, only
+  Stop Recording is offered. The recording window puts the two on their own row so the longer
+  label fits.
 
 ## 0.10.0
 

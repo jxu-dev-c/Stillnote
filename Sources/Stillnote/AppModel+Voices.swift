@@ -326,9 +326,9 @@ extension AppModel {
 
     /// Opt-in: a fresh transcript's speakers are matched as soon as it is saved. A failure is
     /// silent; the speakers simply stay untagged.
-    func autoTagAfterTranscription(_ id: String) {
+    func autoTagAfterTranscription(_ id: String) async {
         guard settings.speakerRecognition.autoTagAfterTranscription, voiceModel != nil else { return }
-        Task { [weak self] in _ = try? await self?.autoTag(id) }
+        _ = try? await autoTag(id)
     }
 }
 

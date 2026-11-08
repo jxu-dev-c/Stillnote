@@ -2,24 +2,37 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
-## What's new in 0.10.0
+## What's new in 0.11.0
 
-- Split long audio-only recordings into 20-minute parts after confirmation. The default
-  eligibility threshold is 50 minutes and can be set to any positive whole number in Settings.
-  Parts keep their transcript timestamps relative to their own audio, notes, and context links;
-  summaries start empty. Splitting replaces the original meeting and audio.
-- Copy a meeting's summary from Export → Copy Summary, including decisions and action items.
-- Load meeting details on demand and search in the database to reduce library startup time,
-  memory use, and navigation delays. The sidebar shows the latest 50 meetings; All Meetings
-  retains the full history, and an opened older meeting remains visible under Selected Meeting.
-- Save edited meeting titles when editing ends.
-- Make speaker assignment searchable and keep Edit Profiles available in Settings.
-- Restrict speaker-filtered search results to transcript segments attributed to that speaker.
-- Repair inverted transcription timestamp rows and detect repetition loops even when timestamps advance.
-- Show recording controls for recordings started through the menu bar or command interface.
-- Show only one summary regeneration action.
-- Validate documented skill command options against the CLI catalog and refresh the skill's
-  speaker-search guidance and summary output example.
+### Recognize speakers by voice
+
+- Tag speakers in a few meetings, then click **Learn Voices** in **Settings → Speakers**.
+  Stillnote reads a voiceprint for every speaker you've linked to a profile, tests itself against
+  your own tags, and shows how often its matches were right and how many speakers it covered.
+- **Auto-Tag Speakers** on a meeting's transcript links untagged speakers whose voices match a
+  profile confidently. Uncertain speakers stay untagged, and speakers you tagged yourself are never
+  changed. **Auto-Tag All Meetings** does the same across your library and names any meeting it
+  had to skip, and an opt-in setting runs it after every transcription.
+- Speakers linked by voice show a waveform badge until you confirm or change them, and are not
+  learned from until you do. Like any speaker change, a link that changes a displayed name clears
+  that meeting's summary.
+- Voiceprints are computed on your Mac and kept in your private library. They are never sent to a
+  summary provider, exported, or printed by the `stillnote` command. **Forget Voices** deletes them
+  and keeps your speaker tags.
+- New commands: `stillnote speaker voices`, `stillnote speaker learn --wait`, and
+  `stillnote speaker autotag <meeting>` or `--all`, with `--dry-run` to preview. `show --json`
+  marks voice-matched speakers with `voice_match`.
+
+### Stop Recording, or Stop, Transcribe & Summarize
+
+- The single **Stop & Transcribe** action in the menu bar, and **Finish & Transcribe** in the
+  recording window, are now two:
+  - **Stop Recording** only saves the recording. You can transcribe it later from the meeting.
+  - **Stop, Transcribe & Summarize** saves it, transcribes it, and then summarizes it with the
+    provider from **Settings → Summaries**, so the finished meeting needs no further clicks. If
+    auto-tagging after transcription is on, speakers are tagged first so the summary uses their
+    names.
+- Until the speech model is downloaded, only **Stop Recording** appears.
 
 ## The `stillnote` command and AI agents
 
@@ -29,6 +42,7 @@ Stillnote bundles a `stillnote` command. Homebrew puts it on your `PATH`; otherw
 ```sh
 stillnote search "product launch" --in summary
 stillnote transcript replace ANE AEM --all --dry-run
+stillnote speaker autotag latest --dry-run
 stillnote record stop
 stillnote help
 ```
@@ -41,6 +55,18 @@ still asks for consent, as `stillnote summarize <id> --allow-remote`.
 
 To let a coding agent drive it, install the published skill with
 `npx skills add jxu-dev-c/Stillnote`.
+
+## Upgrading from 0.10.0
+
+Existing meetings, settings, speaker profiles, and downloaded models are preserved, and the
+speech model is unchanged. Voice recognition does nothing until you use it: the first
+**Learn Voices** downloads a 15 MB voice model. Auto-tagging after transcription stays off until
+you turn it on in **Settings → Speakers**.
+
+**Changed:** stopping a recording with **Stop Recording** no longer starts a transcription. To
+transcribe as soon as you stop, choose **Stop, Transcribe & Summarize**, which also requests a
+summary from your configured Codex or Claude Code CLI. `stillnote record stop` is unchanged and
+still queues transcription.
 
 ## Upgrading from 0.9.0
 
