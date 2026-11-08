@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Personal installation of our ad-hoc-signed GitHub build. No global Gatekeeper changes.
+# Personal installation of our self-signed, non-notarized GitHub build. No global Gatekeeper changes.
 set -euo pipefail
 if [[ $# != 1 || ! -f "$1" ]]; then
   echo "Usage: $0 /path/to/Stillnote-version-macos-arm64.zip" >&2
@@ -18,7 +18,7 @@ source_app="$scratch/extracted/Stillnote.app"
 test -x "$source_app/Contents/MacOS/Stillnote"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$source_app/Contents/Info.plist")" == local.stillnote.app ]]
 codesign --verify --strict "$source_app"
-# Imported download/provenance metadata can hold the ad-hoc executable before
+# Imported download/provenance metadata can hold the non-notarized executable before
 # dyld enters main(), even after Open Anyway. Make a local copy without that
 # metadata; keep the executable and its verified signature byte-for-byte intact.
 ditto --noextattr --norsrc "$source_app" "$scratch/Stillnote.app"

@@ -7,7 +7,9 @@ version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resource
 staging="build/candidate"
 mkdir -p "$staging"
 cp LICENSE THIRD_PARTY_NOTICES.md build/Stillnote.app/Contents/Resources/
-codesign --force --sign "${STILLNOTE_SIGNING_IDENTITY:--}" --identifier local.stillnote.app build/Stillnote.app
+source scripts/lib/signing.sh
+# Adding the notices changed the bundle, so seal it again with the same identity.
+sign_code build/Stillnote.app --identifier "$STILLNOTE_BUNDLE_ID"
 codesign --verify --deep --strict build/Stillnote.app
 archive="Stillnote-$version-macos-arm64.zip"
 ditto -c -k --keepParent build/Stillnote.app "$staging/$archive"

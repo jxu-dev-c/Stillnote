@@ -9,6 +9,18 @@ trap 'rm -rf "$extracted"' EXIT
 ditto -x -k "build/candidate/Stillnote-$version-macos-arm64.zip" "$extracted"
 app="$extracted/Stillnote.app"
 codesign --verify --deep --strict "$app"
+# Releases must carry the pinned certificate: macOS keys capture permission grants on the
+# designated requirement, so an ad-hoc or differently signed release resets them for every user.
+if [[ "${STILLNOTE_REQUIRE_PINNED_SIGNATURE:-}" == true || -n "${STILLNOTE_SIGNING_IDENTITY:-}" ]]; then
+  source scripts/lib/signing.sh
+  codesign --verify --strict -R="$(pinned_requirement "$STILLNOTE_BUNDLE_ID")" "$app" \
+    || { echo "Stillnote.app is not signed with $STILLNOTE_PINNED_CERT." >&2; exit 1; }
+  for binary in MacOS/StillnoteSpeechWorker Helpers/stillnote; do
+    codesign --verify --strict -R="certificate leaf = H\"$(pinned_cert_sha1)\"" "$app/Contents/$binary" \
+      || { echo "$binary is not signed with $STILLNOTE_PINNED_CERT." >&2; exit 1; }
+  done
+  echo "Signed with pinned certificate $(pinned_cert_sha1)"
+fi
 "$app/Contents/MacOS/StillnoteSpeechWorker" --self-test
 # The bundled CLI is what the Homebrew cask links onto PATH, and it reports the same version as
 # the bundle it shipped in.

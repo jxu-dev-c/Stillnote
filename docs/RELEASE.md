@@ -23,13 +23,40 @@ remains subject to the gates below; publishing source history is a separate oper
 
 ## Candidate app
 
-Run `./scripts/package-app.sh` to build an ad-hoc-signed development candidate ZIP
-and checksum. The app ZIP includes the native speech worker and Metal kernels.
-Only the verified model weights are downloaded separately.
+Run `./scripts/package-app.sh` to build a development candidate ZIP and checksum. It is
+ad-hoc signed unless `STILLNOTE_SIGNING_IDENTITY` is set (see Release signing). The app ZIP
+includes the native speech worker and Metal kernels. Only the verified model weights are
+downloaded separately.
 
 No notarization or auto-update is provided. Users must follow Apple's Open Anyway flow:
-https://support.apple.com/en-gb/102445 . Updates may reset capture permission grants.
-Do not recommend disabling Gatekeeper globally.
+https://support.apple.com/en-gb/102445 . Do not recommend disabling Gatekeeper globally.
+
+## Release signing
+
+macOS keys microphone and screen/system audio grants on the app's designated requirement.
+An ad-hoc signature's requirement is its own code hash, so every ad-hoc build looks like a new
+app and loses its grants. Releases are therefore signed with one persistent self-signed
+certificate, giving the requirement
+`identifier "local.stillnote.app" and certificate leaf = H"<sha1>"` in every build. It needs no
+Apple account and does not change Gatekeeper: the app is still not notarized.
+
+- `packaging/signing/stillnote-release.cer` is the public certificate. It pins the identity:
+  `./scripts/import-signing-identity.sh` refuses a secret holding a different certificate, and
+  `./scripts/verify-candidate.sh` refuses a release that does not satisfy the pinned requirement.
+- The private key lives only in the `STILLNOTE_SIGNING_P12_BASE64` and
+  `STILLNOTE_SIGNING_P12_PASSWORD` Actions secrets and in an offline backup. A release fails
+  when they are missing; merges that do not release build ad-hoc without them.
+- `./scripts/create-signing-identity.sh OUTPUT_DIR` created it once. OUTPUT_DIR must be outside
+  the repository; the script prints the `gh secret set` commands.
+
+Never rotate the certificate casually. A new one changes the requirement, so every user must
+grant capture permissions again, exactly once. If the key is lost or compromised, rerun the
+generator with `STILLNOTE_ROTATE_SIGNING_IDENTITY=true`, commit the new certificate, replace both
+secrets, and say in the release notes that permissions must be granted again.
+
+To sign a local build with the release identity, export both secrets into the environment, then
+`eval "$(./scripts/import-signing-identity.sh)"` before `./scripts/package-app.sh`. Remove the
+temporary keychain afterwards with `security delete-keychain "$STILLNOTE_SIGNING_KEYCHAIN"`.
 
 ## Fresh history
 
@@ -55,9 +82,10 @@ end; no tag is created by hand. A merge that leaves the version alone only runs 
 The Release workflow on a `master` push:
 
 1. Validates the version, and decides whether `v$version` is already released.
-2. Runs `./scripts/check.sh`, builds an ad-hoc-signed Apple silicon app with
-   `./scripts/package-app.sh`, generates the cask, and runs `./scripts/verify-candidate.sh`
-   against the extracted ZIP and its checksums.
+2. Runs `./scripts/check.sh`, imports the release signing identity, builds the signed Apple
+   silicon app with `./scripts/package-app.sh`, generates the cask, and runs
+   `./scripts/verify-candidate.sh` against the extracted ZIP, its checksums, and the pinned
+   signing certificate.
 3. Installs, upgrades, and uninstalls the candidate cask on macOS 15 and 26
    (`./scripts/check-homebrew.sh`).
 4. Publishes the GitHub release, which creates the tag on the released commit, then advances
@@ -68,7 +96,7 @@ never advanced for a candidate that did not pass. The app version and archive fi
 from `Resources/Info.plist`; the build number is the workflow run number. Releases are titled
 with their tag (for example, `v0.1.1`), without the prerelease flag, so GitHub determines the
 latest release automatically. Only the publication job receives `contents: write`. No Apple
-account, signing secret, or notarization is required.
+account or notarization is required; signing uses the self-signed identity above.
 
 Find downloads under [GitHub Releases](https://github.com/jxu-dev-c/Stillnote/releases).
 Each release contains the app ZIP, `Install-Stillnote.sh`, `SHA256SUMS`, license,

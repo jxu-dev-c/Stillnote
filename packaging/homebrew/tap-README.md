@@ -7,11 +7,12 @@ brew install jxu-dev-c/stillnote/stillnote
 ```
 
 Open Stillnote, approve its first launch in macOS Privacy & Security if needed,
-and download the speech model in Settings. The app is currently ad-hoc signed.
+and download the speech model in Settings. The app is signed with Stillnote's own certificate
+but not Apple-notarized.
 
 ## If the icon keeps bouncing or Open Anyway does not work
 
-The current release is already ad-hoc signed, but it is **not Apple-notarized**.
+The current release is signed with Stillnote's own certificate, but it is **not Apple-notarized**.
 On some Macs, macOS can hold it before startup even after **Open Anyway**. Reinstalling
 the speech runtime does not fix this launch problem.
 
@@ -57,13 +58,20 @@ ad-hoc signature, and opens it at a new path. It does not change global Gatekeep
 settings or delete the original app, meetings, notes, or downloaded models.
 
 3. Use the new **Stillnote Local …** app in your user Applications folder. Replace any
-   Dock shortcut pointing to the old copy. macOS may ask for capture permissions again.
+   Dock shortcut pointing to the old copy. This copy carries your local ad-hoc signature
+   instead of Stillnote's certificate, so macOS asks for capture permissions again, and again
+   each time you repeat these steps.
 
 This is a workaround for affected Macs, not a notarized release or a guaranteed fix for
 every launch failure. Homebrew continues to manage the original app; the local copy does
 not update automatically. After a Homebrew upgrade, quit Stillnote and repeat the steps
 using the updated original. If it still fails, report your macOS version and Terminal
 output; do not disable Gatekeeper globally.
+
+Microphone and screen/system audio permissions carry over between updates. Updating from
+0.11.0 or earlier asks for them one last time, because those releases were ad-hoc signed. If
+**Screen & System Audio Recording** shows Stillnote enabled but capture still fails, select
+Stillnote there, remove it with **−**, and allow it again when Stillnote asks.
 
 Quit Stillnote before upgrading:
 

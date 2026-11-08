@@ -40,11 +40,12 @@ while IFS= read -r -d '' license; do
   mkdir -p "$(dirname "$destination")"
   cp "$license" "$destination"
 done < <(find .build/checkouts -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -not -path '*/.git/*' -print0)
-codesign --force --sign "${STILLNOTE_SIGNING_IDENTITY:--}" "$contents/MacOS/StillnoteSpeechWorker"
-codesign --force --sign "${STILLNOTE_SIGNING_IDENTITY:--}" "$contents/Helpers/stillnote"
-# Reuse a configured identity across builds so macOS can retain capture grants.
-# The default stays ad-hoc for local development without a signing certificate.
-codesign --force --sign "${STILLNOTE_SIGNING_IDENTITY:--}" --identifier local.stillnote.app "$app"
+# Releases set STILLNOTE_SIGNING_IDENTITY (see scripts/lib/signing.sh) so macOS retains capture
+# grants across upgrades. The default stays ad-hoc for local development without a certificate.
+source scripts/lib/signing.sh
+sign_code "$contents/MacOS/StillnoteSpeechWorker"
+sign_code "$contents/Helpers/stillnote"
+sign_code "$app" --identifier "$STILLNOTE_BUNDLE_ID"
 codesign --verify --deep --strict "$app"
 "$contents/MacOS/StillnoteSpeechWorker" --self-test
 "$contents/Helpers/stillnote" --version
