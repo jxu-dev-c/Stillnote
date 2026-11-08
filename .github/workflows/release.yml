@@ -43,12 +43,28 @@ jobs:
         run: xcodebuild -downloadComponent MetalToolchain
       - name: Run checks
         run: ./scripts/check.sh
+      - name: Import the release signing identity
+        env:
+          # One persistent certificate keeps the app's designated requirement stable, so macOS
+          # keeps microphone and screen/system audio grants across upgrades. See docs/RELEASE.md.
+          STILLNOTE_SIGNING_P12_BASE64: ${{ secrets.STILLNOTE_SIGNING_P12_BASE64 }}
+          STILLNOTE_SIGNING_P12_PASSWORD: ${{ secrets.STILLNOTE_SIGNING_P12_PASSWORD }}
+          STILLNOTE_RELEASE: ${{ steps.version.outputs.release }}
+        run: ./scripts/import-signing-identity.sh
       - name: Package the app and the Homebrew cask
         run: |
           ./scripts/package-app.sh
           python3 scripts/prepare-homebrew.py
       - name: Verify the candidate
+        env:
+          STILLNOTE_REQUIRE_PINNED_SIGNATURE: ${{ steps.version.outputs.release }}
         run: ./scripts/verify-candidate.sh
+      - name: Remove the signing keychain
+        if: always()
+        run: |
+          if [[ -n "${STILLNOTE_SIGNING_KEYCHAIN:-}" ]]; then
+            security delete-keychain "$STILLNOTE_SIGNING_KEYCHAIN" || true
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: steps.version.outputs.release == 'true'
         with:

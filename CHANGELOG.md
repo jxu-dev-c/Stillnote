@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Keep microphone and screen/system audio permissions across updates. Releases are now signed
+  with one persistent Stillnote certificate instead of a per-build ad-hoc signature, which macOS
+  treated as a new app every time. Updating from 0.11.0 or earlier asks for permissions one last
+  time. The app is still not Apple-notarized.
+
 ## 0.11.0
 
 - Recognize speakers by voice. **Learn Voices** in Settings → Speakers reads a voiceprint for

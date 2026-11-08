@@ -40,8 +40,8 @@ installation are not needed. This command requires
 the first Homebrew-enabled release to have been published to the
 [Stillnote tap](https://github.com/jxu-dev-c/homebrew-stillnote).
 
-Open Stillnote from Applications. The app is currently ad-hoc signed; if macOS blocks
-its first launch, use [Open Anyway in Privacy & Security](https://support.apple.com/en-gb/102445).
+Open Stillnote from Applications. The app is signed with Stillnote's own certificate but not
+Apple-notarized; if macOS blocks its first launch, use [Open Anyway in Privacy & Security](https://support.apple.com/en-gb/102445).
 If that fails or the icon keeps bouncing, follow the self-signing steps below.
 
 In **Settings**, download the speech model once (about 1.3 GB). Grant microphone
@@ -57,7 +57,7 @@ steps (including owners and due dates), without the transcript or provider/model
 
 ## If the icon keeps bouncing or Open Anyway does not work
 
-The current release is already ad-hoc signed, but it is **not Apple-notarized**.
+The current release is signed with Stillnote's own certificate, but it is **not Apple-notarized**.
 On some Macs, macOS can hold it before startup even after **Open Anyway**. 
 
 You can make a fresh copy and self-sign it locally. This does **not** require a paid
@@ -102,7 +102,9 @@ ad-hoc signature, and opens it at a new path. It does not change global Gatekeep
 settings or delete the original app, meetings, notes, or downloaded models.
 
 3. Use the new **Stillnote Local …** app in your user Applications folder. Replace any
-   Dock shortcut pointing to the old copy. macOS may ask for capture permissions again.
+   Dock shortcut pointing to the old copy. This copy carries your local ad-hoc signature
+   instead of Stillnote's certificate, so macOS asks for capture permissions again, and again
+   each time you repeat these steps.
 
 This is a workaround for affected Macs, not a notarized release or a guaranteed fix for
 every launch failure. Homebrew continues to manage the original app; the local copy does
@@ -111,6 +113,11 @@ using the updated original. If it still fails, report your macOS version and Ter
 output; do not disable Gatekeeper globally.
 
 ## Updates and repair
+
+Microphone and screen/system audio permissions carry over between updates. Updating from
+0.11.0 or earlier asks for them one last time, because those releases were ad-hoc signed. If
+**Screen & System Audio Recording** shows Stillnote enabled but capture still fails, select
+Stillnote there, remove it with **−**, and allow it again when Stillnote asks.
 
 Quit Stillnote before updating:
 

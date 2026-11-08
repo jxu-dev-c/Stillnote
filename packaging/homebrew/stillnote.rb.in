@@ -16,7 +16,7 @@ cask "stillnote" do
 
   caveats <<~EOS
     Download the speech model once in Stillnote Settings.
-    This app is ad-hoc signed. macOS may require approval in Privacy & Security.
+    This app is not Apple-notarized. macOS may require approval in Privacy & Security.
     The stillnote command reads and corrects meetings and controls recording while the
     app is open; it can be switched off in Settings > Advanced.
     Meetings and models are preserved when uninstalling.
