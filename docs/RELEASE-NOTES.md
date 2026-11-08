@@ -23,6 +23,17 @@ Local meeting recording and transcription for **Apple silicon Macs running macOS
   `stillnote speaker autotag <meeting>` or `--all`, with `--dry-run` to preview. `show --json`
   marks voice-matched speakers with `voice_match`.
 
+### Stop Recording, or Stop, Transcribe & Summarize
+
+- The single **Stop & Transcribe** action in the menu bar, and **Finish & Transcribe** in the
+  recording window, are now two:
+  - **Stop Recording** only saves the recording. You can transcribe it later from the meeting.
+  - **Stop, Transcribe & Summarize** saves it, transcribes it, and then summarizes it with the
+    provider from **Settings → Summaries**, so the finished meeting needs no further clicks. If
+    auto-tagging after transcription is on, speakers are tagged first so the summary uses their
+    names.
+- Until the speech model is downloaded, only **Stop Recording** appears.
+
 ## The `stillnote` command and AI agents
 
 Stillnote bundles a `stillnote` command. Homebrew puts it on your `PATH`; otherwise it is at
@@ -51,6 +62,11 @@ Existing meetings, settings, speaker profiles, and downloaded models are preserv
 speech model is unchanged. Voice recognition does nothing until you use it: the first
 **Learn Voices** downloads a 15 MB voice model. Auto-tagging after transcription stays off until
 you turn it on in **Settings → Speakers**.
+
+**Changed:** stopping a recording with **Stop Recording** no longer starts a transcription. To
+transcribe as soon as you stop, choose **Stop, Transcribe & Summarize**, which also requests a
+summary from your configured Codex or Claude Code CLI. `stillnote record stop` is unchanged and
+still queues transcription.
 
 ## Upgrading from 0.9.0
 

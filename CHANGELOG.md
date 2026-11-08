@@ -11,6 +11,12 @@
   The first run downloads a 15 MB Core ML voice model; voices never leave the Mac.
 - Add `stillnote speaker voices`, `speaker learn`, and `speaker autotag` (with `--all` and
   `--dry-run`); `show --json` marks voice-matched speakers with `voice_match`.
+- Replace **Stop & Transcribe** in the menu bar and **Finish & Transcribe** in the recording
+  window with two actions: **Stop Recording** only saves the recording, and **Stop, Transcribe &
+  Summarize** also transcribes it and then summarizes it with the provider from Settings, after
+  any opt-in auto-tagging so the summary uses recognized names. Without the speech model, only
+  Stop Recording is offered. The recording window puts the two on their own row so the longer
+  label fits.
 
 ## 0.10.0
 

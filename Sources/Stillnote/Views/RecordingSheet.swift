@@ -15,8 +15,12 @@ struct RecordingSheet: View {
     @State private var starting = false
     @State private var error: String?
     @State private var confirmingDiscard = false
-    @State private var saving = false
+    /// The finish action whose save is running, so only that button reads "Saving…".
+    @State private var finishing: FinishAction?
     @State private var initialized = false
+
+    private enum FinishAction { case stop, summarize }
+    private var saving: Bool { finishing != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -136,19 +140,36 @@ struct RecordingSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            let locked = saving || model.recorder.isSaving || session.status == .starting || session.status == .stopping
             HStack {
                 Button("Discard", role: .destructive) { confirmingDiscard = true }
-                    .disabled(saving || model.recorder.isSaving || session.status == .starting || session.status == .stopping)
+                    .disabled(locked)
                 Spacer()
                 if session.status == .recording {
                     Button("Pause") { model.recorder.pause() }
                 } else if session.status == .paused {
                     Button("Resume") { model.recorder.resume() }
                 }
-                Button(finishTitle) { Task { await finish() } }
-                    .primaryActionStyle()
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(saving || model.recorder.isSaving || session.status == .starting || session.status == .stopping)
+            }
+            // The finish actions get a row of their own: beside Discard and Pause, "Stop,
+            // Transcribe & Summarize" would overflow the 480-point sheet.
+            HStack {
+                Spacer()
+                if model.speech.ready {
+                    Button(finishTitle(.stop)) { Task { await finish(.stop) } }
+                        .disabled(locked)
+                    Button(finishTitle(.summarize)) { Task { await finish(.summarize) } }
+                        .primaryActionStyle()
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(locked)
+                        .help("Save the recording, transcribe it, then summarize it with the provider from Settings.")
+                } else {
+                    // Without the speech model there is nothing to transcribe yet.
+                    Button(finishTitle(.stop)) { Task { await finish(.stop) } }
+                        .primaryActionStyle()
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(locked)
+                }
             }
         }
     }
@@ -200,9 +221,12 @@ struct RecordingSheet: View {
         }
     }
 
-    private var finishTitle: String {
-        if saving || model.recorder.isSaving { return "Saving…" }
-        return model.speech.ready ? "Finish & Transcribe" : "Save Recording"
+    private func finishTitle(_ action: FinishAction) -> String {
+        if finishing == action { return "Saving…" }
+        switch action {
+        case .stop: return "Stop Recording"
+        case .summarize: return "Stop, Transcribe & Summarize"
+        }
     }
 
     // MARK: - Actions
@@ -234,14 +258,14 @@ struct RecordingSheet: View {
         }
     }
 
-    private func finish() async {
-        saving = true
-        defer { saving = false }
+    private func finish(_ action: FinishAction) async {
+        finishing = action
+        defer { finishing = nil }
         guard let meeting = await model.finishRecording() else { return }
         selection = meeting.id
         dismiss()
-        if model.speech.ready {
-            await model.transcribe(meeting.id)
+        if action == .summarize {
+            await model.transcribeThenSummarize(meeting.id)
         }
     }
 }

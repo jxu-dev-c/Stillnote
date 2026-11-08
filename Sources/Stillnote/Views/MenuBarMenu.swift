@@ -78,10 +78,18 @@ struct MenuBarMenu: View {
             EmptyView()
         }
         // A session recovered after a crash is `stopped`: saving it is still the way forward.
-        Button(model.recorder.isSaving ? "Saving…" : (model.speech.ready ? "Stop & Transcribe" : "Stop & Save")) {
-            Task { await stop() }
+        if model.recorder.isSaving {
+            Button("Saving…") {}.disabled(true)
+        } else {
+            let unavailable = session.status == .starting || session.status == .stopping
+            Button("Stop Recording") { Task { await stop(summarize: false) } }
+                .disabled(unavailable)
+            // Without the speech model there is nothing to transcribe, as in the recording sheet.
+            if model.speech.ready {
+                Button("Stop, Transcribe & Summarize") { Task { await stop(summarize: true) } }
+                    .disabled(unavailable)
+            }
         }
-        .disabled(model.recorder.isSaving || session.status == .starting || session.status == .stopping)
     }
 
     private func status(_ session: RecordingSessionState) -> String {
@@ -102,8 +110,8 @@ struct MenuBarMenu: View {
         if await !model.startQuickRecording() { showMainWindow() }
     }
 
-    private func stop() async {
-        if await model.stopRecording() == nil { showMainWindow() }
+    private func stop(summarize: Bool) async {
+        if await model.stopRecording(summarize: summarize) == nil { showMainWindow() }
     }
 
     private func showMainWindow() {

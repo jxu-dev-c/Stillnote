@@ -106,6 +106,13 @@ through cleanup and persistence; a discard already waiting on a save cannot dele
 meeting or the next recovered session. Transcription requests reserve their meeting before
 awaiting the store so concurrent stop callers queue only one job.
 
+The recording window and the menu bar offer two ways to stop: **Stop Recording** saves only,
+and **Stop, Transcribe & Summarize** marks the meeting before queuing its transcription. The
+transcription job takes that mark when it starts, whatever its outcome. A saved transcript then
+runs opt-in auto-tagging and the summary in that order, outside the transcription's own job,
+because both wait on the queue. A run that is stopped, fails, or finds no speech drops the
+summary, so a later manual transcription never summarizes on its own.
+
 ## Capture
 
 `CaptureSession` uses ScreenCaptureKit for the selected microphone, optional system audio,
@@ -278,8 +285,9 @@ hour, so meetings held in either pass still overlap it. Overlapping meetings sha
 in `StillnoteCore/Models/CalendarLayout.swift`. The chosen tab, range, and date are kept per
 window in scene storage. Playback is one compact transport for every
 meeting; recordings with screen video open AVKit's `VideoPlayer` in a sheet that shares its player. Settings live in the
-standard Settings scene. The main window is a single `Window` scene; a `MenuBarExtra` starts and
-stops a recording with the saved transcription defaults, shows the elapsed time while capturing,
+standard Settings scene. The main window is a single `Window` scene; a `MenuBarExtra` starts a
+recording with the saved transcription defaults, stops it with the same two actions as the
+recording window, shows the elapsed time while capturing,
 and opens the window or Settings, which keeps the app running after the window closes. Notes autosave after a 700 ms pause, with an unsaved draft kept in
 `UserDefaults` until it matches what was saved.
 
