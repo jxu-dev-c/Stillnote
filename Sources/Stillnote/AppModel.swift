@@ -67,6 +67,8 @@ final class AppModel {
     private var startingSummaries: Set<String> = []
     /// Meetings to summarize as soon as their queued transcription saves a transcript.
     @ObservationIgnored private var summarizeAfterTranscription: Set<String> = []
+    /// Meetings to name once that summary is saved, with the ` partN` suffix a split part keeps.
+    @ObservationIgnored private var nameAfterSummary: [String: String] = [:]
     private var installTask: Task<Void, Never>?
     private var installProgress = 0.0
     private var installDetail: String?
@@ -439,22 +441,43 @@ final class AppModel {
         }
     }
 
-    /// Saves the current recording. With `summarize` it is also transcribed and then summarized
-    /// (Stop, Transcribe & Summarize); without, it waits to be transcribed later (Stop Recording).
+    /// Saves the current recording. With `summarize` it then runs the whole Stop, Transcribe &
+    /// Summarize pipeline (see `processRecording`); without, it waits to be transcribed later
+    /// (Stop Recording).
     @discardableResult
     func stopRecording(summarize: Bool) async -> Meeting? {
         guard isReady, recorder.session != nil, let meeting = await finishRecording() else { return nil }
-        if summarize { await transcribeThenSummarize(meeting.id) }
+        if summarize { await processRecording(meeting) }
         return meeting
     }
 
+    /// The rest of Stop, Transcribe & Summarize for a saved recording: a recording at or above
+    /// the split threshold is split first, then each meeting is transcribed, summarized, and
+    /// named. Split parts keep their ` partN` suffix. A split that fails or is refused leaves the recording whole and processes it as
+    /// is. Returns the meetings it queued: the parts, or the recording itself.
+    @discardableResult
+    func processRecording(_ meeting: Meeting) async -> [Meeting] {
+        var targets = [meeting]
+        if canSplit(meeting), let parts = await splitRecording(meeting.id) { targets = parts }
+        for (index, target) in targets.enumerated() {
+            let suffix = targets.count > 1 ? " part\(index + 1)" : ""
+            await transcribeThenSummarize(target.id, thenNameWithSuffix: suffix)
+        }
+        return targets
+    }
+
     /// Queues transcription and, once its transcript is saved, a summary with the provider from
-    /// Settings. A transcription that never starts, fails, finds no speech, or is stopped drops
-    /// the summary with it.
-    func transcribeThenSummarize(_ id: String) async {
+    /// Settings, then a title. A transcription that never
+    /// starts, fails, finds no speech, or is stopped drops the summary and the title with it,
+    /// and a failed summary drops the title.
+    func transcribeThenSummarize(_ id: String, thenNameWithSuffix suffix: String) async {
         summarizeAfterTranscription.insert(id)
+        nameAfterSummary[id] = suffix
         await transcribe(id)
-        if transcriptions[id] == nil { summarizeAfterTranscription.remove(id) }
+        if transcriptions[id] == nil {
+            summarizeAfterTranscription.remove(id)
+            nameAfterSummary[id] = nil
+        }
     }
 
     func finishRecording() async -> Meeting? {
@@ -533,6 +556,7 @@ final class AppModel {
         // Taken before anything can return, so a stopped or failed run never leaves it pending
         // for a later, manual transcription.
         let thenSummarize = summarizeAfterTranscription.remove(id) != nil
+        let thenName = nameAfterSummary.removeValue(forKey: id)
         if Task.isCancelled {
             await markTranscriptionStopped(id)
             return
@@ -579,7 +603,7 @@ final class AppModel {
                 $0.summary = nil
                 $0.error = nil
             }
-            afterTranscription(id, summarize: thenSummarize)
+            afterTranscription(id, summarize: thenSummarize, nameWithSuffix: thenName)
         } catch is CancellationError {
             await markTranscriptionStopped(id)
         } catch SpeechError.cancelled {
@@ -599,12 +623,12 @@ final class AppModel {
     }
 
     /// What follows a fresh transcript: opt-in auto-tagging first, so that a summary requested
-    /// by Stop, Transcribe & Summarize uses the recognized names. Both wait on the job queue, so
-    /// they run outside the transcription's own job.
-    private func afterTranscription(_ id: String, summarize: Bool) {
+    /// by Stop, Transcribe & Summarize, and the title named from it, use the recognized names.
+    /// Both wait on the job queue, so they run outside the transcription's own job.
+    private func afterTranscription(_ id: String, summarize: Bool, nameWithSuffix suffix: String?) {
         Task { [weak self] in
             await self?.autoTagAfterTranscription(id)
-            if summarize { await self?.summarize(id, allowRemote: true) }
+            if summarize { await self?.summarize(id, allowRemote: true, thenNameWithSuffix: suffix) }
         }
     }
 
@@ -627,7 +651,9 @@ final class AppModel {
 
     // MARK: - Summary
 
-    func summarize(_ id: String, allowRemote: Bool) async {
+    /// With `thenNameWithSuffix`, a saved summary is followed by automatic naming (see
+    /// `suggestTitle`); a summary that never starts or fails leaves the title alone.
+    func summarize(_ id: String, allowRemote: Bool, thenNameWithSuffix suffix: String? = nil) async {
         guard !splittingMeetings.contains(id), !startingSummaries.contains(id),
               !startingTranscriptions.contains(id) else { return }
         startingSummaries.insert(id)
@@ -665,13 +691,14 @@ final class AppModel {
         await queue.enqueue { [weak self] in
             await self?.runSummary(
                 id: id, meeting: snapshot, settings: settings, allowRemote: allowRemote,
-                videoPath: resolvedVideoPath
+                videoPath: resolvedVideoPath, thenNameWithSuffix: suffix
             )
         }
     }
 
     private func runSummary(
-        id: String, meeting: Meeting, settings: SummarySettings, allowRemote: Bool, videoPath: URL?
+        id: String, meeting: Meeting, settings: SummarySettings, allowRemote: Bool, videoPath: URL?,
+        thenNameWithSuffix suffix: String?
     ) async {
         await edit(id) {
             $0.progress = 30
@@ -690,6 +717,12 @@ final class AppModel {
                 $0.stage = "Summary ready"
                 $0.error = nil
             }
+            // Naming does not use the job queue; a new task lets the next job start meanwhile.
+            if let suffix {
+                Task { [weak self] in
+                    await self?.suggestTitle(id, allowRemote: allowRemote, suffix: suffix)
+                }
+            }
         } catch {
             let message = (error as? SummaryError)?.message
                 ?? "Summary failed. Check the provider configuration and try again."
@@ -704,8 +737,9 @@ final class AppModel {
     // MARK: - Naming
 
     /// Asks the summary provider for a title, separately from summaries so a custom summary
-    /// prompt cannot leave meetings unnamed. Only an explicit request renames a meeting.
-    func suggestTitle(_ id: String, allowRemote: Bool) async {
+    /// prompt cannot leave meetings unnamed. Runs from Name Meeting and after Stop, Transcribe &
+    /// Summarize, which passes a split part's ` partN` `suffix`.
+    func suggestTitle(_ id: String, allowRemote: Bool, suffix: String = "") async {
         guard !splittingMeetings.contains(id) else { return }
         guard !namingMeetings.contains(id) else { return }
         namingMeetings.insert(id)
@@ -726,7 +760,7 @@ final class AppModel {
             }.value
             // The meeting may have been deleted while the provider was working.
             guard self.libraryItem(id) != nil else { return }
-            await edit(id) { $0.applySuggestedTitle(title) }
+            await edit(id) { $0.applySuggestedTitle(title, suffix: suffix) }
         } catch {
             alertMessage = (error as? SummaryError)?.message
                 ?? "Naming failed. Check the provider configuration and try again."

@@ -70,7 +70,8 @@ recordings don't have it. `source` records whether the audio was recorded or imp
 written before it was added don't have it.
 
 `automatic_title` is true for titles Stillnote chose: a recording's `Meeting · <date>` placeholder,
-an imported file's name when the title field was left blank, and titles from **Name Meeting**.
+an imported file's name when the title field was left blank, and titles from **Name Meeting** or
+**Stop, Transcribe & Summarize**.
 Older documents without the field infer it when the title matches the original filename or
 the dated recording placeholder; other titles default to false. Older imports and re-saved
 recording placeholders also stored false without a user choice, so records without
@@ -82,7 +83,8 @@ if that library is then reopened in a current build.
 Renaming the meeting clears the flag. Summaries never change the title, and summaries written by
 0.8.0 may still carry an unused `title` key.
 
-**Name Meeting** is the only way Stillnote changes an existing title. `MeetingNamer` sends one
+**Name Meeting** and **Stop, Transcribe & Summarize** are the only ways Stillnote changes an
+existing title; the latter keeps a split part's ` partN` suffix. `MeetingNamer` sends one
 request to the summary provider, separately from summaries, with a fixed prompt that the summary
 prompt in Settings doesn't affect, at low effort. It sends the meeting's summary (overview, key
 points, and decisions) when there is one, and otherwise the transcript's first 60 KB. The reply
@@ -107,11 +109,15 @@ meeting or the next recovered session. Transcription requests reserve their meet
 awaiting the store so concurrent stop callers queue only one job.
 
 The recording window and the menu bar offer two ways to stop: **Stop Recording** saves only,
-and **Stop, Transcribe & Summarize** marks the meeting before queuing its transcription. The
-transcription job takes that mark when it starts, whatever its outcome. A saved transcript then
-runs opt-in auto-tagging and the summary in that order, outside the transcription's own job,
-because both wait on the queue. A run that is stopped, fails, or finds no speech drops the
-summary, so a later manual transcription never summarizes on its own.
+and **Stop, Transcribe & Summarize** runs `AppModel.processRecording`. A saved recording that
+`RecordingSplit.eligible` accepts is split first, without the confirmation sheet; a split that
+fails or is refused leaves the recording whole and processes it as is. Each resulting meeting is
+marked for a summary and naming before its transcription is queued. The transcription job takes both marks when it starts, whatever its
+outcome. A saved transcript then runs opt-in auto-tagging and the summary in that order, outside
+the transcription's own job, because both wait on the queue. A saved summary then starts naming
+in its own task. A run that is stopped, fails, or finds no speech drops the summary and the
+naming, and a failed summary drops the naming, so later manual work never triggers either on
+its own.
 
 ## Capture
 

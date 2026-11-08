@@ -316,10 +316,10 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
 
     public func orderedSpeakerIDs() -> [String] { speakers.keys.sorted() }
 
-    /// Adopts a title the user asked Stillnote to suggest. It counts as Stillnote's choice
-    /// until the user types one.
-    public mutating func applySuggestedTitle(_ suggested: String) {
-        title = suggested
+    /// Adopts a title Stillnote suggested. It counts as Stillnote's choice until the user types
+    /// one. A split part keeps its ` partN` suffix, trimming the suggestion to fit the limit.
+    public mutating func applySuggestedTitle(_ suggested: String, suffix: String = "") {
+        title = String(suggested.prefix(max(0, Validation.maxTitleLength - suffix.count))) + suffix
         automaticTitle = true
     }
 }

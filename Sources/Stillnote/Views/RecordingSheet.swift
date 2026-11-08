@@ -265,7 +265,11 @@ struct RecordingSheet: View {
         selection = meeting.id
         dismiss()
         if action == .summarize {
-            await model.transcribeThenSummarize(meeting.id)
+            let processed = await model.processRecording(meeting)
+            // A split replaces the recording; show its first part unless the user moved on.
+            if selection == meeting.id, let first = processed.first, first.id != meeting.id {
+                selection = first.id
+            }
         }
     }
 }

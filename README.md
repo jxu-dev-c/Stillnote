@@ -15,8 +15,8 @@ Transcription and speaker detection are powered by [OpenMOSS's MOSS-Transcribe-D
 - **Local transcription.** Transcription and Speaker Detection entirely stay on your Mac.
 - **AI Agent summaries.** Use **Codex or Claude Code CLI** for summaries, without needing extra API configurations. 
 - **Stop how you like.** End a recording with **Stop Recording** to just save it, or with
-  **Stop, Transcribe & Summarize** to get its transcript and summary without another click, from
-  the recording window or the menu bar.
+  **Stop, Transcribe & Summarize** to have it split if it's long, transcribed, summarized, and
+  named without another click, from the recording window or the menu bar.
 - **Recent meetings.** The sidebar keeps your latest 50 meetings close at hand. Find the full history in All Meetings; an opened older meeting stays visible under Selected Meeting.
 - **Calendar view.** In All Meetings, switch from the list to a Day, Week, or Month calendar
   that looks like Apple's Calendar, with each meeting at the time it was recorded.
@@ -50,7 +50,8 @@ sign in to the Codex or Claude Code CLI, then select it in Settings.
 
 New recordings are titled `Meeting · <date>`, and imports with a blank **Title** use their
 filename. Click **Name Meeting** beside the title to have the summary provider suggest one from
-the meeting's summary, or its transcript when there is no summary. Summaries never change titles.
+the meeting's summary, or its transcript when there is no summary. **Stop, Transcribe &
+Summarize** does this for you once the summary is ready. Summaries themselves never change titles.
 
 Choose **Export → Copy Summary** to copy the overview, key takeaways, decisions, and next
 steps (including owners and due dates), without the transcript or provider/model details.
@@ -213,7 +214,9 @@ Hot words are supported by the bundled native speech engine.
 
 Saved audio-only meetings of 50 minutes or longer show **Split Recording** in the
 meeting header. Change the threshold (any positive whole number of minutes) in **Settings → Transcription →
-Long recordings**. Screen recordings cannot be split.
+Long recordings**. Screen recordings cannot be split. **Stop, Transcribe & Summarize** splits
+a recording at or above the threshold right away, without the confirmation sheet, then
+transcribes, summarizes, and names each part; named parts keep their `partN` suffix.
 
 Review the confirmation sheet before choosing **Split and Replace Original**. This
 replaces the original meeting and audio with 20-minute parts (plus any shorter final
