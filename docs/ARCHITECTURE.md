@@ -323,6 +323,11 @@ non-activating `NSPanel` at the top right of the menu-bar screen, so answering i
 meeting app frontmost. Its Start Recording action is `AppModel.startQuickRecording`, which is the
 menu bar's path.
 
+Menu bar actions never activate the app or open a window, except **Open Stillnote** and
+**Settings…**. Starting, pausing, and stopping a recording from the menu bar or the reminder leave
+Stillnote hidden. A failure sets `AppModel.alertMessage`, which the menu shows as a line of text
+and the menu bar icon as a warning symbol until the main window's alert is dismissed.
+
 ### Reusable speaker profiles
 
 Speaker profiles are local JSON records in SQLite’s `speaker_profiles` table, keyed by UUID. Each stores a name and one optional email and phone number. Meetings map local diarization labels to profile IDs through `speaker_profiles`; older meeting documents default to an empty mapping. Diarization labels do not imply identity across recordings: a link is made by hand, or by voice recognition (below) when its match is confident.

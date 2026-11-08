@@ -6,10 +6,6 @@ import StillnoteCore
 /// only while the opt-in setting is on; when it is off nothing observes microphone use at all.
 @MainActor
 final class MeetingReminder {
-    /// Brings the main window forward, where a failed start is explained. Set by the menu bar
-    /// label, which lives in a scene and so can open windows.
-    var openMainWindow: (() -> Void)?
-
     private weak var model: AppModel?
     private let monitor = MicrophoneActivityMonitor()
     private var policy = MeetingReminderPolicy()
@@ -119,13 +115,8 @@ final class MeetingReminder {
         guard let model else { return }
         Task {
             await model.refreshEnvironment()
-            // The main window is where a failure, or a macOS permission problem, is explained.
-            if await !model.startQuickRecording() { showMainWindow() }
+            // A failure shows in the menu bar rather than raising the main window.
+            await model.startQuickRecording()
         }
-    }
-
-    private func showMainWindow() {
-        NSApp.activate()
-        openMainWindow?()
     }
 }

@@ -3,27 +3,22 @@ import StillnoteCore
 import SwiftUI
 
 /// The menu bar icon: a waveform at rest, and a record symbol with the elapsed time while a
-/// recording is open, so capture is never running unnoticed.
+/// recording is open, so capture is never running unnoticed. A warning symbol stands in for the
+/// waveform while an error waits to be read, since menu bar actions never bring a window forward.
 struct MenuBarLabel: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        content
-            // The meeting reminder lives outside any scene and borrows this one to open the window.
-            .onAppear {
-                model.meetingReminder.openMainWindow = { openWindow(id: StillnoteApp.mainWindowID) }
-            }
-    }
 
     @ViewBuilder
-    private var content: some View {
+    var body: some View {
         if model.isRecording, let session = model.recorder.session {
             HStack(spacing: 4) {
                 Image(systemName: session.status == .paused ? "pause.circle.fill" : "record.circle.fill")
                 Text(Formatting.duration(session.elapsed)).monospacedDigit()
             }
             .accessibilityLabel("Stillnote, \(session.status == .paused ? "recording paused" : "recording")")
+        } else if model.alertMessage != nil {
+            Image(systemName: "exclamationmark.triangle")
+                .accessibilityLabel("Stillnote, needs attention")
         } else {
             Image(systemName: "waveform")
                 .accessibilityLabel("Stillnote")
@@ -32,12 +27,19 @@ struct MenuBarLabel: View {
 }
 
 /// Start or stop a recording, and reach the app or its settings, without the main window.
+/// Only Open Stillnote and Settings… bring a window forward: recording actions leave the app
+/// hidden, and a failure is shown here and in the icon until it is read in the main window.
 struct MenuBarMenu: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
+        if let message = model.alertMessage {
+            Text("⚠︎ \(message)")
+            Text("Open Stillnote to review")
+            Divider()
+        }
         if !model.isReady {
             Text(model.startupError == nil ? "Opening your library…" : "Stillnote could not open its library")
         } else if let session = model.recorder.session {
@@ -103,15 +105,14 @@ struct MenuBarMenu: View {
         }
     }
 
+    // A failure sets `alertMessage`, which this menu and its icon show without raising a window.
     private func start() async {
-        showMainWindow()
         await model.refreshEnvironment()
-        // The main window is where a failure, or a macOS permission problem, is explained.
-        if await !model.startQuickRecording() { showMainWindow() }
+        await model.startQuickRecording()
     }
 
     private func stop(summarize: Bool) async {
-        if await model.stopRecording(summarize: summarize) == nil { showMainWindow() }
+        await model.stopRecording(summarize: summarize)
     }
 
     private func showMainWindow() {
