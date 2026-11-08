@@ -88,9 +88,84 @@ import Testing
         #expect(throws: CLIError.self) { try CommandCatalog.parse(["speaker", "delete"]) }
     }
 
+    @Test func voicesReportsLearnedAccuracyWithoutVoiceprints() async throws {
+        let (store, paths) = try await library()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let empty = try await run(["speaker", "voices"], store)
+        #expect(empty.message.contains("No voices learned yet"))
+        #expect(try #require(try empty.payload?.decoded(VoiceStatusPayload.self)).learned == false)
+
+        try await store.saveVoiceModel(VoiceModel(
+            modelRevision: "r", learnedAt: "2026-11-06T10:00:00.000+00:00",
+            rule: VoiceRule(scorer: .nearest, threshold: 0.67, margin: 0.15), calibrated: true,
+            metrics: VoiceMetrics(recognizable: 100, strangers: 4, correct: 85, wrong: 2, abstained: 17),
+            profileCount: 2, sampleCount: 104, meetingCount: 2, skippedMeetings: 0
+        ))
+        let learned = try await run(["speaker", "voices"], store)
+        let payload = try #require(try learned.payload?.decoded(VoiceStatusPayload.self))
+        #expect(payload.learned && payload.calibrated)
+        #expect(payload.coverage == 0.85)
+        #expect(payload.scorer == "nearest")
+        #expect(learned.message.contains("97.7% of matches were right"))
+        #expect(!learned.message.contains("vector"))
+    }
+
+    @Test func autotagRendersEveryDecision() throws {
+        let outcome = AutoTagOutcome(meetingID: "m1", matches: [
+            VoiceMatch(speaker: "speaker_1", decision: .assigned, profileID: ada.id, score: 0.91,
+                       runnerUpID: grace.id, runnerUpScore: 0.4),
+            VoiceMatch(speaker: "speaker_2", decision: .uncertain, profileID: grace.id, score: 0.72,
+                       runnerUpID: ada.id, runnerUpScore: 0.68),
+            VoiceMatch(speaker: "speaker_3", decision: .unrecognized, profileID: grace.id, score: 0.3),
+            VoiceMatch(speaker: "speaker_4", decision: .tooShort),
+        ], applied: ["speaker_1"], dryRun: false)
+        #expect(outcome.summary == "Matched 1 speaker by voice. 3 weren't recognized.")
+        let leftover = AutoTagOutcome(meetingID: "m1", matches: [VoiceMatch(speaker: "speaker_4", decision: .tooShort)],
+                                      applied: [], dryRun: false)
+        #expect(leftover.summary == "The untagged speaker has too little clear speech to recognize.")
+        let names = [ada.id: ada.name, grace.id: grace.name]
+        let payload = AutoTagPayload(dryRun: false, meetings: [
+            AutoTagMeetingPayload(outcome, title: "Sync", summaryCleared: true, names: names),
+        ])
+        #expect(payload.tagged == 1)
+        let text = try CommandRunner.autoTagResponse(payload).message
+        #expect(text.contains("speaker_1 → Ada Lovelace (0.91) linked"))
+        #expect(text.contains("speaker_2 uncertain: Grace Hopper (0.72) or Ada Lovelace (0.68)"))
+        #expect(text.contains("speaker_3 not recognized (closest: Grace Hopper, 0.30)"))
+        #expect(text.contains("speaker_4 has too little clear speech"))
+        #expect(text.contains("summary was cleared"))
+        let dry = try CommandRunner.autoTagResponse(AutoTagPayload(dryRun: true, meetings: [
+            AutoTagMeetingPayload(
+                AutoTagOutcome(meetingID: "m1", matches: outcome.matches, applied: [], dryRun: true),
+                title: "Sync", summaryCleared: false, names: names
+            ),
+        ])).message
+        #expect(dry.contains("would link"))
+        #expect(dry.contains("Dry run: nothing was written"))
+    }
+
+    @Test func autotagAllReportsSkippedMeetings() throws {
+        let missing = AutoTagSkip(id: "m2", title: "Old call", reason: "This meeting's audio is missing.")
+        let onlySkipped = AutoTagPayload(dryRun: false, meetings: [], skipped: [missing])
+        let text = try CommandRunner.autoTagResponse(onlySkipped).message
+        #expect(text.contains("Skipped 1 meeting(s):"))
+        #expect(text.contains("  Old call [m2]: This meeting's audio is missing."))
+        #expect(!text.contains("No transcribed meetings have untagged speakers"))
+
+        let json = try JSONEncoder().encode(onlySkipped)
+        let object = try #require(try JSONSerialization.jsonObject(with: json) as? [String: Any])
+        let skipped = try #require(object["skipped"] as? [[String: Any]])
+        #expect(skipped.first?["reason"] as? String == missing.reason)
+        #expect(try JSONDecoder().decode(AutoTagPayload.self, from: json) == onlySkipped)
+
+        let nothing = try CommandRunner.autoTagResponse(AutoTagPayload(dryRun: false, meetings: [])).message
+        #expect(nothing.contains("No transcribed meetings have untagged speakers"))
+        #expect(!nothing.contains("Skipped"))
+    }
+
     @Test func helpForAGroupListsEverySubcommand() {
         let text = CommandCatalog.help(command: "speaker")
-        for name in ["rename", "list", "show", "add", "update", "delete", "assign"] {
+        for name in ["rename", "list", "show", "add", "update", "delete", "assign", "voices", "learn", "autotag"] {
             #expect(text.contains("stillnote speaker \(name)"))
         }
     }

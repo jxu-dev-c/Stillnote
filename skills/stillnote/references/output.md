@@ -56,6 +56,8 @@ the app's own compatibility; the CLI does not expose them.
 `summary.context_fingerprint` identifies the notes and links the summary was made from; it is
 absent on summaries set with `summary set` or made before summaries used them.
 `speakers[].profile` is true when the name comes from a reusable speaker profile.
+`speakers[].voice_match` is present when Stillnote linked that profile by voice and nobody has
+confirmed it yet; it is the match's similarity, 0–1. Assigning the speaker removes it.
 `cleanup` is present only when silence was trimmed from the saved recording, and records what was
 removed — that trim cannot be undone.
 
@@ -84,6 +86,45 @@ the meetings it is linked to:
 inside that meeting. After `speaker delete`, `meetings` lists the meetings it was unlinked from;
 they keep the name they showed. `speaker assign` changes a meeting, so it returns the meeting
 shape above.
+
+## `speaker voices` and `speaker learn`
+
+```json
+{ "learned": true, "learned_at": "2026-11-06T18:20:00.000+00:00",
+  "profiles": 35, "meetings": 83, "samples": 338, "skipped_meetings": 0,
+  "calibrated": true, "precision": 0.972, "coverage": 0.85,
+  "scorer": "nearest", "threshold": 0.67, "margin": 0.15,
+  "auto_tag_after_transcription": false }
+```
+
+`precision` and `coverage` come from testing the learned voices against the user's own tags, one
+meeting held out at a time: `precision` is the share of matches that named the right profile,
+and `coverage` the share of recognizable speakers that were tagged. Both are absent when
+`calibrated` is false. Before anything is learned, `learned` is false and the counts are zero.
+Voiceprints themselves are never printed.
+
+## `speaker autotag`
+
+```json
+{ "dry_run": false, "tagged": 2,
+  "meetings": [ { "id": "aa11bb22cc33", "title": "Weekly sync", "tagged": 2,
+                  "summary_cleared": true,
+                  "matches": [
+                    { "speaker": "speaker_1", "decision": "assigned", "applied": true,
+                      "profile": "3F2A…", "profile_name": "Jackson", "score": 0.91,
+                      "runner_up": "9C1D…", "runner_up_name": "Priya", "runner_up_score": 0.46 },
+                    { "speaker": "speaker_3", "decision": "uncertain", "applied": false,
+                      "profile": "…", "profile_name": "…", "score": 0.73,
+                      "runner_up": "…", "runner_up_name": "…", "runner_up_score": 0.66 } ] } ],
+  "skipped": [ { "id": "dd44ee55ff66", "title": "Old call",
+                 "reason": "This meeting's audio is missing." } ] }
+```
+
+`matches` covers only speakers that had no profile. `decision` is `assigned` (confident; linked
+unless `dry_run`), `uncertain` (two profiles were too close), `unrecognized` (no profile was close
+enough), or `too_short` (too little clear speech). `applied` is always false for a dry run.
+`skipped` lists the meetings `--all` could not process and why; with one named meeting a failure
+fails the command instead, so `skipped` is empty.
 
 ## `search`
 

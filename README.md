@@ -17,6 +17,11 @@ Transcription and speaker detection are powered by [OpenMOSS's MOSS-Transcribe-D
 - **Recent meetings.** The sidebar keeps your latest 50 meetings close at hand. Find the full history in All Meetings; an opened older meeting stays visible under Selected Meeting.
 - **Calendar view.** In All Meetings, switch from the list to a Day, Week, or Month calendar
   that looks like Apple's Calendar, with each meeting at the time it was recorded.
+- **Recognize speakers by voice.** Tag speakers in a few meetings, then **Learn Voices** in
+  **Settings → Speakers**. Stillnote checks itself against your own tags and reports how
+  accurate it is, then **Auto-Tag Speakers** links the speakers of new meetings whose voices
+  match a profile confidently, per meeting, for the whole library, or after every transcription
+  if you turn that on. Voices never leave your Mac.
 - **Meeting reminders (opt-in).** When Teams, Zoom, Google Meet, or another meeting app starts using the microphone, Stillnote can offer to start recording. Turn it on in **Settings → Transcription**.
 
 ## Installation
@@ -133,6 +138,7 @@ stillnote transcript replace ANE AEM --all --dry-run   # count first
 stillnote transcript replace ANE AEM --all --whole-word
 stillnote speaker list
 stillnote speaker update Jackson --email jackson@example.com
+stillnote speaker autotag latest --dry-run   # preview voice matches
 stillnote record start          # titled "Meeting · <date>"; or --title "Design review"
 stillnote record stop
 stillnote help

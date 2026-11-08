@@ -34,6 +34,7 @@ struct TranscriptTab: View {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
                 .buttonStyle(.borderless)
+                if !meeting.segments.isEmpty { autoTagButton }
                 Button(action: retranscribe) {
                     Label("Transcribe Again", systemImage: "arrow.clockwise")
                 }
@@ -42,6 +43,12 @@ struct TranscriptTab: View {
             }
 
             speakerChips
+
+            if let result = model.autoTagResults[meeting.id] {
+                Label(result.summary, systemImage: "waveform")
+                    .font(StillnoteTheme.detailSupportingFont)
+                    .foregroundStyle(.secondary)
+            }
 
             if segments.isEmpty {
                 ContentUnavailableView.search(text: search)
@@ -74,6 +81,30 @@ struct TranscriptTab: View {
         }
     }
 
+    /// Links untagged speakers to the profiles their voices match. Speakers already linked by
+    /// hand are never changed, and an uncertain match leaves the speaker untagged.
+    private var autoTagButton: some View {
+        let blocker = model.autoTagBlocker(meeting)
+        let running = model.autoTaggingMeetings.contains(meeting.id)
+        return Button {
+            Task {
+                do { try await model.autoTag(meeting.id) } catch { model.report(error) }
+            }
+        } label: {
+            if running {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Recognizing…")
+                }
+            } else {
+                Label("Auto-Tag Speakers", systemImage: "wand.and.stars")
+            }
+        }
+        .buttonStyle(.borderless)
+        .disabled(blocker != nil)
+        .help(blocker ?? "Link untagged speakers to the profiles their voices match")
+    }
+
     /// Speakers sit above the transcript as renameable chips: a panel would have to be
     /// the window's inspector, which belongs to the whole meeting, not this one tab.
     private var speakerChips: some View {
@@ -97,12 +128,21 @@ struct TranscriptTab: View {
                     Text(meeting.speakerName(id))
                         .font(StillnoteTheme.detailBodyFont)
                         .lineLimit(1)
-                    Image(systemName: "pencil").font(StillnoteTheme.detailSupportingFont).foregroundStyle(.secondary)
+                    if meeting.autoSpeakerProfiles[id] != nil {
+                        Image(systemName: "waveform")
+                            .font(StillnoteTheme.detailSupportingFont)
+                            .foregroundStyle(Color.accentColor)
+                            .accessibilityLabel("Matched by voice")
+                    } else {
+                        Image(systemName: "pencil").font(StillnoteTheme.detailSupportingFont).foregroundStyle(.secondary)
+                    }
                 }
             }
             .buttonStyle(.bordered)
             .controlSize(.regular)
-            .help("Edit speaker profile")
+            .help(meeting.autoSpeakerProfiles[id].map {
+                "Matched by voice (\(Int(($0 * 100).rounded()))% similar). Click to confirm or change."
+            } ?? "Edit speaker profile")
             .disabled(meeting.status.isBusy)
         }
     }

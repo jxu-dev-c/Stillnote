@@ -9,11 +9,20 @@ public struct SpeakerLine: Codable, Hashable, Sendable {
     public var name: String
     /// Whether the name comes from a reusable speaker profile rather than this meeting alone.
     public var profile: Bool
+    /// Present when Stillnote linked the profile by voice and nobody has confirmed it yet: the
+    /// match's similarity, 0–1.
+    public var voiceMatch: Double?
 
-    public init(id: String, name: String, profile: Bool) {
+    enum CodingKeys: String, CodingKey {
+        case id, name, profile
+        case voiceMatch = "voice_match"
+    }
+
+    public init(id: String, name: String, profile: Bool, voiceMatch: Double? = nil) {
         self.id = id
         self.name = name
         self.profile = profile
+        self.voiceMatch = voiceMatch
     }
 }
 
@@ -81,7 +90,8 @@ public struct MeetingPayload: Codable, Hashable, Sendable {
         language = meeting.language
         speakers = meeting.orderedSpeakerIDs().map {
             SpeakerLine(
-                id: $0, name: meeting.speakerName($0), profile: meeting.speakerProfiles[$0] != nil
+                id: $0, name: meeting.speakerName($0), profile: meeting.speakerProfiles[$0] != nil,
+                voiceMatch: meeting.autoSpeakerProfiles[$0]
             )
         }
         segmentCount = meeting.segments.count
@@ -370,5 +380,128 @@ public struct SpeakerListPayload: Codable, Hashable, Sendable {
     public init(_ speakers: [SpeakerProfilePayload]) {
         self.count = speakers.count
         self.speakers = speakers
+    }
+}
+
+/// `speaker voices`: what Learn Voices produced. Voiceprints themselves are never printed.
+public struct VoiceStatusPayload: Codable, Hashable, Sendable {
+    public var learned: Bool
+    public var learnedAt: String?
+    public var profiles: Int
+    public var meetings: Int
+    public var samples: Int
+    public var skippedMeetings: Int
+    /// False when too few people appear in more than one meeting to measure accuracy.
+    public var calibrated: Bool
+    /// Share of held-out matches that named the right profile.
+    public var precision: Double?
+    /// Share of recognizable held-out speakers that were tagged correctly.
+    public var coverage: Double?
+    public var scorer: String?
+    public var threshold: Double?
+    public var margin: Double?
+    public var autoTagAfterTranscription: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case learned, profiles, meetings, samples, calibrated, precision, coverage, scorer, threshold, margin
+        case learnedAt = "learned_at"
+        case skippedMeetings = "skipped_meetings"
+        case autoTagAfterTranscription = "auto_tag_after_transcription"
+    }
+
+    public init(_ model: VoiceModel?, settings: AppSettings) {
+        learned = model != nil
+        learnedAt = model?.learnedAt
+        profiles = model?.profileCount ?? 0
+        meetings = model?.meetingCount ?? 0
+        samples = model?.sampleCount ?? 0
+        skippedMeetings = model?.skippedMeetings ?? 0
+        calibrated = model?.calibrated ?? false
+        precision = model.flatMap { $0.calibrated ? $0.metrics.precision : nil }
+        coverage = model.flatMap { $0.calibrated ? $0.metrics.coverage : nil }
+        scorer = model?.rule.scorer.rawValue
+        threshold = model?.rule.threshold
+        margin = model?.rule.margin
+        autoTagAfterTranscription = settings.speakerRecognition.autoTagAfterTranscription
+    }
+}
+
+/// One label's auto-tag decision, with profile names resolved.
+public struct AutoTagMatchPayload: Codable, Hashable, Sendable {
+    public var speaker: String
+    /// `assigned`, `uncertain`, `unrecognized`, or `too_short`.
+    public var decision: String
+    /// Whether this run linked the profile. Always false for a dry run.
+    public var applied: Bool
+    public var profile: String?
+    public var profileName: String?
+    public var score: Double?
+    public var runnerUp: String?
+    public var runnerUpName: String?
+    public var runnerUpScore: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case speaker, decision, applied, profile, score
+        case profileName = "profile_name"
+        case runnerUp = "runner_up"
+        case runnerUpName = "runner_up_name"
+        case runnerUpScore = "runner_up_score"
+    }
+
+    public init(_ match: VoiceMatch, applied: Bool, names: [String: String]) {
+        speaker = match.speaker
+        decision = match.decision.rawValue
+        self.applied = applied
+        profile = match.profileID
+        profileName = match.profileID.flatMap { names[$0] }
+        score = match.score
+        runnerUp = match.runnerUpID
+        runnerUpName = match.runnerUpID.flatMap { names[$0] }
+        runnerUpScore = match.runnerUpScore
+    }
+}
+
+public struct AutoTagMeetingPayload: Codable, Hashable, Sendable {
+    public var id: String
+    public var title: String
+    public var matches: [AutoTagMatchPayload]
+    public var tagged: Int
+    public var summaryCleared: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, matches, tagged
+        case summaryCleared = "summary_cleared"
+    }
+
+    public init(_ outcome: AutoTagOutcome, title: String, summaryCleared: Bool, names: [String: String]) {
+        id = outcome.meetingID
+        self.title = title
+        matches = outcome.matches.map {
+            AutoTagMatchPayload($0, applied: outcome.applied.contains($0.speaker), names: names)
+        }
+        tagged = outcome.applied.count
+        self.summaryCleared = summaryCleared
+    }
+}
+
+/// `speaker autotag`: one entry per meeting considered.
+public struct AutoTagPayload: Codable, Hashable, Sendable {
+    public var dryRun: Bool
+    public var tagged: Int
+    public var meetings: [AutoTagMeetingPayload]
+    /// Meetings `--all` could not process, with the reason. A single named meeting fails the
+    /// command instead, so this is empty then.
+    public var skipped: [AutoTagSkip]
+
+    enum CodingKeys: String, CodingKey {
+        case meetings, tagged, skipped
+        case dryRun = "dry_run"
+    }
+
+    public init(dryRun: Bool, meetings: [AutoTagMeetingPayload], skipped: [AutoTagSkip] = []) {
+        self.dryRun = dryRun
+        self.meetings = meetings
+        self.skipped = skipped
+        tagged = meetings.reduce(0) { $0 + $1.tagged }
     }
 }

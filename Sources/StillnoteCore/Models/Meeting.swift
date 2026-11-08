@@ -143,6 +143,9 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     public var language: String
     public var speakerCount: Int?
     public var speakerProfiles: [String: String]
+    /// Labels whose profile Stillnote matched by voice, with the match score. A label leaves
+    /// this map when the user assigns or unlinks it, which confirms or corrects the match.
+    public var autoSpeakerProfiles: [String: Double]
     public var speakers: [String: String]
     public var segments: [Segment]
     public var summary: MeetingSummary?
@@ -168,6 +171,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         case audioURL = "audio_url"
         case videoURL = "video_url"
         case speakerProfiles = "speaker_profiles"
+        case autoSpeakerProfiles = "auto_speaker_profiles"
         case speakerCount = "speaker_count"
         case contextLinks = "context_links"
         case recordedAt = "recorded_at"
@@ -194,6 +198,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         language = try values.decodeIfPresent(String.self, forKey: .language) ?? "auto"
         speakerCount = try values.decodeIfPresent(Int.self, forKey: .speakerCount)
         speakerProfiles = try values.decodeIfPresent([String: String].self, forKey: .speakerProfiles) ?? [:]
+        autoSpeakerProfiles = (try? values.decodeIfPresent([String: Double].self, forKey: .autoSpeakerProfiles)) ?? [:]
         speakers = try values.decodeIfPresent([String: String].self, forKey: .speakers) ?? [:]
         segments = try values.decodeIfPresent([Segment].self, forKey: .segments) ?? []
         summary = try values.decodeIfPresent(MeetingSummary.self, forKey: .summary)
@@ -241,6 +246,7 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         self.language = language
         self.speakerCount = speakerCount
         self.speakerProfiles = [:]
+        self.autoSpeakerProfiles = [:]
         self.speakers = [:]
         self.segments = []
         self.summary = nil

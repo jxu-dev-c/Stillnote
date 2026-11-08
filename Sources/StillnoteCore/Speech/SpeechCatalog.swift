@@ -10,6 +10,8 @@ public enum SpeechModelKind: String, Codable, Sendable {
     case transcription
     /// A supporting model the app uses on its own, never offered as an engine.
     case vad
+    /// Turns a speaker's speech into a voiceprint for recognizing them across meetings.
+    case speaker
 }
 
 public struct SpeechModelSpec: Codable, Sendable {
@@ -49,6 +51,8 @@ public enum SpeechCatalog {
     public static let defaultModel = "moss-0.9b"
     /// Silero VAD, used to locate speech for the silence trim and non-speech suppression.
     public static let vadModel = "silero-vad"
+    /// WeSpeaker ResNet34 (Core ML), used to recognize speaker profiles by voice.
+    public static let speakerModel = "wespeaker-resnet34"
 
     /// Only these may be selected as a transcription engine.
     public static var transcriptionModels: [String: SpeechModelSpec] {

@@ -21,6 +21,7 @@ These read the library directly, read-only.
 | `stillnote notes show <meeting>` | — |
 | `stillnote speaker list` | — |
 | `stillnote speaker show <profile>` | — |
+| `stillnote speaker voices` | — |
 | `stillnote help [command]` | — |
 
 ## Needs Stillnote running
@@ -37,6 +38,8 @@ the signed app bundle, not to whatever launched the CLI.
 | `stillnote speaker update <profile>` | `--name`, `--email`, `--phone` (at least one; `""` clears email or phone) |
 | `stillnote speaker delete <profile>` | — |
 | `stillnote speaker assign <meeting>` | `--speaker <id>` (required), `--profile <profile>` *or* `--none` |
+| `stillnote speaker learn` | `--wait` |
+| `stillnote speaker autotag [<meeting>]` | a meeting *or* `--all`, `--dry-run` |
 | `stillnote summary set <meeting>` | `--overview <text>` *or* `--json-stdin` |
 | `stillnote notes set <meeting>` | `--text <notes>` *or* `--stdin` |
 | `stillnote transcribe <meeting>` | `--language`, `--speakers` |

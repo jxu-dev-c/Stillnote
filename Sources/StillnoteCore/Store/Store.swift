@@ -59,6 +59,7 @@ public actor Store {
         try Store.run(database, "CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
         try Store.run(database, "CREATE TABLE IF NOT EXISTS speaker_profiles (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
         try Store.run(database, "CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL)")
+        try Self.prepareVoiceTables(database)
         try Self.prepareLibrary(database)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: paths.databaseURL.path)
     }
@@ -430,6 +431,8 @@ public actor Store {
             var changed: [Meeting] = []
             for var meeting in try list() where meeting.speakerProfiles.values.contains(id) {
                 meeting.speakerProfiles = meeting.speakerProfiles.filter { $0.value != id }
+                let linked = meeting.speakerProfiles
+                meeting.autoSpeakerProfiles = meeting.autoSpeakerProfiles.filter { linked[$0.key] != nil }
                 try execute("UPDATE meetings SET data=? WHERE id=?", [try encoded(meeting), meeting.id])
                 changed.append(meeting)
             }
@@ -489,16 +492,147 @@ public actor Store {
         }
         return try update(meetingID) { meeting in
             meeting.speakerProfiles[speakerID] = profileID
+            // A choice made by hand confirms or corrects a voice match.
+            meeting.autoSpeakerProfiles[speakerID] = nil
             if meeting.speakerName(speakerID) != name {
                 meeting.speakers[speakerID] = name
-                meeting.summary = nil
-                let hasTranscript = !meeting.segments.isEmpty
-                meeting.status = hasTranscript ? .transcribed : .ready
-                meeting.error = nil
-                meeting.progress = hasTranscript ? 100 : 0
-                meeting.stage = hasTranscript ? "Transcript ready" : "Ready to transcribe"
+                Self.invalidateSummary(&meeting)
             }
         }
+    }
+
+    /// A summary names speakers, so a changed name makes it stale.
+    private static func invalidateSummary(_ meeting: inout Meeting) {
+        meeting.summary = nil
+        let hasTranscript = !meeting.segments.isEmpty
+        meeting.status = hasTranscript ? .transcribed : .ready
+        meeting.error = nil
+        meeting.progress = hasTranscript ? 100 : 0
+        meeting.stage = hasTranscript ? "Transcript ready" : "Ready to transcribe"
+    }
+
+    // MARK: - Voice recognition
+
+    /// Voiceprints are derived data, one row per meeting, and the learned rule is one row.
+    /// A trigger removes a meeting's voiceprints when the meeting is deleted, including by an
+    /// older build that does not know the table.
+    private static func prepareVoiceTables(_ database: OpaquePointer) throws {
+        try run(database, "CREATE TABLE IF NOT EXISTS voiceprints (meeting_id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+        try run(database, "CREATE TABLE IF NOT EXISTS voice_model (id INTEGER PRIMARY KEY, data TEXT NOT NULL)")
+        try run(database, """
+            CREATE TRIGGER IF NOT EXISTS voiceprints_after_meeting_delete AFTER DELETE ON meetings
+            BEGIN DELETE FROM voiceprints WHERE meeting_id = OLD.id; END
+            """)
+    }
+
+    /// A read-only open never creates tables, so a library from before voice recognition
+    /// simply has no voices.
+    private func hasTable(_ name: String) throws -> Bool {
+        !(try documents("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [name]).isEmpty)
+    }
+
+    public func voiceprints(_ meetingID: String) throws -> MeetingVoiceprints? {
+        guard try hasTable("voiceprints"),
+              let row = try documents("SELECT data FROM voiceprints WHERE meeting_id=?", [meetingID]).first
+        else { return nil }
+        return try? decoder.decode(MeetingVoiceprints.self, from: row)
+    }
+
+    public func allVoiceprints() throws -> [MeetingVoiceprints] {
+        guard try hasTable("voiceprints") else { return [] }
+        return try documents("SELECT data FROM voiceprints").compactMap {
+            try? decoder.decode(MeetingVoiceprints.self, from: $0)
+        }
+    }
+
+    /// Stores a meeting's voiceprints only if the meeting still has the transcript they were
+    /// computed from; otherwise they would describe labels that no longer exist.
+    public func saveVoiceprints(_ prints: MeetingVoiceprints) throws {
+        let meeting = try get(prints.meetingID)
+        guard VoiceRecognition.fingerprint(of: meeting, modelRevision: prints.modelRevision) == prints.fingerprint else {
+            throw ValidationError("This transcript changed while its voices were being read. Try again.")
+        }
+        try execute("INSERT OR REPLACE INTO voiceprints VALUES (?, ?)", [
+            prints.meetingID, String(decoding: try encoder.encode(prints), as: UTF8.self),
+        ])
+    }
+
+    /// Every manually linked voice whose voiceprint still matches its meeting's transcript and
+    /// the current model. Returns how many meetings contributed.
+    public func voiceSamples(modelRevision: String) throws -> (samples: [VoiceSample], meetings: Int) {
+        var samples: [VoiceSample] = []
+        var meetings = 0
+        for prints in try allVoiceprints() where prints.modelRevision == modelRevision {
+            guard let meeting = try? get(prints.meetingID),
+                  VoiceRecognition.fingerprint(of: meeting, modelRevision: modelRevision) == prints.fingerprint
+            else { continue }
+            let found = VoiceSample.training(from: meeting, voiceprints: prints)
+            if !found.isEmpty { meetings += 1 }
+            samples += found
+        }
+        return (samples, meetings)
+    }
+
+    public func voiceModel() throws -> VoiceModel? {
+        guard try hasTable("voice_model"), let row = try documents("SELECT data FROM voice_model WHERE id=1").first else {
+            return nil
+        }
+        return try? decoder.decode(VoiceModel.self, from: row)
+    }
+
+    public func saveVoiceModel(_ model: VoiceModel) throws {
+        try execute("INSERT OR REPLACE INTO voice_model VALUES (1, ?)", [
+            String(decoding: try encoder.encode(model), as: UTF8.self),
+        ])
+    }
+
+    /// Removes every voiceprint and the learned rule. Profile links, including ones made by
+    /// voice, stay: they are the user's tags, not voice data.
+    public func forgetVoices() throws {
+        let db = try database()
+        try Self.run(db, "BEGIN IMMEDIATE")
+        do {
+            try execute("DELETE FROM voiceprints", [])
+            try execute("DELETE FROM voice_model", [])
+            try Self.run(db, "COMMIT")
+        } catch {
+            try? Self.run(db, "ROLLBACK")
+            throw error
+        }
+    }
+
+    /// Links the confident matches in one write. Labels that gained a profile in the meantime
+    /// keep it, and a transcript that changed since its voices were read is refused, since the
+    /// matches would describe labels that no longer mean the same thing.
+    public func applyVoiceMatches(
+        _ matches: [VoiceMatch], meetingID: String, fingerprint: String, modelRevision: String
+    ) throws -> (meeting: Meeting, applied: [VoiceMatch]) {
+        let current = try get(meetingID)
+        guard !current.status.isBusy else { throw ValidationError("Wait for this meeting to finish processing.") }
+        guard VoiceRecognition.fingerprint(of: current, modelRevision: modelRevision) == fingerprint else {
+            throw ValidationError("This transcript changed while its speakers were being recognized. Try again.")
+        }
+        let names = Dictionary(uniqueKeysWithValues: try profiles().map { ($0.id, $0.name) })
+        let applicable = matches.filter { match in
+            guard match.decision == .assigned, let profile = match.profileID else { return false }
+            return names[profile] != nil && current.speakers[match.speaker] != nil
+                && current.speakerProfiles[match.speaker] == nil
+        }
+        guard !applicable.isEmpty else { return (current, []) }
+        let meeting = try update(meetingID) { meeting in
+            var renamed = false
+            for match in applicable {
+                let profile = match.profileID!
+                meeting.speakerProfiles[match.speaker] = profile
+                meeting.autoSpeakerProfiles[match.speaker] = match.score ?? 0
+                if meeting.speakerName(match.speaker) != names[profile]! {
+                    meeting.speakers[match.speaker] = names[profile]!
+                    renamed = true
+                }
+            }
+            if renamed { Self.invalidateSummary(&meeting) }
+        }
+        return (meeting, applicable)
     }
 
     // MARK: - Settings
