@@ -12,7 +12,7 @@ struct SettingsView: View {
                 .tag("transcription")
             // Speakers also holds voice recognition, so it needs more room than the others.
             SpeakerSettingsView()
-                .frame(height: 560)
+                .frame(height: 600)
                 .tabItem { Label("Speakers", systemImage: "person.2") }
                 .tag("speakers")
             SummarySettingsView()
