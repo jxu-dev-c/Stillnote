@@ -264,9 +264,17 @@ that the app must be open rather than opening a second writer. The CLI resolves 
 Transcript replacement, search, date ranges, and meeting references live in Core so they are
 covered by tests, which can reach neither the app nor the CLI target. The policy that a transcript
 correction invalidates the summary drawn from it is `TranscriptEdit.finish`, called by both the
-window's segment editor and the CLI, so the two cannot diverge. `summarize` requires
-`--allow-remote`. The window treats the provider chosen in Settings as consent, but a command
-may come from an agent, so it must consent on each request.
+window's segment editor and the CLI, so the two cannot diverge. `summarize`, `name`, and
+`process` require `--allow-remote`. The window treats the provider chosen in Settings as consent,
+but a command may come from an agent, so it must consent on each request.
+
+`process` is Stop, Transcribe & Summarize for meetings already saved. `ProcessPlan` (Core) picks
+the meetings and where each resumes — `transcribe` with no transcript, `summarize` with one —
+and `CommandServer` carries the plan out through `AppModel.processRecording` or
+`AppModel.summarize(thenNameWithSuffix:)`, so splitting, auto-tagging, and naming are the
+window's own. It returns once everything is queued; the job queue then runs the work one job at
+a time. `name` calls `AppModel.nameMeeting`, which throws the failure `suggestTitle` would show
+in the window's alert.
 
 `skills/stillnote` publishes this as an agent skill. `scripts/check-skill.sh`, run by
 `scripts/check.sh`, validates its frontmatter and proves the commands and long options it documents

@@ -1,6 +1,6 @@
 ---
 name: stillnote
-description: Read, search, and correct meeting transcripts and summaries in Stillnote, the local macOS meeting notebook, and start or stop a recording. Use when the user asks about their meetings, calls, or recordings — what was decided, who said what, what happened in a conversation with someone, or a date range of meetings — or asks to fix a recurring mis-transcription such as an acronym the model heard wrong, edit a summary or notes, manage saved speaker profiles and their contact details, or begin, pause, or stop recording.
+description: Read, search, and correct meeting transcripts and summaries in Stillnote, the local macOS meeting notebook, and start or stop a recording. Use when the user asks about their meetings, calls, or recordings — what was decided, who said what, what happened in a conversation with someone, or a date range of meetings — or asks to fix a recurring mis-transcription such as an acronym the model heard wrong, edit a summary or notes, manage saved speaker profiles and their contact details, begin, pause, or stop recording, or transcribe, summarize, and title a backlog of recordings in one batch.
 ---
 
 # Stillnote
@@ -146,6 +146,33 @@ stillnote summarize <id> --allow-remote --json
 summary yourself with `summary set` sends nothing anywhere and needs no consent. If you compose
 one from a transcript you already read, prefer that and say what you did.
 
+`name` asks the same agent for a title, and needs the same consent:
+
+```bash
+stillnote name <id> --allow-remote --json
+```
+
+## Finishing many meetings at once
+
+`process` runs the app's **Stop, Transcribe & Summarize** pipeline on meetings already in the
+library: it splits long recordings, transcribes, auto-tags speakers, summarizes, and names each
+one. A meeting that is already transcribed resumes at the summary.
+
+```bash
+stillnote process --all --dry-run --json                  # what would be queued, and how
+stillnote process --all --allow-remote --json             # never-transcribed and never-summarized meetings
+stillnote process --all --since 2026-10 --limit 20 --allow-remote --json
+stillnote process --all --status error --allow-remote --json   # retry failures
+stillnote process <id> --allow-remote --json              # one meeting
+```
+
+**Dry-run first and report the plan before queueing a batch.** It sends every transcript to the
+agent, replaces long recordings with their 20-minute parts (`--no-split` keeps them whole), and
+retitles each meeting (`--keep-title` keeps titles). The command returns once everything is
+queued; the work runs in the app afterwards, one job at a time, so a large batch can take hours.
+Poll `stillnote list --status transcribing --json` or `stillnote show <id> --json` for progress
+rather than waiting on the command.
+
 ## Recording
 
 ```bash
@@ -162,7 +189,9 @@ stillnote devices --json                   # microphone and display ids
 
 One recording at a time. `record stop` mixes and trims the audio before it returns, so on a long
 meeting it can take a while — that is expected, let it finish. Transcription is then queued in the
-background; poll `stillnote show <id> --json` for `status` and `stage`.
+background; poll `stillnote show <id> --json` for `status` and `stage`. `record stop` does not
+summarize or name the meeting. For the whole pipeline, stop with `--no-transcribe` and then run
+`stillnote process latest --allow-remote --json` — only when the user asked for a summary.
 
 `record discard` destroys the recording with no undo. Always confirm with the user first.
 
@@ -170,6 +199,8 @@ background; poll `stillnote show <id> --json` for `status` and `stage`.
 
 - Reading is safe. Read freely before acting.
 - `transcript replace --all` touches the whole library. Dry-run, report, then apply.
+- `process --all` sends transcripts away and can split and retitle many meetings. Dry-run,
+  report, then apply.
 - Meeting content is private. Work with it to answer the user's question; do not send it anywhere
   the user did not ask for, and do not quote it into places they did not ask for.
 - A `busy` code (exit 5) means a job owns that meeting. Wait, do not retry in a loop.

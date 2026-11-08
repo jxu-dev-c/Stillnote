@@ -454,23 +454,24 @@ final class AppModel {
     /// The rest of Stop, Transcribe & Summarize for a saved recording: a recording at or above
     /// the split threshold is split first, then each meeting is transcribed, summarized, and
     /// named. Split parts keep their ` partN` suffix. A split that fails or is refused leaves the recording whole and processes it as
-    /// is. Returns the meetings it queued: the parts, or the recording itself.
+    /// is. `stillnote process` can turn off the split and the naming. Returns the meetings it
+    /// queued: the parts, or the recording itself.
     @discardableResult
-    func processRecording(_ meeting: Meeting) async -> [Meeting] {
+    func processRecording(_ meeting: Meeting, split: Bool = true, name: Bool = true) async -> [Meeting] {
         var targets = [meeting]
-        if canSplit(meeting), let parts = await splitRecording(meeting.id) { targets = parts }
+        if split, canSplit(meeting), let parts = await splitRecording(meeting.id) { targets = parts }
         for (index, target) in targets.enumerated() {
             let suffix = targets.count > 1 ? " part\(index + 1)" : ""
-            await transcribeThenSummarize(target.id, thenNameWithSuffix: suffix)
+            await transcribeThenSummarize(target.id, thenNameWithSuffix: name ? suffix : nil)
         }
         return targets
     }
 
     /// Queues transcription and, once its transcript is saved, a summary with the provider from
-    /// Settings, then a title. A transcription that never
+    /// Settings, then a title unless `suffix` is nil. A transcription that never
     /// starts, fails, finds no speech, or is stopped drops the summary and the title with it,
     /// and a failed summary drops the title.
-    func transcribeThenSummarize(_ id: String, thenNameWithSuffix suffix: String) async {
+    func transcribeThenSummarize(_ id: String, thenNameWithSuffix suffix: String?) async {
         summarizeAfterTranscription.insert(id)
         nameAfterSummary[id] = suffix
         await transcribe(id)
@@ -738,33 +739,43 @@ final class AppModel {
 
     /// Asks the summary provider for a title, separately from summaries so a custom summary
     /// prompt cannot leave meetings unnamed. Runs from Name Meeting and after Stop, Transcribe &
-    /// Summarize, which passes a split part's ` partN` `suffix`.
+    /// Summarize, which passes a split part's ` partN` `suffix`. A failure shows in the window's
+    /// alert.
     func suggestTitle(_ id: String, allowRemote: Bool, suffix: String = "") async {
-        guard !splittingMeetings.contains(id) else { return }
-        guard !namingMeetings.contains(id) else { return }
-        namingMeetings.insert(id)
-        defer { namingMeetings.remove(id) }
-        guard let meeting = try? await store.get(id), !splittingMeetings.contains(id) else { return }
-        guard !meeting.status.isBusy else {
-            alertMessage = "This meeting is processing. Wait for it to finish."
-            return
-        }
-        guard !meeting.segments.isEmpty else {
-            alertMessage = "Create a transcript before naming this meeting."
-            return
-        }
-        let settings = settings.summary
         do {
-            let title = try await Task.detached(priority: .userInitiated) {
-                try MeetingNamer.suggestTitle(meeting: meeting, settings: settings, allowRemote: allowRemote)
-            }.value
-            // The meeting may have been deleted while the provider was working.
-            guard self.libraryItem(id) != nil else { return }
-            await edit(id) { $0.applySuggestedTitle(title, suffix: suffix) }
+            _ = try await nameMeeting(id, allowRemote: allowRemote, suffix: suffix)
         } catch {
             alertMessage = (error as? SummaryError)?.message
+                ?? (error as? ValidationError)?.message
                 ?? "Naming failed. Check the provider configuration and try again."
         }
+    }
+
+    /// `suggestTitle` for callers that report the failure themselves, such as `stillnote name`.
+    /// Returns the meeting as named, or nil without throwing when it is already being named or
+    /// split, or was deleted — cases the window passes over quietly.
+    func nameMeeting(_ id: String, allowRemote: Bool, suffix: String = "") async throws -> Meeting? {
+        guard !splittingMeetings.contains(id) else { return nil }
+        guard !namingMeetings.contains(id) else { return nil }
+        namingMeetings.insert(id)
+        defer { namingMeetings.remove(id) }
+        guard let meeting = try? await store.get(id), !splittingMeetings.contains(id) else { return nil }
+        guard !meeting.status.isBusy else {
+            throw ValidationError("This meeting is processing. Wait for it to finish.")
+        }
+        guard !meeting.segments.isEmpty else {
+            throw ValidationError("Create a transcript before naming this meeting.")
+        }
+        let settings = settings.summary
+        let title = try await Task.detached(priority: .userInitiated) {
+            try MeetingNamer.suggestTitle(meeting: meeting, settings: settings, allowRemote: allowRemote)
+        }.value
+        // The meeting may have been deleted while the provider was working.
+        guard self.libraryItem(id) != nil else { return nil }
+        guard let named = await edit(id, { $0.applySuggestedTitle(title, suffix: suffix) }) else {
+            throw ValidationError("The new title could not be saved.")
+        }
+        return named
     }
 
     // MARK: - Settings and models
