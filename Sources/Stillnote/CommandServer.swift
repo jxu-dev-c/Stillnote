@@ -136,6 +136,10 @@ final class CommandServer {
             return try await transcribe(request, model: model)
         case ["summarize"]:
             return try await summarize(request, model: model)
+        case ["name"]:
+            return try await name(request, model: model)
+        case ["process"]:
+            return try await process(request, model: model)
         case ["record", "status"]:
             let payload = RecordPayload(session: model.recorder.session)
             return try CommandRunner.recordResponse(CommandRunner.render(payload), payload)
@@ -565,12 +569,7 @@ final class CommandServer {
         }
         // In the window, the person choosing a provider in Settings is the consent. A command may
         // come from an agent instead, so the flag keeps a summary from being sent on its behalf.
-        guard request.has("allow-remote") else {
-            throw CLIError.usage(
-                "Summarizing sends this transcript to the configured agent CLI "
-                    + "(\(model.settings.summary.provider.rawValue)). Pass --allow-remote to consent."
-            )
-        }
+        try requireConsent(request, model: model, "Summarizing sends this transcript")
         await model.summarize(meeting.id, allowRemote: true)
         guard let queued = try? await model.store.get(meeting.id), queued.status == .summarizing else {
             throw CLIError.failed(model.alertMessage ?? "The summary could not be queued.")
@@ -580,6 +579,112 @@ final class CommandServer {
                 + "Check 'stillnote summary show \(queued.id)' shortly.",
             queued
         )
+    }
+
+    /// In the window, the person choosing a provider in Settings is the consent. A command may
+    /// come from an agent instead, so the flag keeps a transcript from being sent on its behalf.
+    private func requireConsent(_ request: CLIRequest, model: AppModel, _ what: String) throws {
+        guard request.has("allow-remote") else {
+            throw CLIError.usage(
+                "\(what) to the configured agent CLI (\(model.settings.summary.provider.rawValue)). "
+                    + "Pass --allow-remote to consent."
+            )
+        }
+    }
+
+    private func name(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
+        let meeting = try await resolve(request, model: model)
+        try requireIdle(meeting)
+        guard !meeting.segments.isEmpty else {
+            throw CLIError.usage("Transcribe '\(meeting.title)' before naming it.")
+        }
+        try requireConsent(request, model: model, "Naming sends this transcript")
+        let named: Meeting?
+        do {
+            named = try await model.nameMeeting(meeting.id, allowRemote: true)
+        } catch let error as SummaryError {
+            throw CLIError.failed(error.message)
+        } catch let error as ValidationError {
+            throw CLIError.failed(error.message)
+        }
+        guard let named else {
+            throw CLIError.busy("'\(meeting.title)' is already being named or split. Try again when it finishes.")
+        }
+        return try CommandRunner.meetingResponse("Named '\(meeting.title)' as '\(named.title)'.", named)
+    }
+
+    /// Stop, Transcribe & Summarize for meetings already in the library. Each meeting resumes
+    /// where it stopped (see `ProcessPlan`) and goes through the same `AppModel` calls as the
+    /// window's pipeline, so splitting, auto-tagging, and naming behave identically.
+    private func process(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
+        let all = request.has("all")
+        guard all != (request.positionals.first != nil) else {
+            throw CLIError.usage("Name one meeting, or use --all for every meeting not yet summarized.")
+        }
+        if !all, let option = ["status", "since", "until", "limit"].first(where: { request.value($0) != nil }) {
+            throw CLIError.usage("--\(option) narrows --all; it does not apply to one named meeting.")
+        }
+        let dryRun = request.has("dry-run")
+        if !dryRun { try requireConsent(request, model: model, "Processing sends each transcript") }
+        let split = !request.has("no-split")
+        let name = !request.has("keep-title")
+        let threshold = model.settings.splitThresholdMinutes
+
+        var steps: [ProcessStep] = []
+        var skipped: [ProcessSkip] = []
+        if all {
+            let statuses = try ProcessPlan.statuses(request.value("status"))
+            let candidates = ProcessPlan.candidates(
+                try await model.store.list(), statuses: statuses, filter: try CommandRunner.filter(request)
+            )
+            for meeting in candidates {
+                do {
+                    steps.append(try ProcessPlan.step(meeting, splitThresholdMinutes: threshold, split: split, name: name))
+                } catch {
+                    skipped.append(ProcessSkip(id: meeting.id, title: meeting.title, reason: error.localizedDescription))
+                }
+            }
+        } else {
+            let meeting = try await resolve(request, model: model)
+            steps = [try ProcessPlan.step(meeting, splitThresholdMinutes: threshold, split: split, name: name)]
+        }
+        if dryRun {
+            return try CommandRunner.processResponse(ProcessPayload(dryRun: true, meetings: steps, skipped: skipped))
+        }
+        if steps.contains(where: { $0.stage == .transcribe }), !model.speech.ready {
+            throw CLIError.failed(model.speech.detail)
+        }
+
+        var queued: [ProcessStep] = []
+        for var step in steps {
+            // Read again: the window may have changed or deleted it while earlier ones were split.
+            guard let meeting = try? await model.store.get(step.id) else { continue }
+            let alertBefore = model.alertMessage
+            let targets: [String]
+            if (try? ProcessPlan.stage(for: meeting)) != step.stage {
+                targets = []
+            } else if step.stage == .transcribe {
+                targets = await model.processRecording(meeting, split: split, name: name).map(\.id)
+            } else {
+                await model.summarize(meeting.id, allowRemote: true, thenNameWithSuffix: name ? "" : nil)
+                targets = [meeting.id]
+            }
+            step.parts = max(1, targets.count)
+            step.queued = targets.filter { model.libraryItem($0)?.status.isBusy == true }
+            if step.queued.isEmpty {
+                let reason = model.alertMessage != alertBefore ? model.alertMessage : nil
+                skipped.append(ProcessSkip(
+                    id: step.id, title: step.title,
+                    reason: reason ?? "It changed while the batch was being queued, or could not be queued."
+                ))
+            } else {
+                queued.append(step)
+            }
+        }
+        if !all, queued.isEmpty, let skip = skipped.first {
+            throw CLIError.failed(skip.reason)
+        }
+        return try CommandRunner.processResponse(ProcessPayload(dryRun: false, meetings: queued, skipped: skipped))
     }
 
     // MARK: - Recording

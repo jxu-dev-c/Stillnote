@@ -126,6 +126,28 @@ enough), or `too_short` (too little clear speech). `applied` is always false for
 `skipped` lists the meetings `--all` could not process and why; with one named meeting a failure
 fails the command instead, so `skipped` is empty.
 
+## `process`
+
+```json
+{ "dry_run": false,
+  "meetings": [ { "id": "aa11bb22cc33", "title": "Meeting · Oct 3", "stage": "transcribe",
+                  "parts": 3, "named": true,
+                  "queued": [ "0f1e…", "7a2b…", "c93d…" ] },
+                { "id": "dd44ee55ff66", "title": "Weekly sync", "stage": "summarize",
+                  "parts": 1, "named": true, "queued": [ "dd44ee55ff66" ] } ],
+  "skipped": [ { "id": "ff00aa11bb22", "title": "Old call",
+                 "reason": "This meeting is processing. Wait for it to finish." } ] }
+```
+
+`stage` is where the meeting resumed: `transcribe` (no transcript yet: split if long, transcribe,
+auto-tag, summarize, name) or `summarize` (summarize, then name). `parts` is how many meetings a
+split made, 1 when it stayed whole. `queued` holds the ids now in the queue — a split meeting's
+parts, which replace it, or the meeting itself; it is empty for a dry run. `named` is false with
+`--keep-title`. The command returns once everything is queued, not once it is finished: poll
+`list` or `show` for each `queued` id. `skipped` lists the meetings `--all` could not queue and why.
+
+`name` returns the meeting, as `show` does, with its new `title`.
+
 ## `search`
 
 ```json

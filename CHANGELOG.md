@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add `stillnote process`, which queues meetings already in the library through the whole
+  **Stop, Transcribe & Summarize** pipeline — split, transcribe, auto-tag, summarize, and name —
+  one meeting or every unfinished one with `--all`. Each resumes where it stopped, so a
+  transcribed meeting goes straight to its summary. `--dry-run` shows the plan; `--status`,
+  `--since`, `--until`, and `--limit` narrow the batch; `--no-split` and `--keep-title` skip
+  those steps. Add `stillnote name` to title one meeting.
 - Make **Stop, Transcribe & Summarize** run the whole pipeline. A recording at or above the
   split threshold in Settings → Transcription → Long recordings is now split into 20-minute
   parts first, and each meeting is named with **Name Meeting**'s provider once its summary is

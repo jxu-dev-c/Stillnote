@@ -44,6 +44,8 @@ the signed app bundle, not to whatever launched the CLI.
 | `stillnote notes set <meeting>` | `--text <notes>` *or* `--stdin` |
 | `stillnote transcribe <meeting>` | `--language`, `--speakers` |
 | `stillnote summarize <meeting>` | `--allow-remote` (required) |
+| `stillnote name <meeting>` | `--allow-remote` (required) |
+| `stillnote process [<meeting>]` | a meeting *or* `--all`; `--allow-remote` (required unless `--dry-run`), `--dry-run`, `--no-split`, `--keep-title`; with `--all`: `--status`, `--since`, `--until`, `--limit` |
 | `stillnote record status` | — |
 | `stillnote record start` | `--title`, `--mic`, `--screen`, `--language`, `--speakers`, `--no-system-audio`, `--screen-video` |
 | `stillnote record stop` | `--no-transcribe` |
@@ -67,6 +69,8 @@ the start of its unit and `--until` the end, so `--since 2026-05 --until 2026-05
 Title, summary, and notes matches are omitted because they have no speaker attribution.
 
 **`--status`** — `ready`, `transcribing`, `transcribed`, `summarizing`, `complete`, `error`.
+For `process --all` only `ready`, `transcribed`, or `error`; without it, `process --all` takes
+`ready` and `transcribed` meetings.
 
 **`--mic` / `--screen`** — an exact device id from `stillnote devices`, or a substring of its name.
 
@@ -91,10 +95,15 @@ both sides are literal: `$1` stays `$1` and `(a)` matches those three characters
 - `list` returns 50 meetings, `search` 20 matching meetings, unless `--limit` says otherwise.
 - `search` snippets show 80 characters around a match; change it with `--context`.
 - Commands wait 60 seconds for the app, except `record stop`, which waits 900: saving mixes both
-  audio sources and runs the silence detector over the whole capture.
+  audio sources and runs the silence detector over the whole capture; `name`, which waits 660 for
+  the agent; and `process` and `speaker learn`/`autotag`, which wait 3600.
 - One recording at a time. Save it or discard it before starting another.
-- `record start` without `--title` names the meeting `Meeting · <date>`; its summary then
-  replaces that placeholder with a descriptive title. A title given with `--title`, or typed in
-  the app, is never replaced.
+- `record start` without `--title` names the meeting `Meeting · <date>`. `record stop` only
+  transcribes, so the placeholder stays until `name` or `process` titles it, or the recording is
+  stopped in the app with **Stop, Transcribe & Summarize**. `name` and `process` replace any
+  title, including one given with `--title`; `process --keep-title` leaves titles alone.
+- `process` splits a recording at or above the split threshold in Settings into 20-minute
+  parts, each named `<title> partN`, before transcribing it. The original meeting is replaced by
+  its parts. `--no-split` keeps it whole.
 - `speaker add` refuses a name another profile already has, so names stay usable references.
 - The user can switch the whole interface off in **Settings → Advanced**, which returns exit 3.

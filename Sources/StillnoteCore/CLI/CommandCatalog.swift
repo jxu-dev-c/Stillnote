@@ -225,6 +225,26 @@ public enum CommandCatalog {
             requiresApp: true
         ),
         CommandSpec(
+            path: ["name"],
+            summary: "Title one meeting from its transcript with the configured agent. Needs --allow-remote.",
+            positionals: ["meeting"],
+            booleanOptions: ["allow-remote"],
+            requiresApp: true,
+            // The agent itself may run for AgentRunner.timeout (600 s).
+            timeout: 660
+        ),
+        CommandSpec(
+            path: ["process"],
+            summary: "Queue meetings through to the end: split long recordings, transcribe, summarize, and name. "
+                + "One meeting or --all. Needs --allow-remote.",
+            positionals: ["meeting?"],
+            valueOptions: ["status", "since", "until", "limit"],
+            booleanOptions: ["all", "allow-remote", "dry-run", "no-split", "keep-title"],
+            requiresApp: true,
+            // Splits write each long recording's parts before its transcription is queued.
+            timeout: 3600
+        ),
+        CommandSpec(
             path: ["record", "status"],
             summary: "Report the current recording session.",
             requiresApp: true

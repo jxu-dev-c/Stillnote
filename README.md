@@ -152,6 +152,7 @@ stillnote speaker update Jackson --email jackson@example.com
 stillnote speaker autotag latest --dry-run   # preview voice matches
 stillnote record start          # titled "Meeting · <date>"; or --title "Design review"
 stillnote record stop
+stillnote process --all --dry-run   # what transcribe → summarize → name would queue
 stillnote help
 ```
 
@@ -162,7 +163,9 @@ structured output. Turn the whole interface off in **Settings → Advanced**.
 
 Generating a summary sends the transcript to your configured agent CLI. The window uses the
 provider chosen in Settings without asking again, but a command may come from an agent, so it
-asks for consent explicitly: `stillnote summarize <id> --allow-remote`.
+asks for consent explicitly: `stillnote summarize <id> --allow-remote`. The same goes for
+`stillnote name`, which titles a meeting, and `stillnote process`, which runs **Stop, Transcribe &
+Summarize** on meetings already in the library — one, or a whole backlog with `--all`.
 
 ### Agent skill
 

@@ -49,7 +49,7 @@ public enum CommandRunner {
         )
     }
 
-    static func filter(_ request: CLIRequest) throws -> MeetingFilter {
+    public static func filter(_ request: CLIRequest) throws -> MeetingFilter {
         var filter = MeetingFilter()
         if let since = request.value("since") { filter.since = try MeetingQuery.range(since).start }
         if let until = request.value("until") { filter.until = try MeetingQuery.range(until).end }
@@ -389,6 +389,41 @@ public enum CommandRunner {
 
     public static func meetingResponse(_ message: String, _ meeting: Meeting) throws -> CLIResponse {
         try .success(message, MeetingPayload(meeting, includeSegments: false))
+    }
+
+    public static func processResponse(_ payload: ProcessPayload) throws -> CLIResponse {
+        var lines: [String] = []
+        for step in payload.meetings {
+            var actions: [String] = []
+            if step.parts > 1 { actions.append("split into \(step.parts) parts") }
+            if step.stage == .transcribe { actions.append("transcribe") }
+            actions.append("summarize")
+            if step.named { actions.append("name") }
+            lines.append("\(step.title) [\(step.id)]: \(payload.dryRun ? "would" : "queued to") "
+                + actions.joined(separator: ", "))
+            if !payload.dryRun, step.queued != [step.id], !step.queued.isEmpty {
+                lines.append("  as \(step.queued.joined(separator: ", "))")
+            }
+        }
+        if !payload.skipped.isEmpty {
+            lines.append("Skipped \(payload.skipped.count) meeting(s):")
+            for skip in payload.skipped { lines.append("  \(skip.title) [\(skip.id)]: \(skip.reason)") }
+        }
+        if payload.meetings.isEmpty && payload.skipped.isEmpty {
+            lines.append("No meetings match. Nothing was queued.")
+            return try .success(lines.joined(separator: "\n"), payload)
+        }
+        lines.append("")
+        if payload.dryRun {
+            lines.append("Dry run: nothing was queued. Run the same command with --allow-remote and without --dry-run to queue these.")
+        } else if !payload.meetings.isEmpty {
+            let queued = payload.meetings.reduce(0) { $0 + $1.queued.count }
+            lines.append(
+                "Queued \(queued) meeting(s). Each is summarized and named with the configured agent once its "
+                    + "transcript is ready; 'stillnote list' shows progress."
+            )
+        }
+        return try .success(lines.joined(separator: "\n"), payload)
     }
 
     public static func recordResponse(_ message: String, _ payload: RecordPayload) throws -> CLIResponse {
