@@ -27,6 +27,17 @@ import Testing
         #expect(saved.automaticTitle)
     }
 
+    /// Naming a split part keeps its suffix, trimming a long suggestion to fit the title limit.
+    @Test func aSuggestedTitleKeepsAPartSuffix() {
+        var part = meeting(automatic: true)
+        part.applySuggestedTitle("Q3 launch readiness", suffix: " part2")
+        #expect(part.title == "Q3 launch readiness part2")
+        #expect(part.automaticTitle)
+        part.applySuggestedTitle(String(repeating: "x", count: Validation.maxTitleLength), suffix: " part2")
+        #expect(part.title.count == Validation.maxTitleLength)
+        #expect(part.title.hasSuffix(" part2"))
+    }
+
     @Test func defaultTitleNamesTheDay() {
         var components = DateComponents()
         components.year = 2026

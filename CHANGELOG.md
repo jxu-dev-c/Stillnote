@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Make **Stop, Transcribe & Summarize** run the whole pipeline. A recording at or above the
+  split threshold in Settings → Transcription → Long recordings is now split into 20-minute
+  parts first, and each meeting is named with **Name Meeting**'s provider once its summary is
+  ready. Named parts keep their `partN` suffix.
 - Keep microphone and screen/system audio permissions across updates. Releases are now signed
   with one persistent Stillnote certificate instead of a per-build ad-hoc signature, which macOS
   treated as a new app every time. Updating from 0.11.0 or earlier asks for permissions one last

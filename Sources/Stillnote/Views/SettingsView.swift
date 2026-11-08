@@ -83,7 +83,7 @@ struct TranscriptionSettingsView: View {
                     Text("Enter a positive whole number of minutes. The last valid threshold remains in use.")
                         .font(.caption).foregroundStyle(.red)
                 }
-                Text("Shows Split Recording for saved audio at this length. Each part is 20 minutes; the last keeps the remainder. Screen recordings cannot be split.")
+                Text("Shows Split Recording for saved audio at this length, and Stop, Transcribe & Summarize splits such recordings automatically. Each part is 20 minutes; the last keeps the remainder. Screen recordings cannot be split.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
