@@ -27,6 +27,15 @@ public actor ModelInstaller {
         }
     }
 
+    /// A manifest file name must stay inside its model directory: relative, with no empty,
+    /// `.` or `..` components.
+    nonisolated static func isSafeRelativePath(_ name: String) -> Bool {
+        guard !name.isEmpty, !name.hasPrefix("/"), !name.contains("\\") else { return false }
+        return name.split(separator: "/", omittingEmptySubsequences: false).allSatisfy {
+            !$0.isEmpty && $0 != "." && $0 != ".."
+        }
+    }
+
     nonisolated static func hasExactSize(_ url: URL, _ size: Int) -> Bool {
         ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int) == size
     }
@@ -46,7 +55,14 @@ public actor ModelInstaller {
         var completed = 0.0
         for name in spec.files.keys.sorted() {
             let file = spec.files[name]!
+            guard ModelInstaller.isSafeRelativePath(name) else {
+                throw SpeechError.message("Model setup failed. Please retry setup.")
+            }
             let destination = directory.appendingPathComponent(name)
+            // Compiled Core ML models are directories, so a manifest name may be nested.
+            try FileManager.default.createDirectory(
+                at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
             try await download(
                 from: "https://huggingface.co/\(spec.repo)/resolve/\(spec.revision)/\(name)",
                 to: destination, size: file.size, sha256: file.sha256

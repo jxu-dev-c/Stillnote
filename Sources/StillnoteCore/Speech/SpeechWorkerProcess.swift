@@ -64,6 +64,9 @@ actor WorkerOutput {
     private(set) var text: String?
     private(set) var error: String?
     private(set) var ranges: [SpeechRange]?
+    /// Voice embeddings in window order. Nil when the event was absent or any vector was
+    /// malformed: a partial set would attach voices to the wrong windows.
+    private(set) var embeddings: [[Float]]?
 
     init(progress: @escaping @Sendable (Double, String) -> Void) {
         self.progress = progress
@@ -111,10 +114,29 @@ actor WorkerOutput {
                 else { return nil }
                 return SpeechRange(start: start, end: end)
             }
+        case "embeddings":
+            embeddings = Self.vectors(payload["vectors"])
         case "error":
             error = payload["message"] as? String
         default:
             break
         }
+    }
+
+    static func vectors(_ value: Any?) -> [[Float]]? {
+        guard let rows = value as? [Any] else { return nil }
+        var result: [[Float]] = []
+        result.reserveCapacity(rows.count)
+        for row in rows {
+            guard let numbers = row as? [Any], numbers.count == VoiceRecognition.dimension else { return nil }
+            var vector = [Float]()
+            vector.reserveCapacity(numbers.count)
+            for number in numbers {
+                guard let value = (number as? NSNumber)?.floatValue, value.isFinite else { return nil }
+                vector.append(value)
+            }
+            result.append(vector)
+        }
+        return result
     }
 }

@@ -124,6 +124,10 @@ final class CommandServer {
             return try await deleteSpeaker(request, model: model)
         case ["speaker", "assign"]:
             return try await assignSpeaker(request, model: model)
+        case ["speaker", "learn"]:
+            return try await learnVoices(request, model: model)
+        case ["speaker", "autotag"]:
+            return try await autoTag(request, model: model)
         case ["summary", "set"]:
             return try await setSummary(request, model: model)
         case ["notes", "set"]:
@@ -408,6 +412,67 @@ final class CommandServer {
             message += " Its summary was cleared; run 'stillnote summarize \(saved.id) --allow-remote' to rebuild one."
         }
         return try CommandRunner.meetingResponse(message, saved)
+    }
+
+    // MARK: - Voice recognition
+
+    private func learnVoices(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
+        guard model.learnVoices() else {
+            throw CLIError.busy("Stillnote is already learning voices or auto-tagging. Try again when it finishes.")
+        }
+        guard request.has("wait") else {
+            return try CommandRunner.voicesResponse(
+                "Learning voices in the background. Run 'stillnote speaker voices' to see the result.",
+                try await model.store.voiceModel(), settings: model.settings
+            )
+        }
+        await model.voiceTask?.value
+        return try CommandRunner.voicesResponse(
+            model.voiceStatusMessage, try await model.store.voiceModel(), settings: model.settings
+        )
+    }
+
+    private func autoTag(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
+        let all = request.has("all")
+        guard all != (request.positionals.first != nil) else {
+            throw CLIError.usage("Name one meeting, or use --all for every meeting with untagged speakers.")
+        }
+        guard model.voiceModel != nil else {
+            throw CLIError.failed("No voices learned yet. Run 'stillnote speaker learn --wait' first.")
+        }
+        guard model.voiceJob == nil else {
+            throw CLIError.busy("Stillnote is already learning voices or auto-tagging. Try again when it finishes.")
+        }
+        let dryRun = request.has("dry-run")
+        let ids: [String]
+        if all {
+            ids = try await model.autoTagCandidates()
+        } else {
+            let meeting = try await resolve(request, model: model)
+            try requireIdle(meeting)
+            ids = [meeting.id]
+        }
+        let names = Dictionary(uniqueKeysWithValues: model.speakerProfiles.map { ($0.id, $0.name) })
+        var meetings: [AutoTagMeetingPayload] = []
+        var skipped: [AutoTagSkip] = []
+        for id in ids {
+            do {
+                let before = try await model.store.get(id)
+                let outcome = try await model.autoTag(id, dryRun: dryRun)
+                let after = try await model.store.get(id)
+                meetings.append(AutoTagMeetingPayload(
+                    outcome, title: after.title, summaryCleared: before.summary != nil && after.summary == nil, names: names
+                ))
+            } catch where all && !Task.isCancelled {
+                // A meeting deleted meanwhile is simply gone; any other failure is reported.
+                guard let meeting = try? await model.store.get(id) else { continue }
+                skipped.append(AutoTagSkip(
+                    id: id, title: meeting.title,
+                    reason: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                ))
+            }
+        }
+        return try CommandRunner.autoTagResponse(AutoTagPayload(dryRun: dryRun, meetings: meetings, skipped: skipped))
     }
 
     // MARK: - Summary and notes

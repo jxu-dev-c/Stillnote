@@ -22,7 +22,7 @@ Sources/StillnoteCLI           bundled `stillnote` command; a client of the runn
 | `Sources/StillnoteCore/Store/` | `Paths` (Application Support layout, checkout adoption) and the `Store` actor over SQLite. |
 | `Sources/StillnoteCore/Capture/` | ScreenCaptureKit session, device and permission discovery, session persistence and recovery. |
 | `Sources/StillnoteCore/Audio/` | Decoding to 16 kHz mono, bounded-memory mixing, silence trimming and non-speech suppression, MP4 muxing, extension resolution for stored media. |
-| `Sources/StillnoteCore/Speech/` | Model manifest, verified download, readiness, MOSS and silence-detection worker drivers, transcript parsing. |
+| `Sources/StillnoteCore/Speech/` | Model manifest, verified download, readiness, MOSS, silence-detection and voice-embedding worker drivers, transcript parsing, voice matching and calibration. |
 | `Sources/StillnoteCore/Summary/` | Headless Codex/Claude Code adapters over `posix_spawn`, chunking, validation, local merging. |
 | `Sources/StillnoteCore/Export/` | Markdown, plain text, SRT, and JSON exports. |
 | `Sources/StillnoteCore/CLI/` | Command catalog and parser, wire protocol, socket transport, transcript replacement, and library search. Every result and its rendering, so both processes answer identically. |
@@ -39,6 +39,12 @@ CREATE TABLE meetings (id TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL);  -- single row id=1
 ```
 
+Later tables are additive and created on the first writable open: `speaker_profiles`, the
+derived `meeting_library`, and for voice recognition `voiceprints(meeting_id, data)` and
+`voice_model(id, data)` (single row id=1). A trigger deletes a meeting's voiceprints when the
+meeting row is deleted, so a library edited by an older build cannot keep voices for a meeting
+that no longer exists.
+
 Each meeting is one JSON document. Fields added after a record was written default on
 read. Audio is `data/audio/<meeting-id>` and optional screen video is
 `data/video/<meeting-id>`, both without an extension; `MediaFile` resolves them through
@@ -49,7 +55,8 @@ Claude Code, dropping obsolete API credentials, without touching saved meetings.
 ```
 Meeting = {id,title,created_at,updated_at,duration,status:'ready'|'transcribing'|'transcribed'|'summarizing'|'complete'|'error',
   progress,stage,error,audio_name,audio_url,video_url,language,speaker_count,
-  speakers:Record<string,string>,segments:Segment[],summary:Summary|null,notes,context_links:ContextLink[],
+  speakers:Record<string,string>,speaker_profiles:Record<string,string>,auto_speaker_profiles:Record<string,number>,
+  segments:Segment[],summary:Summary|null,notes,context_links:ContextLink[],
   cleanup:{original_duration,head,tail,applied_at}|null,recorded_at?,source?:'recording'|'import',automatic_title,title_ownership_version}
 Segment = {id,start,end,speaker,text}
 Summary = {overview,key_points[],decisions[],action_items:[{text,owner,due}],provider,model,generated_at}
@@ -163,13 +170,26 @@ timestamps clamped to the recording. Output that does not fully match the gramma
 truncated generation and is rejected rather than saved. Transcript or speaker edits
 invalidate the previous summary; a failed retranscription preserves existing corrections.
 
+Voice embedding is `StillnoteSpeechWorker embed <pcm> <model-dir> <windows-json>`. The JSON is
+an array of `{speaker,start,spans}` windows planned in Core; each is ten seconds of audio from
+`start` on the stored recording's timeline, with `spans` marking where that speaker talks. The
+worker runs pyannote community-1's WeSpeaker ResNet34 as two compiled Core ML models, `FBank` on
+the CPU and `Embedding` on all compute units, in batches of up to 16 windows, turning `spans`
+into the model's 589-frame mask. It emits progress and one `embeddings` event holding a
+unit-length 256-dimensional vector per window, which the app rejects unless every vector is
+complete and finite. Core ML is a system framework, so the worker gains no dependency.
+
 Model setup is an explicit action that downloads public files only, verifying each file's
 size and SHA-256 before an atomic rename, and recording the publisher revision in
 `.verified`. Inference requires complete local files. Setup installs the engine and the
 silence detector together; a manifest entry declares its `kind`, so a supporting model can
 never be selected as a transcription engine, and its `directory`, so MOSS keeps the install
 path it has always used. The detector is not part of `ready`: an install that predates it
-keeps transcribing, with cleanup skipped until it is downloaded.
+keeps transcribing, with cleanup skipped until it is downloaded. The voice model (`kind:
+"speaker"`, about 15 MB) is not part of setup at all; Learn Voices downloads it the first time.
+Its compiled Core ML bundles are directories, so manifest file names may be nested; the installer
+creates their folders and refuses any name that is absolute or contains an empty, `.` or `..`
+component.
 
 ## Summaries
 
@@ -297,13 +317,60 @@ menu bar's path.
 
 ### Reusable speaker profiles
 
-Speaker profiles are local JSON records in SQLite’s `speaker_profiles` table, keyed by UUID. Each stores a name and one optional email and phone number. Meetings map local diarization labels to profile IDs through `speaker_profiles`; older meeting documents default to an empty mapping. Assignment is manual; diarization labels do not imply identity across recordings.
+Speaker profiles are local JSON records in SQLite’s `speaker_profiles` table, keyed by UUID. Each stores a name and one optional email and phone number. Meetings map local diarization labels to profile IDs through `speaker_profiles`; older meeting documents default to an empty mapping. Diarization labels do not imply identity across recordings: a link is made by hand, or by voice recognition (below) when its match is confident.
 
 Meeting `speakers` values remain name snapshots used by transcripts, summaries, and exports. Profile edits affect future assignments, while shared contact details stay solely in the profile store and are excluded from summary prompts and exports. Assignments that change a displayed name invalidate that meeting’s summary. Local renaming unlinks the identity; unlinking alone retains the snapshot. Retranscription clears assignments on successful transcript replacement, and deleting a meeting retains profiles. Creation with initial assignment uses a SQLite transaction. Store operations reject assignments to processing meetings.
 
-The `stillnote speaker` commands cover the same ground from a terminal: `list` and `show` read the profile table directly (so they work with the app closed), while `add`, `update`, `delete`, and `assign` go through `AppModel` like every other change. `speaker add` refuses a duplicate name so a name stays a usable `<profile>` reference.
+The `stillnote speaker` commands cover the same ground from a terminal: `list`, `show`, and `voices` read the library directly (so they work with the app closed), while `add`, `update`, `delete`, `assign`, `learn`, and `autotag` go through `AppModel` like every other change. `speaker add` refuses a duplicate name so a name stays a usable `<profile>` reference.
 
 The transcript’s speaker sheet provides a profile dropdown and assignment/unlink actions. Edit Profile opens Settings → Speakers with the selected profile. Settings uses a macOS list with plus/minus controls and inline detail fields; there is no separate profile-editing sheet. A transactional, one-time migration converts existing custom speaker names into distinct profiles without merging matching names or changing meeting snapshots or summaries. Generic diarization labels are excluded. Contact fields are trimmed; nonempty emails receive basic format validation, while phone formatting is preserved. Failed saves remain visible in the editor.
+
+### Voice recognition
+
+**Learn Voices** (Settings → Speakers, or `stillnote speaker learn`) reads a voiceprint for every
+diarized label in each meeting that has at least one manual profile link, then calibrates the
+matching rule against those links. Nothing is trained; a pretrained speaker-embedding model turns
+speech into vectors and the rule decides how close is close enough.
+
+- **Windows.** `VoiceWindowPlanner` takes each label's segments, removes speech that overlaps
+  another label (including `speaker_unknown`, which is never itself recognized), trims 0.1 s
+  from each edge because MOSS timestamps are sentence-level, and drops spans under 0.5 s. It
+  packs the rest into ten-second windows, keeps windows with at least 2 s of the speaker, and
+  spreads at most 24 per label across the meeting. A window that would pass the end of the
+  recording moves back inside it so the model never sees padding. A label with under 3 s of
+  clean speech is `too_short`.
+- **Voiceprints.** A label's voiceprint is the speech-weighted mean of its window embeddings,
+  normalized. A meeting's voiceprints are stored as one `voiceprints` row with a fingerprint of
+  every segment's timing and label, the duration and the model revision. Text edits leave the
+  fingerprint alone; retranscription, splits and speaker or timing edits make the row stale, and
+  a stale row is recomputed before use. Saving a row whose fingerprint no longer matches the
+  meeting is refused.
+- **Samples.** Only labels linked by hand train. A link made by voice is recorded in
+  `auto_speaker_profiles` with its score and is excluded until the user assigns or unlinks that
+  label, so a wrong match cannot teach the next one.
+- **Scoring.** `centroid` compares a voiceprint with the normalized mean of a profile's samples;
+  `nearest` averages its three most similar samples. A label is assigned when its best score
+  reaches the threshold and leads the runner-up by the margin; otherwise it is `uncertain` or
+  `unrecognized`. Several labels may map to one profile, because MOSS sometimes splits a person.
+- **Calibration.** Every tagged meeting is scored against profiles built from all the others.
+  Labels of profiles that appear in no other meeting act as strangers, where abstaining is the
+  right answer. Over both scorers and a grid of thresholds and margins, the rule that tags the
+  most labels while staying at 97% precision wins, or the best F1 when none reaches it. With no
+  repeat speakers, a fixed conservative rule applies. The result and its precision and coverage
+  are the `voice_model` row. On a library of 338 tagged voices in 83 meetings, the chosen rule
+  was right 97.2% of the time and tagged 85% of recognizable speakers.
+
+**Auto-Tag** (the transcript tab, Settings → Speakers for every meeting, `stillnote speaker
+autotag`, or opt-in after each transcription with `speaker_recognition.auto_tag_after_transcription`)
+matches only labels that have no profile and applies the confident ones with
+`Store.applyVoiceMatches`: one write that refuses a busy meeting or one whose transcript changed
+since its voices were read, never replaces an existing link, and clears the summary when a
+displayed name changes, as a manual assignment does. Every model run is one meeting on
+`JobQueue`, so a transcription started meanwhile waits for at most one meeting. A library-wide
+run reports every meeting it had to skip and why, such as missing audio without current
+voiceprints; it never drops one silently. Auto-tagging leaves the meeting's status alone, like
+naming. **Forget Voices** deletes every voiceprint and the
+learned rule, and keeps profile links.
 
 ### Hot-word settings and worker protocol
 

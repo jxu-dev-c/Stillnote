@@ -225,6 +225,22 @@ public struct MeetingReminderSettings: Codable, Hashable, Sendable {
     }
 }
 
+/// Voice recognition preferences. Auto-tagging after transcription is opt-in.
+public struct SpeakerRecognitionSettings: Codable, Hashable, Sendable {
+    public var autoTagAfterTranscription: Bool
+
+    enum CodingKeys: String, CodingKey { case autoTagAfterTranscription = "auto_tag_after_transcription" }
+
+    public init(autoTagAfterTranscription: Bool = false) {
+        self.autoTagAfterTranscription = autoTagAfterTranscription
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(autoTagAfterTranscription: try values.decodeIfPresent(Bool.self, forKey: .autoTagAfterTranscription) ?? false)
+    }
+}
+
 public struct AppSettings: Codable, Hashable, Sendable {
     public var splitThresholdMinutes: Int = 50
     public var transcription: TranscriptionSettings
@@ -232,23 +248,27 @@ public struct AppSettings: Codable, Hashable, Sendable {
     public var cleanup: AudioCleanupSettings
     public var cli: CLISettings
     public var meetingReminders: MeetingReminderSettings
+    public var speakerRecognition: SpeakerRecognitionSettings
 
     enum CodingKeys: String, CodingKey {
         case transcription, summary, cleanup, cli
         case splitThresholdMinutes = "split_threshold_minutes"
         case meetingReminders = "meeting_reminders"
+        case speakerRecognition = "speaker_recognition"
     }
 
     public init(
         transcription: TranscriptionSettings = .init(), summary: SummarySettings = .init(),
         cleanup: AudioCleanupSettings = .init(), cli: CLISettings = .init(),
-        meetingReminders: MeetingReminderSettings = .init()
+        meetingReminders: MeetingReminderSettings = .init(),
+        speakerRecognition: SpeakerRecognitionSettings = .init()
     ) {
         self.transcription = transcription
         self.summary = summary
         self.cleanup = cleanup
         self.cli = cli
         self.meetingReminders = meetingReminders
+        self.speakerRecognition = speakerRecognition
     }
 
     public init(from decoder: Decoder) throws {
@@ -261,7 +281,9 @@ public struct AppSettings: Codable, Hashable, Sendable {
             // Records written before the command interface existed carry no key either.
             cli: try values.decodeIfPresent(CLISettings.self, forKey: .cli) ?? .init(),
             // Meeting reminders are opt-in, so records written before them decode as off.
-            meetingReminders: try values.decodeIfPresent(MeetingReminderSettings.self, forKey: .meetingReminders) ?? .init()
+            meetingReminders: try values.decodeIfPresent(MeetingReminderSettings.self, forKey: .meetingReminders) ?? .init(),
+            // Auto-tagging is opt-in as well.
+            speakerRecognition: try values.decodeIfPresent(SpeakerRecognitionSettings.self, forKey: .speakerRecognition) ?? .init()
         )
         let threshold = try values.decodeIfPresent(Int.self, forKey: .splitThresholdMinutes) ?? 50
         splitThresholdMinutes = threshold > 0 ? threshold : 50
@@ -338,6 +360,11 @@ public struct AppSettings: Codable, Hashable, Sendable {
         }
         if let reminders = object["meeting_reminders"] as? [String: Any] {
             settings.meetingReminders = MeetingReminderSettings(enabled: reminders["enabled"] as? Bool ?? false)
+        }
+        if let recognition = object["speaker_recognition"] as? [String: Any] {
+            settings.speakerRecognition = SpeakerRecognitionSettings(
+                autoTagAfterTranscription: recognition["auto_tag_after_transcription"] as? Bool ?? false
+            )
         }
 
         // Obsolete keys such as api_key, base_url, and the retired permission and shell options

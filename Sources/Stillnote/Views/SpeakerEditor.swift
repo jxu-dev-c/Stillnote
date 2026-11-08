@@ -38,6 +38,15 @@ struct SpeakerEditor: View {
                         Text("Assign Speaker").font(.title2.weight(.semibold))
                         Text("Choose a profile for this voice.")
                             .font(.callout).foregroundStyle(.secondary)
+                        if let score = meeting?.autoSpeakerProfiles[speakerID] {
+                            Label(
+                                "Matched to \(meeting?.speakerName(speakerID) ?? "this profile") by voice "
+                                    + "(\(Int((score * 100).rounded()))% similar). Assign to confirm, or choose someone else.",
+                                systemImage: "waveform"
+                            )
+                            .font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     Spacer()
                     Button("Edit Profiles") {

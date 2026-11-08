@@ -192,6 +192,25 @@ public enum CommandCatalog {
             requiresApp: true
         ),
         CommandSpec(
+            path: ["speaker", "voices"],
+            summary: "Show what Learn Voices learned and how accurate it was against your own tags."
+        ),
+        CommandSpec(
+            path: ["speaker", "learn"],
+            summary: "Learn each profile's voice from the speakers already linked to it. --wait waits for it to finish.",
+            booleanOptions: ["wait"],
+            requiresApp: true,
+            timeout: 3600
+        ),
+        CommandSpec(
+            path: ["speaker", "autotag"],
+            summary: "Link a meeting's untagged speakers to the profiles their voices match, or every meeting's with --all.",
+            positionals: ["meeting?"],
+            booleanOptions: ["all", "dry-run"],
+            requiresApp: true,
+            timeout: 3600
+        ),
+        CommandSpec(
             path: ["transcribe"],
             summary: "Queue local transcription for one meeting.",
             positionals: ["meeting"],

@@ -17,6 +17,15 @@ struct SpeakerSettingsView: View {
     private var dirty: Bool { draft != nil && (isNew || draft != original) }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            profileEditor
+            Divider()
+            VoiceRecognitionSection()
+        }
+        .padding(20)
+    }
+
+    private var profileEditor: some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 List(selection: $selection) {
@@ -95,7 +104,6 @@ struct SpeakerSettingsView: View {
             .disabled(saving)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(20)
         .onAppear {
             selection = model.requestedSpeakerProfileID ?? model.speakerProfiles.first?.id
             draft = original
@@ -152,5 +160,93 @@ struct SpeakerSettingsView: View {
             } catch { self.error = error.localizedDescription }
             saving = false
         }
+    }
+}
+
+/// Learn Voices builds voiceprints from the speakers already linked to profiles and checks
+/// itself against those tags; auto-tagging then links speakers whose voices match confidently.
+private struct VoiceRecognitionSection: View {
+    @Environment(AppModel.self) private var model
+    @State private var confirmingForget = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Voice Recognition").font(.headline)
+            status
+            if let job = model.voiceJob {
+                HStack(spacing: 10) {
+                    if let fraction = job.fraction {
+                        ProgressView(value: fraction).frame(maxWidth: 220)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                    Text(job.detail).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer()
+                    Button("Stop") { model.cancelVoiceJob() }
+                }
+            } else {
+                HStack(spacing: 10) {
+                    Button(model.voiceModel == nil ? "Learn Voices" : "Relearn Voices") { model.learnVoices() }
+                        .help("Read the voices of speakers you've linked to profiles")
+                    Button("Auto-Tag All Meetings") { model.autoTagLibrary() }
+                        .disabled(model.voiceModel == nil)
+                        .help("Link untagged speakers in every transcribed meeting. Speakers you've tagged are never changed.")
+                    Spacer()
+                    if model.voiceModel != nil {
+                        Button("Forget Voices…") { confirmingForget = true }
+                            .buttonStyle(.borderless)
+                    }
+                }
+            }
+            if let message = model.voiceStatusMessage, model.voiceJob == nil {
+                Text(message).font(.callout).foregroundStyle(.secondary)
+            }
+            Toggle("Auto-tag speakers after transcription", isOn: Binding(
+                get: { model.settings.speakerRecognition.autoTagAfterTranscription },
+                set: { value in
+                    guard value != model.settings.speakerRecognition.autoTagAfterTranscription else { return }
+                    var updated = model.settings
+                    updated.speakerRecognition.autoTagAfterTranscription = value
+                    Task { await model.saveSettings(updated) }
+                }
+            ))
+            .disabled(model.voiceModel == nil)
+            Text("Voices are read on this Mac and never leave it. The first run downloads a \(megabytes) MB voice model.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .alert("Forget learned voices?", isPresented: $confirmingForget) {
+            Button("Cancel", role: .cancel) {}
+            Button("Forget", role: .destructive) { Task { await model.forgetVoices() } }
+        } message: {
+            Text("This removes every voiceprint Stillnote has read. Speaker tags, including ones matched by voice, are kept.")
+        }
+    }
+
+    private var megabytes: Int { (try? SpeechCatalog.spec(SpeechCatalog.speakerModel))?.downloadMegabytes ?? 15 }
+
+    @ViewBuilder
+    private var status: some View {
+        if let voices = model.voiceModel {
+            let learned = Meeting.parseTimestamp(voices.learnedAt)?.formatted(date: .abbreviated, time: .omitted) ?? ""
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Learned \(voices.profileCount) \(voices.profileCount == 1 ? "voice" : "voices") from \(voices.meetingCount) \(voices.meetingCount == 1 ? "meeting" : "meetings") · \(learned)")
+                    .font(.callout)
+                Text(accuracy(voices)).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else {
+            Text("Stillnote can learn each profile's voice from the speakers you've already linked, then tag new meetings for you.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func accuracy(_ voices: VoiceModel) -> String {
+        guard voices.calibrated else {
+            return "Too few people appear in more than one meeting to measure accuracy yet, so only very close matches are tagged."
+        }
+        let precision = Int((voices.metrics.precision * 100).rounded(.down))
+        let coverage = Int((voices.metrics.coverage * 100).rounded())
+        return "Tested against your own tags, matches were right \(precision)% of the time and covered \(coverage)% of speakers. Uncertain speakers are left untagged."
     }
 }

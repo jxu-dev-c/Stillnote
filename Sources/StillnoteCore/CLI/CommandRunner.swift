@@ -30,6 +30,8 @@ public enum CommandRunner {
             return try await speakerList(store: store)
         case ["speaker", "show"]:
             return try await speakerShow(request, store: store)
+        case ["speaker", "voices"]:
+            return try await speakerVoices(store: store)
         default:
             return nil
         }
@@ -285,6 +287,77 @@ public enum CommandRunner {
             lines += meetings.map { "  \($0.id)  \($0.createdAt.prefix(10))  \($0.title) [\($0.speaker)]" }
         }
         return lines.joined(separator: "\n")
+    }
+
+    static func speakerVoices(store: Store) async throws -> CLIResponse {
+        try voicesResponse(nil, try await store.voiceModel(), settings: try await store.settings())
+    }
+
+    /// What Learn Voices produced, optionally led by what just happened.
+    public static func voicesResponse(_ message: String?, _ model: VoiceModel?, settings: AppSettings) throws -> CLIResponse {
+        let payload = VoiceStatusPayload(model, settings: settings)
+        var lines = [message].compactMap { $0 }
+        if let model {
+            lines.append(
+                "Voices learned \(model.learnedAt.prefix(10)) from \(model.meetingCount) meeting(s): "
+                    + "\(model.profileCount) profile(s), \(model.sampleCount) tagged speaker(s)."
+            )
+            if model.calibrated {
+                lines.append(String(
+                    format: "Checked against your own tags: %.1f%% of matches were right and %.1f%% of speakers were tagged.",
+                    model.metrics.precision * 100, model.metrics.coverage * 100
+                ))
+            } else {
+                lines.append("Too few people appear in more than one meeting to measure accuracy, so a conservative rule applies.")
+            }
+            if model.skippedMeetings > 0 {
+                lines.append("\(model.skippedMeetings) tagged meeting(s) could not be read and were skipped.")
+            }
+        } else {
+            lines.append("No voices learned yet. Run 'stillnote speaker learn' or use Settings → Speakers → Learn Voices.")
+        }
+        lines.append("Auto-tag after transcription: \(settings.speakerRecognition.autoTagAfterTranscription ? "on" : "off").")
+        return try .success(lines.joined(separator: "\n"), payload)
+    }
+
+    public static func autoTagResponse(_ payload: AutoTagPayload) throws -> CLIResponse {
+        var lines: [String] = []
+        for meeting in payload.meetings {
+            lines.append("\(meeting.title) [\(meeting.id)]")
+            if meeting.matches.isEmpty { lines.append("  Every speaker already has a profile.") }
+            for match in meeting.matches {
+                let score = match.score.map { String(format: "%.2f", $0) } ?? ""
+                let line: String
+                switch match.decision {
+                case VoiceMatch.Decision.assigned.rawValue:
+                    let verb = payload.dryRun ? "would link" : (match.applied ? "linked" : "left alone")
+                    line = "\(match.speaker) → \(match.profileName ?? "?") (\(score)) \(verb)"
+                case VoiceMatch.Decision.uncertain.rawValue:
+                    let next = match.runnerUpScore.map { String(format: "%.2f", $0) } ?? ""
+                    line = "\(match.speaker) uncertain: \(match.profileName ?? "?") (\(score)) or \(match.runnerUpName ?? "?") (\(next))"
+                case VoiceMatch.Decision.unrecognized.rawValue:
+                    line = "\(match.speaker) not recognized" + (match.profileName.map { " (closest: \($0), \(score))" } ?? "")
+                default:
+                    line = "\(match.speaker) has too little clear speech to recognize"
+                }
+                lines.append("  " + line)
+            }
+            if meeting.summaryCleared {
+                lines.append("  Its summary was cleared; run 'stillnote summarize \(meeting.id) --allow-remote' to rebuild one.")
+            }
+        }
+        if !payload.skipped.isEmpty {
+            lines.append("Skipped \(payload.skipped.count) meeting(s):")
+            for skip in payload.skipped { lines.append("  \(skip.title) [\(skip.id)]: \(skip.reason)") }
+        }
+        if payload.meetings.isEmpty && payload.skipped.isEmpty {
+            lines.append("No transcribed meetings have untagged speakers.")
+        }
+        lines.append("")
+        lines.append(payload.dryRun
+            ? "Dry run: nothing was written. Run the same command without --dry-run to link these."
+            : "Tagged \(payload.tagged) speaker(s). Speakers you had already tagged were not changed.")
+        return try .success(lines.joined(separator: "\n"), payload)
     }
 
     // MARK: - Shared response builders for the commands only the app can run

@@ -14,6 +14,16 @@ meeting's summary, or the opening of its transcript and speaker labels when ther
 Choosing a provider in Settings is the consent: the window does not ask again for each request. Provider retention and
 account policies apply. No cloud transcription fallback is used.
 
+## Voice recognition
+
+Learn Voices and Auto-Tag compute voiceprints: numbers that describe how each speaker in a
+meeting sounds. They are computed on this Mac by the bundled worker and stored in the same
+private database as the meetings, never sent to a summary provider, written to exports, or
+printed by the `stillnote` command, which reports only counts and accuracy. The first run
+downloads a public 15 MB voice model from Hugging Face, which sends no audio. Deleting a meeting
+deletes its voiceprints; **Forget Voices** in Settings → Speakers deletes all of them. Profile
+links made by voice are ordinary speaker tags and stay until changed.
+
 ## Meeting reminders
 
 Meeting reminders are off until turned on in **Settings → Transcription**. While they are on,

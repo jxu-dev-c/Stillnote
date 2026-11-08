@@ -106,6 +106,25 @@ Renaming a profile does not rename meetings already linked to it; each keeps the
 until you `speaker assign` it again. Linking a profile whose name differs from the one a meeting
 shows clears that meeting's summary, as any speaker correction does.
 
+### Recognizing speakers by voice
+
+Stillnote can learn each profile's voice from the speakers already linked to it, then link the
+untagged speakers of other meetings whose voices match confidently. Everything runs on the Mac.
+
+```bash
+stillnote speaker voices --json                  # what was learned, and its measured accuracy
+stillnote speaker learn --wait --json            # learn from current tags (minutes on a big library)
+stillnote speaker autotag <id> --dry-run --json  # preview the matches for one meeting
+stillnote speaker autotag <id> --json            # link the confident matches
+stillnote speaker autotag --all --json           # every meeting with untagged speakers
+```
+
+Auto-tagging never changes a speaker that already has a profile, and leaves a speaker untagged
+when the match is uncertain. A speaker linked by voice shows `voice_match` (its similarity) in
+`show --json` until someone confirms it with `speaker assign`. Prefer `--dry-run` first and show
+the user the proposed links before applying them to many meetings; like any speaker correction,
+a link that changes a displayed name clears that meeting's summary.
+
 ## Summaries and notes
 
 ```bash

@@ -26,6 +26,11 @@ struct Worker {
                 try VoiceActivity.run(arguments: Array(args.dropFirst()))
                 return
             }
+            // `embed` selects voice embedding the same way.
+            if args.first == "embed" {
+                try VoiceEmbedding.run(arguments: Array(args.dropFirst()))
+                return
+            }
             let request = try SpeechWorkerRequest(arguments: args)
             guard let recommended = GPU.maxRecommendedWorkingSetBytes() else {
                 throw NSError(domain: "Stillnote", code: 3, userInfo: [NSLocalizedDescriptionKey: "The Apple GPU is unavailable."])

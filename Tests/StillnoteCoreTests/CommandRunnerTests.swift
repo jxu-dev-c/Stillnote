@@ -171,6 +171,9 @@ import Testing
             ["speaker", "update", "Ada", "--email", "ada@example.com"],
             ["speaker", "delete", "Ada"],
             ["speaker", "assign", "aa11", "--speaker", "speaker_1", "--none"],
+            ["speaker", "learn", "--wait"],
+            ["speaker", "autotag", "aa11", "--dry-run"],
+            ["speaker", "autotag", "--all"],
         ] {
             let invocation = try CommandCatalog.parse(argv)
             #expect(invocation.spec.requiresApp, "\(invocation.spec.name) must require the app")

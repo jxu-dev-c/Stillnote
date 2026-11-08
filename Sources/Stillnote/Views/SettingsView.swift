@@ -7,19 +7,23 @@ struct SettingsView: View {
         @Bindable var model = model
         TabView(selection: $model.settingsTab) {
             TranscriptionSettingsView()
+                .frame(height: 420)
                 .tabItem { Label("Transcription", systemImage: "waveform") }
                 .tag("transcription")
+            // Speakers also holds voice recognition, so it needs more room than the others.
             SpeakerSettingsView()
+                .frame(height: 560)
                 .tabItem { Label("Speakers", systemImage: "person.2") }
                 .tag("speakers")
             SummarySettingsView()
+                .frame(height: 420)
                 .tabItem { Label("Summaries", systemImage: "sparkles") }
                 .tag("summaries")
             AdvancedSettingsView()
+                .frame(height: 420)
                 .tabItem { Label("Advanced", systemImage: "terminal") }
                 .tag("advanced")
         }
-        .frame(height: 420)
     }
 }
 

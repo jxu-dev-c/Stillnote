@@ -33,6 +33,22 @@ final class AppModel {
     /// failed request never marks the meeting as failed.
     private(set) var namingMeetings: Set<String> = []
 
+    // Voice recognition. The workflow lives in AppModel+Voices.swift.
+    /// What Learn Voices last produced; nil until voices have been learned.
+    var voiceModel: VoiceModel?
+    /// Learn Voices or a library-wide auto-tag while it runs.
+    var voiceJob: VoiceJob?
+    /// How the last library-wide voice job ended, for Settings.
+    var voiceStatusMessage: String?
+    /// Meetings being auto-tagged. Like naming, this leaves the meeting's status alone.
+    var autoTaggingMeetings: Set<String> = []
+    /// The latest auto-tag result per meeting, shown beside its speakers.
+    var autoTagResults: [String: AutoTagOutcome] = [:]
+    /// Every meeting's result from the last library-wide auto-tag.
+    var lastBulkAutoTag: [AutoTagOutcome] = []
+    @ObservationIgnored var voiceTask: Task<Void, Never>?
+    @ObservationIgnored var voiceStep: Task<Void, Never>?
+
     /// Everything that needs the filesystem. It is built in `load()`, never in `init`:
     /// resolving paths can touch a folder macOS guards, and the permission prompt for
     /// that cannot appear until the app has a window. Probing during launch deadlocks.
@@ -41,8 +57,9 @@ final class AppModel {
     var paths: Paths { workspace!.paths }
     var store: Store { workspace!.store }
     var recorder: RecordingCoordinator { workspace!.recorder }
+    var installer: ModelInstaller { workspace!.installer }
 
-    private let queue = JobQueue()
+    let queue = JobQueue()
     private let commands = CommandServer()
     @ObservationIgnored let meetingReminder = MeetingReminder()
     private var transcriptions: [String: Task<Void, Never>] = [:]
@@ -96,6 +113,7 @@ final class AppModel {
             meetingSearchRevision += 1
             settings = try await store.settings()
             speakerProfiles = try await store.profiles()
+            voiceModel = try? await store.voiceModel()
             startupStage = "Recovering interrupted recordings…"
             await recorder.recover()
             isReady = true
@@ -185,7 +203,7 @@ final class AppModel {
         return true
     }
 
-    private func apply(_ meeting: Meeting) async {
+    func apply(_ meeting: Meeting) async {
         do {
             if detailID == meeting.id {
                 let snapshot = try await store.snapshot(meeting.id)
@@ -200,7 +218,7 @@ final class AppModel {
         } catch { report(error) }
     }
 
-    private func report(_ error: Error) {
+    func report(_ error: Error) {
         alertMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
@@ -537,6 +555,7 @@ final class AppModel {
                 $0.duration = result.duration
                 $0.language = result.language
                 $0.speakerProfiles = [:]
+                $0.autoSpeakerProfiles = [:]
                 $0.speakers = result.speakers
                 $0.segments = result.segments
                 $0.status = .transcribed
@@ -545,6 +564,7 @@ final class AppModel {
                 $0.summary = nil
                 $0.error = nil
             }
+            autoTagAfterTranscription(id)
         } catch is CancellationError {
             await markTranscriptionStopped(id)
         } catch SpeechError.cancelled {
@@ -755,6 +775,7 @@ final class AppModel {
     func shutdown() async {
         commands.stop()
         for task in transcriptions.values { task.cancel() }
+        cancelVoiceJob()
         await workspace?.recorder.shutdown()
     }
 
