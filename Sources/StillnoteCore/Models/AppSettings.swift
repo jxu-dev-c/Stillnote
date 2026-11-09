@@ -157,6 +157,8 @@ public struct SummarySettings: Codable, Hashable, Sendable {
     public var model: String
     public var reasoningEffort: ReasoningEffort
     public var agentPrompt: String
+    /// How many summaries and Name Meeting requests run at once (`AgentJobLimiter.limits`).
+    public var concurrency: Int
 
     public var resolvedAgentPrompt: String {
         agentPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -169,16 +171,18 @@ public struct SummarySettings: Codable, Hashable, Sendable {
         case provider, model
         case reasoningEffort = "reasoning_effort"
         case agentPrompt = "agent_prompt"
+        case concurrency
     }
 
     public init(
         provider: SummaryProvider = .codex, model: String? = nil, reasoningEffort: ReasoningEffort = .high,
-        agentPrompt: String = Summarizer.defaultAgentPrompt
+        agentPrompt: String = Summarizer.defaultAgentPrompt, concurrency: Int = AgentJobLimiter.defaultLimit
     ) {
         self.provider = provider
         self.model = model ?? provider.defaultModel
         self.reasoningEffort = reasoningEffort
         self.agentPrompt = agentPrompt
+        self.concurrency = AgentJobLimiter.clamp(concurrency)
     }
 
     public init(from decoder: Decoder) throws {
@@ -187,6 +191,9 @@ public struct SummarySettings: Codable, Hashable, Sendable {
         model = try values.decode(String.self, forKey: .model)
         reasoningEffort = try values.decode(ReasoningEffort.self, forKey: .reasoningEffort)
         agentPrompt = try values.decodeIfPresent(String.self, forKey: .agentPrompt) ?? Summarizer.defaultAgentPrompt
+        concurrency = AgentJobLimiter.clamp(
+            try values.decodeIfPresent(Int.self, forKey: .concurrency) ?? AgentJobLimiter.defaultLimit
+        )
     }
 }
 
@@ -342,8 +349,10 @@ public struct AppSettings: Codable, Hashable, Sendable {
             provider: provider,
             model: (storedModel?.isEmpty == false) ? storedModel : provider.defaultModel,
             reasoningEffort: storedEffort.flatMap(ReasoningEffort.init(rawValue:)) ?? .high,
-            agentPrompt: storedPrompt ?? Summarizer.defaultAgentPrompt
+            agentPrompt: storedPrompt ?? Summarizer.defaultAgentPrompt,
+            concurrency: summary["concurrency"] as? Int ?? AgentJobLimiter.defaultLimit
         )
+        if let stored = summary["concurrency"] as? Int, stored != settings.summary.concurrency { changed = true }
         if let cleanup = object["cleanup"] as? [String: Any] {
             // Reuse the Codable path so the per-field defaults live in one place.
             if let data = try? JSONSerialization.data(withJSONObject: cleanup),
@@ -369,7 +378,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
 
         // Obsolete keys such as api_key, base_url, and the retired permission and shell options
         // are dropped by re-encoding.
-        if summary["agent_prompt"] as? String == nil || (summary.keys.contains { !["provider", "model", "reasoning_effort", "agent_prompt"].contains($0) }) {
+        if summary["agent_prompt"] as? String == nil || (summary.keys.contains { !["provider", "model", "reasoning_effort", "agent_prompt", "concurrency"].contains($0) }) {
             changed = true
         }
         if transcription["model"] as? String != settings.transcription.model { changed = true }

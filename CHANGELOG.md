@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Run summaries and **Name Meeting** alongside transcription instead of behind it. They only wait
+  on the agent CLI, so they no longer queue behind every pending transcription and lock their
+  meetings for hours during a large `stillnote process` batch. Up to 3 run at once; change it in
+  Settings → Summary → Jobs at once (1–8).
+
 ## 0.12.0
 
 - Add `stillnote process`, which queues meetings already in the library through the whole

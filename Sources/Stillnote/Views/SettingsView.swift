@@ -244,6 +244,7 @@ struct SummarySettingsView: View {
     @State private var summaryModel = ""
     @State private var effort = ReasoningEffort.high
     @State private var agentPrompt = Summarizer.defaultAgentPrompt
+    @State private var concurrency = AgentJobLimiter.defaultLimit
 
     private var availability: AgentAvailability? {
         model.agents.first { $0.provider == provider }
@@ -269,6 +270,11 @@ struct SummarySettingsView: View {
                 Picker("Thinking effort", selection: $effort) {
                     ForEach(provider.reasoningEfforts, id: \.self) { Text($0.label).tag($0) }
                 }
+                Stepper(value: $concurrency, in: AgentJobLimiter.limits) {
+                    LabeledContent("Jobs at once", value: "\(concurrency)")
+                }
+                Text("How many summaries and Name Meeting requests run at the same time. They don't wait for transcription.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Agent prompt") {
@@ -309,10 +315,12 @@ struct SummarySettingsView: View {
             summaryModel = model.settings.summary.model
             effort = model.settings.summary.resolvedReasoningEffort
             agentPrompt = model.settings.summary.agentPrompt
+            concurrency = model.settings.summary.concurrency
         }
         .onChange(of: summaryModel) { save() }
         .onChange(of: effort) { save() }
         .onChange(of: agentPrompt) { save() }
+        .onChange(of: concurrency) { save() }
     }
 
     private func save() {
@@ -321,9 +329,11 @@ struct SummarySettingsView: View {
             ? provider.defaultModel : summaryModel
         guard updated.summary.provider != provider || updated.summary.model != resolved
             || updated.summary.reasoningEffort != effort || updated.summary.agentPrompt != agentPrompt
+            || updated.summary.concurrency != concurrency
         else { return }
         updated.summary = SummarySettings(
-            provider: provider, model: resolved, reasoningEffort: effort, agentPrompt: agentPrompt
+            provider: provider, model: resolved, reasoningEffort: effort, agentPrompt: agentPrompt,
+            concurrency: concurrency
         )
         Task { await model.saveSettings(updated) }
     }
