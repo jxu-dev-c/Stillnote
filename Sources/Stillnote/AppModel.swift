@@ -59,7 +59,10 @@ final class AppModel {
     var recorder: RecordingCoordinator { workspace!.recorder }
     var installer: ModelInstaller { workspace!.installer }
 
+    /// Local GPU and memory heavy work: transcription, voice recognition, model downloads.
     let queue = JobQueue()
+    /// Agent CLI work: summaries and Name Meeting, a few at a time, never behind `queue`.
+    let agentJobs = AgentJobLimiter()
     private let commands = CommandServer()
     @ObservationIgnored let meetingReminder = MeetingReminder()
     private var transcriptions: [String: Task<Void, Never>] = [:]
@@ -116,6 +119,7 @@ final class AppModel {
             meetings = try await store.libraryItems()
             meetingSearchRevision += 1
             settings = try await store.settings()
+            await agentJobs.setLimit(settings.summary.concurrency)
             speakerProfiles = try await store.profiles()
             voiceModel = try? await store.voiceModel()
             startupStage = "Recovering interrupted recordings…"
@@ -625,7 +629,7 @@ final class AppModel {
 
     /// What follows a fresh transcript: opt-in auto-tagging first, so that a summary requested
     /// by Stop, Transcribe & Summarize, and the title named from it, use the recognized names.
-    /// Both wait on the job queue, so they run outside the transcription's own job.
+    /// Auto-tagging waits on the job queue, so both run outside the transcription's own job.
     private func afterTranscription(_ id: String, summarize: Bool, nameWithSuffix suffix: String?) {
         Task { [weak self] in
             await self?.autoTagAfterTranscription(id)
@@ -689,11 +693,17 @@ final class AppModel {
         let settings = settings.summary
         let snapshot = meeting
         let resolvedVideoPath = videoPath
-        await queue.enqueue { [weak self] in
-            await self?.runSummary(
-                id: id, meeting: snapshot, settings: settings, allowRemote: allowRemote,
-                videoPath: resolvedVideoPath, thenNameWithSuffix: suffix
-            )
+        // Agent jobs don't touch the GPU, so they take an agent slot instead of waiting behind
+        // transcriptions on the job queue.
+        let agentJobs = agentJobs
+        Task { [weak self] in
+            guard let self else { return }
+            await agentJobs.run { [self] in
+                await self.runSummary(
+                    id: id, meeting: snapshot, settings: settings, allowRemote: allowRemote,
+                    videoPath: resolvedVideoPath, thenNameWithSuffix: suffix
+                )
+            }
         }
     }
 
@@ -718,7 +728,7 @@ final class AppModel {
                 $0.stage = "Summary ready"
                 $0.error = nil
             }
-            // Naming does not use the job queue; a new task lets the next job start meanwhile.
+            // Naming takes its own agent slot; a new task frees this one for the next job first.
             if let suffix {
                 Task { [weak self] in
                     await self?.suggestTitle(id, allowRemote: allowRemote, suffix: suffix)
@@ -767,9 +777,11 @@ final class AppModel {
             throw ValidationError("Create a transcript before naming this meeting.")
         }
         let settings = settings.summary
-        let title = try await Task.detached(priority: .userInitiated) {
-            try MeetingNamer.suggestTitle(meeting: meeting, settings: settings, allowRemote: allowRemote)
-        }.value
+        let title = try await agentJobs.run {
+            try await Task.detached(priority: .userInitiated) {
+                try MeetingNamer.suggestTitle(meeting: meeting, settings: settings, allowRemote: allowRemote)
+            }.value
+        }
         // The meeting may have been deleted while the provider was working.
         guard self.libraryItem(id) != nil else { return nil }
         guard let named = await edit(id, { $0.applySuggestedTitle(title, suffix: suffix) }) else {
@@ -783,6 +795,7 @@ final class AppModel {
     func saveSettings(_ updated: AppSettings) async {
         do {
             settings = try await store.saveSettings(updated)
+            await agentJobs.setLimit(settings.summary.concurrency)
             syncCommandServer()
             meetingReminder.sync(model: self)
             await refreshEnvironment()

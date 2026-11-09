@@ -98,9 +98,13 @@ current default.
 `AppModel` is `@MainActor @Observable` and is the only source of truth for the interface;
 there is no polling. `Store` is an actor, and every mutation is a read-modify-write inside
 it, so a background job's progress write cannot clobber a concurrent user edit. `JobQueue`
-serializes transcription, summaries, and model downloads so they never compete for memory
-or the GPU; a job cancelled while still queued observes cancellation and returns. Jobs left
-running when the app quits are marked retryable on the next launch.
+serializes local heavy work — transcription, voice recognition, and model downloads — so it
+never competes for memory or the GPU; a job cancelled while still queued observes cancellation
+and returns. Agent jobs (summaries and Name Meeting) only wait on the provider's CLI, so they
+run on `AgentJobLimiter` instead: up to `summary.concurrency` at once (default 3, 1–8, set under
+Settings → Summary), in arrival order, and never behind a transcription. A meeting still shows
+`summarizing` while its summary waits for a slot. Jobs left running when the app quits are
+marked retryable on the next launch.
 
 Overlapping recording stops share one save task, claimed before any suspension, so only
 one operation can move the media and insert the meeting. Save/discard controls stay disabled
@@ -114,7 +118,7 @@ and **Stop, Transcribe & Summarize** runs `AppModel.processRecording`. A saved r
 fails or is refused leaves the recording whole and processes it as is. Each resulting meeting is
 marked for a summary and naming before its transcription is queued. The transcription job takes both marks when it starts, whatever its
 outcome. A saved transcript then runs opt-in auto-tagging and the summary in that order, outside
-the transcription's own job, because both wait on the queue. A saved summary then starts naming
+the transcription's own job, because auto-tagging waits on the queue. A saved summary then starts naming
 in its own task. A run that is stopped, fails, or finds no speech drops the summary and the
 naming, and a failed summary drops the naming, so later manual work never triggers either on
 its own.
@@ -272,8 +276,8 @@ but a command may come from an agent, so it must consent on each request.
 the meetings and where each resumes — `transcribe` with no transcript, `summarize` with one —
 and `CommandServer` carries the plan out through `AppModel.processRecording` or
 `AppModel.summarize(thenNameWithSuffix:)`, so splitting, auto-tagging, and naming are the
-window's own. It returns once everything is queued; the job queue then runs the work one job at
-a time. `name` calls `AppModel.nameMeeting`, which throws the failure `suggestTitle` would show
+window's own. It returns once everything is queued; the job queue then transcribes one meeting
+at a time, and each summary and title starts as soon as an agent slot is free. `name` calls `AppModel.nameMeeting`, which throws the failure `suggestTitle` would show
 in the window's alert.
 
 `skills/stillnote` publishes this as an agent skill. `scripts/check-skill.sh`, run by

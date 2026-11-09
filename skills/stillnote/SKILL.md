@@ -169,7 +169,9 @@ stillnote process <id> --allow-remote --json              # one meeting
 **Dry-run first and report the plan before queueing a batch.** It sends every transcript to the
 agent, replaces long recordings with their 20-minute parts (`--no-split` keeps them whole), and
 retitles each meeting (`--keep-title` keeps titles). The command returns once everything is
-queued; the work runs in the app afterwards, one job at a time, so a large batch can take hours.
+queued; the work runs in the app afterwards. Transcription runs one meeting at a time, so a large
+batch can take hours; summaries and titles run a few at a time alongside it, as each transcript
+is ready.
 Poll `stillnote list --status transcribing --json` or `stillnote show <id> --json` for progress
 rather than waiting on the command.
 
