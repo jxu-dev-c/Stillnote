@@ -1,11 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.13.0
 
 - Run summaries and **Name Meeting** alongside transcription instead of behind it. They only wait
   on the agent CLI, so they no longer queue behind every pending transcription and lock their
   meetings for hours during a large `stillnote process` batch. Up to 3 run at once; change it in
-  Settings → Summary → Jobs at once (1–8).
+  Settings → Summaries → Jobs at once (1–8).
 - Redesign the sidebar. It now has **All Meetings**, **Today**, **Starred**, and **Calendar**, plus
   your own **Categories**, each with a meeting count. Star a meeting or put it in a category from
   its context menu in the list or calendar. Create categories with **New Category**; rename,
