@@ -14,38 +14,17 @@ struct RecordingSheet: View {
     @State private var speakerCount: Int?
     @State private var starting = false
     @State private var error: String?
-    @State private var confirmingDiscard = false
-    /// The finish action whose save is running, so only that button reads "Saving…".
-    @State private var finishing: FinishAction?
     @State private var initialized = false
 
-    private enum FinishAction { case stop, summarize }
-    private var saving: Bool { finishing != nil }
-
+    /// Recording options. Once a recording starts, the window shows it and this sheet closes.
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if let session = model.recorder.session {
-                active(session)
-            } else {
-                setup
-            }
+            setup
         }
         .padding(24)
         .frame(width: 480)
-        .interactiveDismissDisabled(starting || saving || model.recorder.session != nil)
+        .interactiveDismissDisabled(starting)
         .onAppear(perform: prepare)
-        .confirmationDialog(
-            "Discard this recording?", isPresented: $confirmingDiscard, titleVisibility: .visible
-        ) {
-            Button("Discard Recording", role: .destructive) {
-                Task {
-                    await model.recorder.discard()
-                    dismiss()
-                }
-            }
-        } message: {
-            Text("Stops recording and deletes the unsaved audio and video.")
-        }
     }
 
     // MARK: - Setup
@@ -103,132 +82,6 @@ struct RecordingSheet: View {
         }
     }
 
-    // MARK: - Active session
-
-    private func active(_ session: RecordingSessionState) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label(statusText(session), systemImage: statusSymbol(session))
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(session.status == .recording ? .red : .secondary)
-
-            Text(Formatting.duration(session.elapsed))
-                .font(.system(size: 44, weight: .light))
-                .monospacedDigit()
-                .frame(maxWidth: .infinity, alignment: .center)
-
-            meter("Microphone", level: model.recorder.microphoneLevel, paused: session.status == .paused)
-            if session.options.systemAudio {
-                meter("System audio", level: model.recorder.systemLevel, paused: session.status == .paused)
-            }
-
-            LabeledContent("Meeting", value: session.options.title)
-            if session.options.screenVideo {
-                Label("Screen video enabled", systemImage: "display").font(.caption).foregroundStyle(.secondary)
-            }
-
-            if session.status == .starting {
-                Text("Allow Microphone and Screen & System Audio Recording in the macOS prompts. "
-                    + "If access was denied, enable Stillnote in System Settings → Privacy & Security.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if let error = session.error {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            let locked = saving || model.recorder.isSaving || session.status == .starting || session.status == .stopping
-            HStack {
-                Button("Discard", role: .destructive) { confirmingDiscard = true }
-                    .disabled(locked)
-                Spacer()
-                if session.status == .recording {
-                    Button("Pause") { model.recorder.pause() }
-                } else if session.status == .paused {
-                    Button("Resume") { model.recorder.resume() }
-                }
-            }
-            // The finish actions get a row of their own: beside Discard and Pause, "Stop,
-            // Transcribe & Summarize" would overflow the 480-point sheet.
-            HStack {
-                Spacer()
-                if model.speech.ready {
-                    Button(finishTitle(.stop)) { Task { await finish(.stop) } }
-                        .disabled(locked)
-                    Button(finishTitle(.summarize)) { Task { await finish(.summarize) } }
-                        .primaryActionStyle()
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(locked)
-                        .help("Save the recording, transcribe it, then summarize it with the provider from Settings.")
-                } else {
-                    // Without the speech model there is nothing to transcribe yet.
-                    Button(finishTitle(.stop)) { Task { await finish(.stop) } }
-                        .primaryActionStyle()
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(locked)
-                }
-            }
-        }
-    }
-
-    private func meter(_ label: String, level: CaptureLevel?, paused: Bool) -> some View {
-        // −60 dBFS to 0 dBFS, the range where speech is actually legible on a meter.
-        let rms = level?.rms ?? 0
-        let decibels = 20 * log10(max(rms, 0.001))
-        let value = max(0, min(1, (decibels + 60) / 60))
-        return VStack(alignment: .leading, spacing: 2) {
-            Gauge(value: value) {
-                Text(label)
-            } currentValueLabel: {
-                Text(rms > 0.001 ? String(format: "%.0f dB", decibels) : "−∞ dB").monospacedDigit()
-            }
-            .gaugeStyle(.accessoryLinearCapacity)
-            .tint(level?.peak ?? 0 >= 0.98 ? .orange : .accentColor)
-            Text(meterState(level: level, paused: paused))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func meterState(level: CaptureLevel?, paused: Bool) -> String {
-        if paused { return "Paused" }
-        guard let level else { return "Quiet" }
-        if level.peak >= 0.98 { return "Input clipping" }
-        return level.rms > 0.002 ? "Receiving audio" : "Quiet"
-    }
-
-    private func statusText(_ session: RecordingSessionState) -> String {
-        if model.recorder.isSaving { return "Finishing recording" }
-        switch session.status {
-        case .starting: return "Waiting for macOS permissions"
-        case .recording: return "Recording"
-        case .paused: return "Paused"
-        case .stopping: return "Finishing recording"
-        case .stopped: return "Ready to save"
-        }
-    }
-
-    private func statusSymbol(_ session: RecordingSessionState) -> String {
-        switch session.status {
-        case .recording: return "record.circle.fill"
-        case .paused: return "pause.circle"
-        case .stopping: return "hourglass"
-        case .stopped: return "checkmark.circle"
-        case .starting: return "lock.shield"
-        }
-    }
-
-    private func finishTitle(_ action: FinishAction) -> String {
-        if finishing == action { return "Saving…" }
-        switch action {
-        case .stop: return "Stop Recording"
-        case .summarize: return "Stop, Transcribe & Summarize"
-        }
-    }
-
     // MARK: - Actions
 
     private func prepare() {
@@ -253,23 +106,10 @@ struct RecordingSheet: View {
                 automaticTitle: true
             )
             try await model.recorder.start(options: options)
+            selection = RecordingSelection.id
+            dismiss()
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-        }
-    }
-
-    private func finish(_ action: FinishAction) async {
-        finishing = action
-        defer { finishing = nil }
-        guard let meeting = await model.finishRecording() else { return }
-        selection = meeting.id
-        dismiss()
-        if action == .summarize {
-            let processed = await model.processRecording(meeting)
-            // A split replaces the recording; show its first part unless the user moved on.
-            if selection == meeting.id, let first = processed.first, first.id != meeting.id {
-                selection = first.id
-            }
         }
     }
 }

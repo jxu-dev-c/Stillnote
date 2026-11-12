@@ -4,9 +4,8 @@ import Observation
 import StillnoteCore
 import SwiftUI
 
-/// Playback state shared by the transcript (for seeking and highlighting) and the
-/// transport. Every meeting gets the same compact bar; screen video opens on request
-/// in a sheet that drives the same player.
+/// Playback state shared by the transcript (for seeking and following) and the dock.
+/// Screen video opens on request in a sheet that drives the same player.
 @MainActor
 @Observable
 final class PlayerModel {
@@ -20,6 +19,8 @@ final class PlayerModel {
     /// in particular). Say so instead of showing a transport that will never move.
     private(set) var unplayableReason: String?
 
+    /// Where a voice preview stops playing.
+    private var previewEnd: Double?
     private nonisolated(unsafe) var observer: Any?
     private var statusObserver: NSKeyValueObservation?
 
@@ -54,6 +55,10 @@ final class PlayerModel {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.currentTime = time.seconds
+                if let end = self.previewEnd, time.seconds >= end {
+                    self.previewEnd = nil
+                    self.player.pause()
+                }
                 if let item = self.player.currentItem {
                     let length = item.duration.seconds
                     if length.isFinite, length > 0 { self.duration = length }
@@ -69,6 +74,7 @@ final class PlayerModel {
     }
 
     func toggle() {
+        previewEnd = nil
         if player.rate > 0 {
             player.pause()
         } else {
@@ -87,6 +93,7 @@ final class PlayerModel {
     }
 
     func play(from seconds: Double) {
+        previewEnd = nil
         seek(to: seconds)
         player.play()
         player.rate = rate
@@ -95,100 +102,23 @@ final class PlayerModel {
 
     func skipBack() { seek(to: currentTime - 10) }
 
+    func skip(by seconds: Double) { seek(to: currentTime + seconds) }
+
+    /// Plays a stretch of the recording, such as one speaker's line, and stops at its end.
+    func preview(from start: Double, to end: Double) {
+        play(from: start)
+        previewEnd = max(start + 1, min(end, start + 12))
+    }
+
     func setRate(_ value: Float) {
         rate = value
         if player.timeControlStatus == .playing { player.rate = value }
     }
 }
 
-struct PlayerView: View {
-    @Bindable var player: PlayerModel
-
-    private static let rates: [Float] = [0.75, 1, 1.25, 1.5, 1.75, 2]
-
-    @State private var showingVideo = false
-
-    var body: some View {
-        Group {
-            if let reason = player.unplayableReason {
-                Label(reason, systemImage: "speaker.slash")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                transport
-            }
-        }
-        .padding(16)
-        .playbackSurface()
-        .sheet(isPresented: $showingVideo) {
-            VideoSheet(player: player)
-        }
-    }
-
-    private var transport: some View {
-        HStack(spacing: 12) {
-            Button { player.toggle() } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.tint)
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.large)
-            .help(player.isPlaying ? "Pause" : "Play")
-            .accessibilityLabel(player.isPlaying ? "Pause recording" : "Play recording")
-
-            Button { player.skipBack() } label: {
-                Image(systemName: "gobackward.10")
-            }
-            .buttonStyle(.borderless)
-            .help("Back 10 seconds")
-            .accessibilityLabel("Back 10 seconds")
-
-            Text(Formatting.duration(player.currentTime))
-                .monospacedDigit()
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Slider(
-                value: Binding(get: { player.currentTime }, set: { player.seek(to: $0) }),
-                in: 0...max(player.duration, 0.1)
-            )
-            .controlSize(.small)
-            .accessibilityLabel("Playback position")
-            .accessibilityValue("\(Formatting.duration(player.currentTime)) of \(Formatting.duration(player.duration))")
-
-            Text(Formatting.duration(player.duration))
-                .monospacedDigit()
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Menu("\(player.rate.formatted())×") {
-                ForEach(Self.rates, id: \.self) { rate in
-                    Button("\(rate.formatted())×") { player.setRate(rate) }
-                }
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Playback Speed")
-            .accessibilityLabel("Playback speed, \(player.rate.formatted()) times")
-
-            if player.hasVideo {
-                Button { showingVideo = true } label: {
-                    Image(systemName: "play.rectangle")
-                }
-                .buttonStyle(.borderless)
-                .help("Show Video")
-                .accessibilityLabel("Show screen recording")
-            }
-        }
-    }
-}
-
 /// Shows the screen recording with AVKit's own controls. It shares the bar's player, so
 /// position, speed, and transcript highlighting stay in step while it is open and after.
-private struct VideoSheet: View {
+struct VideoSheet: View {
     @Environment(\.dismiss) private var dismiss
     let player: PlayerModel
 

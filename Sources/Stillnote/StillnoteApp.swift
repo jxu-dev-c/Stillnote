@@ -24,15 +24,16 @@ struct StillnoteApp: App {
             RootView(sheet: $sheet)
                 .environment(model)
                 .task { await model.load() }
-                .frame(minWidth: 820, minHeight: 520)
+                // The sidebar, the 300-point meeting list, and a readable meeting.
+                .frame(minWidth: 1040, minHeight: 600)
         }
-        .defaultSize(width: 1180, height: 760)
+        .defaultSize(width: 1400, height: 860)
         .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Recording…") { sheet = .record }
                     .keyboardShortcut("r", modifiers: .command)
-                    .disabled(!model.isReady)
+                    .disabled(!model.isReady || model.isRecording)
                 Button("Import Audio…") { sheet = .importAudio }
                     .keyboardShortcut("o", modifiers: .command)
                     .disabled(!model.isReady)

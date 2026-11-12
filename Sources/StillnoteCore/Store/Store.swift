@@ -140,58 +140,84 @@ public actor Store {
 
     // MARK: - Derived library index
 
+    /// The list's copy of a meeting: the document without its heavy fields, plus a short
+    /// `snippet` (the summary overview, or the first transcript line) for the meeting list.
+    private static func libraryData(_ row: String) -> String {
+        """
+        CASE WHEN json_valid(\(row).data) THEN json_set(json_remove(\(row).data,
+            '$.segments', '$.summary', '$.notes', '$.context_links'), '$.snippet',
+            substr(coalesce(nullif(trim(json_extract(\(row).data, '$.summary.overview')), ''),
+                json_extract(\(row).data, '$.segments[0].text'), ''), 1, 160)) ELSE '{}' END
+        """
+    }
+
+    private static let libraryTriggers = """
+        CREATE TRIGGER meeting_library_insert AFTER INSERT ON meetings BEGIN
+            INSERT OR REPLACE INTO meeting_library VALUES (NEW.id, \(libraryData("NEW")), 1, 1, NULL);
+        END;
+        CREATE TRIGGER meeting_library_update AFTER UPDATE ON meetings BEGIN
+            UPDATE meeting_library SET
+                data = \(libraryData("NEW")),
+                revision = revision + 1,
+                search_revision = search_revision + CASE WHEN
+                    CASE WHEN json_valid(OLD.data) AND json_valid(NEW.data)
+                    THEN json_extract(OLD.data, '$.title') = json_extract(NEW.data, '$.title')
+                        AND (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(OLD.data, '$.segments'))
+                            = (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(NEW.data, '$.segments'))
+                    ELSE 0 END
+                    THEN 0 ELSE 1 END,
+                search_text = CASE WHEN
+                    CASE WHEN json_valid(OLD.data) AND json_valid(NEW.data)
+                    THEN json_extract(OLD.data, '$.title') = json_extract(NEW.data, '$.title')
+                        AND (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(OLD.data, '$.segments'))
+                            = (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(NEW.data, '$.segments'))
+                    ELSE 0 END
+                    THEN search_text ELSE NULL END
+            WHERE id = OLD.id;
+        END;
+        CREATE TRIGGER meeting_library_delete AFTER DELETE ON meetings BEGIN
+            DELETE FROM meeting_library WHERE id = OLD.id;
+        END;
+        """
+
     /// SQLite triggers also cover writes from older app versions. The original two-column
     /// meetings table remains authoritative, so downgrades and CLI readers stay compatible.
     private static func prepareLibrary(_ db: OpaquePointer) throws {
         var statement: OpaquePointer?
-        sqlite3_prepare_v2(db, "SELECT name FROM sqlite_master WHERE name='meeting_library'", -1, &statement, nil)
-        let exists = sqlite3_step(statement) == SQLITE_ROW
+        sqlite3_prepare_v2(db, "SELECT sql FROM sqlite_master WHERE name IN ('meeting_library', 'meeting_library_update') ORDER BY name", -1, &statement, nil)
+        var definitions: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            definitions.append(sqlite3_column_text(statement, 0).map { String(cString: $0) } ?? "")
+        }
         sqlite3_finalize(statement)
-        guard !exists else { return }
+        let exists = !definitions.isEmpty
+        // Libraries indexed before the meeting list showed snippets get the current triggers,
+        // and every row its snippet, once. Revisions are left alone: nothing visible changed.
+        if exists, definitions.contains(where: { $0.contains("'$.snippet'") }) { return }
         try run(db, "BEGIN IMMEDIATE")
         do {
-            try run(db, """
-                CREATE TABLE meeting_library (
-                    id TEXT PRIMARY KEY, data TEXT NOT NULL,
-                    revision INTEGER NOT NULL, search_revision INTEGER NOT NULL, search_text TEXT
-                );
-                CREATE INDEX meeting_library_date ON meeting_library(json_extract(data, '$.created_at') DESC);
-                CREATE INDEX meeting_library_pending ON meeting_library(id) WHERE search_text IS NULL;
-                CREATE TRIGGER meeting_library_insert AFTER INSERT ON meetings BEGIN
-                    INSERT OR REPLACE INTO meeting_library VALUES (
-                        NEW.id, CASE WHEN json_valid(NEW.data) THEN json_remove(NEW.data,
-                            '$.segments', '$.summary', '$.notes', '$.context_links') ELSE '{}' END, 1, 1, NULL);
-                END;
-                CREATE TRIGGER meeting_library_update AFTER UPDATE ON meetings BEGIN
-                    UPDATE meeting_library SET
-                        data = CASE WHEN json_valid(NEW.data) THEN json_remove(NEW.data,
-                            '$.segments', '$.summary', '$.notes', '$.context_links') ELSE '{}' END,
-                        revision = revision + 1,
-                        search_revision = search_revision + CASE WHEN
-                            CASE WHEN json_valid(OLD.data) AND json_valid(NEW.data)
-                            THEN json_extract(OLD.data, '$.title') = json_extract(NEW.data, '$.title')
-                                AND (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(OLD.data, '$.segments'))
-                                    = (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(NEW.data, '$.segments'))
-                            ELSE 0 END
-                            THEN 0 ELSE 1 END,
-                        search_text = CASE WHEN
-                            CASE WHEN json_valid(OLD.data) AND json_valid(NEW.data)
-                            THEN json_extract(OLD.data, '$.title') = json_extract(NEW.data, '$.title')
-                                AND (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(OLD.data, '$.segments'))
-                                    = (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(NEW.data, '$.segments'))
-                            ELSE 0 END
-                            THEN search_text ELSE NULL END
-                    WHERE id = OLD.id;
-                END;
-                CREATE TRIGGER meeting_library_delete AFTER DELETE ON meetings BEGIN
-                    DELETE FROM meeting_library WHERE id = OLD.id;
-                END;
-                INSERT INTO meeting_library SELECT id,
-                    CASE WHEN json_valid(data) THEN json_remove(data,
-                        '$.segments', '$.summary', '$.notes', '$.context_links') ELSE '{}' END,
-                    1, 1, NULL FROM meetings;
-                COMMIT;
-                """)
+            if exists {
+                try run(db, """
+                    DROP TRIGGER IF EXISTS meeting_library_insert;
+                    DROP TRIGGER IF EXISTS meeting_library_update;
+                    DROP TRIGGER IF EXISTS meeting_library_delete;
+                    \(libraryTriggers)
+                    UPDATE meeting_library SET data = (SELECT \(libraryData("m")) FROM meetings m WHERE m.id = meeting_library.id);
+                    COMMIT;
+                    """)
+            } else {
+                try run(db, """
+                    CREATE TABLE meeting_library (
+                        id TEXT PRIMARY KEY, data TEXT NOT NULL,
+                        revision INTEGER NOT NULL, search_revision INTEGER NOT NULL, search_text TEXT
+                    );
+                    CREATE INDEX meeting_library_date ON meeting_library(json_extract(data, '$.created_at') DESC);
+                    CREATE INDEX meeting_library_pending ON meeting_library(id) WHERE search_text IS NULL;
+                    \(libraryTriggers)
+                    INSERT INTO meeting_library SELECT id, \(libraryData("meetings")), 1, 1, NULL FROM meetings;
+                    COMMIT;
+                    """)
+            }
         } catch {
             try? run(db, "ROLLBACK")
             throw error
@@ -226,7 +252,7 @@ public actor Store {
     private func libraryRows(_ id: String? = nil) throws -> [(record: Meeting, item: MeetingListItem)] {
         let db = try database()
         var statement: OpaquePointer?
-        let sql = "SELECT data, revision, search_revision FROM meeting_library"
+        let sql = "SELECT data, revision, search_revision, json_extract(data, '$.snippet') FROM meeting_library"
             + (id == nil ? " ORDER BY json_extract(data, '$.created_at') DESC" : " WHERE id=?")
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw StoreError.query(String(cString: sqlite3_errmsg(db)))
@@ -238,8 +264,10 @@ public actor Store {
         while step == SQLITE_ROW {
             if let text = sqlite3_column_text(statement, 0),
                let record = try? decoder.decode(Meeting.self, from: Data(String(cString: text).utf8)) {
+                let snippet = sqlite3_column_text(statement, 3).map { String(cString: $0) } ?? ""
                 result.append((record, MeetingListItem(record, revision: sqlite3_column_int64(statement, 1),
-                                                      searchRevision: sqlite3_column_int64(statement, 2))))
+                                                      searchRevision: sqlite3_column_int64(statement, 2),
+                                                      snippet: snippet)))
             }
             step = sqlite3_step(statement)
         }
