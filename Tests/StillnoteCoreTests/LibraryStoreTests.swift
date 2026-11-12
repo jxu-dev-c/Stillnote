@@ -71,6 +71,66 @@ import Testing
         #expect(try await store.libraryItems().isEmpty)
     }
 
+    @Test func snippetsComeFromTheSummaryThenTheTranscript() async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        try await store.insert(meeting())
+        #expect(try await store.libraryItem("a").snippet == "Launch 产品")
+        let overview = String(repeating: "Ship it. ", count: 30)
+        let updated = try await store.update("a") {
+            $0.summary = MeetingSummary(overview: overview, keyPoints: [], decisions: [], actionItems: [],
+                                        provider: "codex", model: "m", generatedAt: "now")
+        }
+        let item = try await store.libraryItem("a")
+        #expect(item.snippet == String(overview.prefix(160)))
+        // The app's own copy, built from a full document, says the same.
+        #expect(MeetingListItem(updated).snippet == item.snippet)
+        try await store.update("a") { $0.segments = []; $0.summary = nil }
+        #expect(try await store.libraryItem("a").snippet.isEmpty)
+    }
+
+    /// A library indexed by an earlier build gets snippets on its next writable open, without a
+    /// revision bump that would look like an edit.
+    @Test func earlierIndexesGainSnippets() async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let json = String(decoding: try JSONEncoder().encode(meeting()), as: UTF8.self).replacingOccurrences(of: "'", with: "''")
+        try sql(paths, """
+            CREATE TABLE meetings(id TEXT PRIMARY KEY,data TEXT NOT NULL);
+            CREATE TABLE meeting_library (id TEXT PRIMARY KEY, data TEXT NOT NULL,
+                revision INTEGER NOT NULL, search_revision INTEGER NOT NULL, search_text TEXT);
+            CREATE TRIGGER meeting_library_insert AFTER INSERT ON meetings BEGIN
+                INSERT OR REPLACE INTO meeting_library VALUES (NEW.id, json_remove(NEW.data, '$.segments', '$.summary'), 1, 1, NULL);
+            END;
+            CREATE TRIGGER meeting_library_update AFTER UPDATE ON meetings BEGIN
+                UPDATE meeting_library SET data = json_remove(NEW.data, '$.segments'), revision = revision + 1 WHERE id = OLD.id;
+            END;
+            INSERT INTO meetings VALUES ('a','\(json)');
+            """)
+        let store = try Store(paths: paths)
+        let item = try await store.libraryItem("a")
+        #expect(item.snippet == "Launch 产品")
+        #expect(item.revision == 1)
+        try await store.update("a") { $0.segments[0].text = "Rewritten" }
+        let edited = try await store.libraryItem("a")
+        #expect(edited.snippet == "Rewritten")
+        #expect(edited.revision == 2)
+        // Opening again leaves the current triggers in place.
+        _ = try Store(paths: paths)
+        #expect(try await store.libraryItem("a").revision == 2)
+    }
+
+    @Test func actionItemCompletionIsOptional() throws {
+        let decoded = try JSONDecoder().decode(ActionItem.self, from: Data(#"{"text":"Ship","owner":null,"due":null}"#.utf8))
+        #expect(decoded.completed == nil)
+        let open = String(decoding: try JSONEncoder().encode(ActionItem(text: "Ship")), as: UTF8.self)
+        #expect(!open.contains("completed"))
+        let done = try JSONDecoder().decode(ActionItem.self, from: JSONEncoder().encode(ActionItem(text: "Ship", completed: true)))
+        #expect(done.completed == true)
+        #expect(done.id == decoded.id)
+    }
+
     @Test func malformedDocumentsDoNotBreakIndexRecovery() async throws {
         let paths = try temporaryPaths()
         defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }

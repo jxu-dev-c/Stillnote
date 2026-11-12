@@ -39,6 +39,8 @@ public final class RecordingCoordinator {
     public private(set) var session: RecordingSessionState?
     public private(set) var microphoneLevel: CaptureLevel?
     public private(set) var systemLevel: CaptureLevel?
+    /// When `session.elapsed` was last reported, so a clock can run smoothly between reports.
+    @ObservationIgnored public private(set) var elapsedReportedAt = Date()
 
     private let store: Store
     private let paths: Paths
@@ -50,6 +52,14 @@ public final class RecordingCoordinator {
     public init(store: Store, paths: Paths) {
         self.store = store
         self.paths = paths
+    }
+
+    /// The recorded time at `date`: the last reported time, plus the time since while recording.
+    /// Reports arrive every 200 ms; the estimate never runs more than half a second ahead.
+    public func liveElapsed(at date: Date) -> Double {
+        guard let session else { return 0 }
+        guard session.status == .recording else { return session.elapsed }
+        return session.elapsed + min(0.5, max(0, date.timeIntervalSince(elapsedReportedAt)))
     }
 
     public var isRecoveredSession: Bool { session?.status == .stopped && capture == nil }
@@ -339,6 +349,7 @@ public final class RecordingCoordinator {
         case .state(let status, let elapsed, let error):
             state.status = status
             state.elapsed = elapsed
+            elapsedReportedAt = Date()
             if let error { state.error = error }
             session = state
             persist(state)
@@ -346,6 +357,7 @@ public final class RecordingCoordinator {
             microphoneLevel = microphone
             systemLevel = system
             state.elapsed = elapsed
+            elapsedReportedAt = Date()
             session = state
         }
     }

@@ -5,7 +5,7 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @Binding var sheet: RootSheet?
     @State private var selection: String?
-    @State private var search = ""
+    @State private var feedback = Feedback()
     @SceneStorage("sidebarDestination") private var storedDestination: SidebarDestination = .all
 
     /// The stored destination, or All Meetings when it names a category that was deleted.
@@ -20,7 +20,6 @@ struct RootView: View {
     }
 
     var body: some View {
-        @Bindable var model = model
         Group {
             if !model.isReady {
                 // The window is shown before any filesystem work, so macOS can present
@@ -30,55 +29,34 @@ struct RootView: View {
                 NavigationSplitView {
                     SidebarView(destination: destination, selection: $selection)
                 } detail: {
-                    if let selection {
-                        if let meeting = model.meeting(selection) {
-                            MeetingDetailView(meeting: meeting, selection: $selection)
-                                .id(meeting.id)
-                        } else if let error = model.detailError {
-                            ContentUnavailableView {
-                                Label("Could not load meeting", systemImage: "exclamationmark.triangle")
-                            } description: { Text(error) } actions: {
-                                Button("Try Again") { Task { await model.loadDetail(selection) } }
-                            }
-                        } else {
-                            ProgressView("Loading meeting…")
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
-                    } else {
-                        MeetingListView(
-                            destination: destination.wrappedValue, selection: $selection,
-                            search: $search, sheet: $sheet
-                        )
-                    }
+                    library
+                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                        .ignoresSafeArea(.container, edges: .top)
                 }
                 .navigationSplitViewStyle(.balanced)
-                .toolbar {
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        Button { sheet = .record } label: {
-                            ToolbarIcon("New Recording", systemImage: "record.circle")
-                        }
-                        .help("New Recording (⌘R)")
-                        Button { sheet = .importAudio } label: {
-                            ToolbarIcon("Import Audio", systemImage: "arrow.down.circle")
-                        }
-                        .help("Import Audio (⌘O)")
-                    }
-                }
+                .toolbar(removing: .title)
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             }
         }
-        .task(id: selection) { await model.loadDetail(selection) }
+        .background { WindowBackdrop().ignoresSafeArea() }
+        .environment(feedback)
+        .task(id: selection) { await model.loadDetail(selection == RecordingSelection.id ? nil : selection) }
         .onChange(of: model.meetings.count) { _, _ in
-            if let selection, model.libraryItem(selection) == nil {
+            if let selection, selection != RecordingSelection.id, model.libraryItem(selection) == nil {
                 self.selection = nil
             }
         }
-        // All entry points (menu bar, CLI, reminders, and this window) share the
-        // recorder. Present its session even when it began outside this view.
+        // All entry points (menu bar, CLI, reminders, and this window) share the recorder.
+        // The window shows a recording wherever it began.
         .onChange(of: model.isReady ? model.recorder.session?.id : nil, initial: true) { _, sessionID in
             if sessionID != nil {
-                sheet = .record
-            } else if sheet == .record {
-                sheet = nil
+                if sheet == .record { sheet = nil }
+                if destination.wrappedValue == .calendar || !destination.wrappedValue.showsRecording {
+                    destination.wrappedValue = .all
+                }
+                selection = RecordingSelection.id
+            } else if selection == RecordingSelection.id {
+                selection = nil
             }
         }
         .sheet(item: $sheet) { item in
@@ -96,6 +74,49 @@ struct RootView: View {
         }
     }
 
+    /// The meeting list and the open meeting, or the calendar in their place.
+    @ViewBuilder
+    private var library: some View {
+        if destination.wrappedValue == .calendar {
+            MeetingCalendarView(destination: destination, selection: $selection, sheet: $sheet)
+        } else {
+            HStack(spacing: 0) {
+                MeetingListPane(destination: destination.wrappedValue, selection: $selection, sheet: $sheet)
+                Hairline(vertical: true)
+                detail
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        if let selection {
+            if selection == RecordingSelection.id {
+                RecordingPage(selection: $selection)
+            } else if let meeting = model.meeting(selection) {
+                MeetingDetailView(meeting: meeting, selection: $selection)
+                    .id(meeting.id)
+            } else if let error = model.detailError {
+                DetailMessage(title: "Could not load meeting", detail: error) {
+                    Button("Try Again") { Task { await model.loadDetail(selection) } }
+                }
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } else {
+            DetailMessage(
+                title: model.meetings.isEmpty ? "Record your first meeting" : "No meeting selected",
+                detail: model.meetings.isEmpty
+                    ? "Choose New Meeting to start recording, or import a recording with ⌘O."
+                    : "Choose a meeting from the list to read its summary and transcript."
+            ) { EmptyView() }
+            .toastOverlay(feedback, top: 84)
+        }
+    }
+
     @ViewBuilder
     private var starting: some View {
         if let error = model.startupError {
@@ -110,6 +131,38 @@ struct RootView: View {
             ProgressView(model.startupStage)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+}
+
+extension SidebarDestination {
+    /// The destinations whose list includes today's meetings, and so the recording.
+    var showsRecording: Bool {
+        switch self {
+        case .all, .today, .calendar: true
+        default: false
+        }
+    }
+}
+
+/// A centered title and explanation for an empty or failed detail.
+private struct DetailMessage<Actions: View>: View {
+    let title: String
+    let detail: String
+    @ViewBuilder let actions: Actions
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(DS.text)
+            Text(detail)
+                .font(.system(size: 13))
+                .foregroundStyle(DS.text2)
+                .multilineTextAlignment(.center)
+            actions.padding(.top, 8)
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

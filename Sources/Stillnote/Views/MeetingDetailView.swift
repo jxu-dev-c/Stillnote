@@ -2,115 +2,78 @@ import StillnoteCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum MeetingTab: String, CaseIterable, Identifiable {
-    case summary, transcript, context
-    var id: String { rawValue }
-    var label: String { rawValue.capitalized }
+enum MeetingPage: String {
+    case transcript, summary
+}
+
+/// Which speaker the Assign Speaker popover is about: a whole voice from a header portrait,
+/// or one line from the transcript's speaker chip.
+enum PickerTarget: Equatable {
+    case voice(String)
+    case line(String)
 }
 
 struct MeetingDetailView: View {
     @Environment(AppModel.self) private var model
+    @Environment(Feedback.self) private var feedback
     @Environment(\.openSettings) private var openSettings
     let meeting: Meeting
     @Binding var selection: String?
 
-    @State private var tab: MeetingTab = .summary
+    @State private var page: MeetingPage
     @State private var title = ""
     @FocusState private var titleFocused: Bool
     @State private var pendingTitle: String?
     @State private var player: PlayerModel?
-    @State private var confirmingDelete = false
-    @State private var confirmingSplit = false
+    @State private var lyrics = LyricsState()
+    @State private var picker: PickerTarget?
+    @State private var query = ""
     @State private var retranscribing = false
+    @State private var confirmingSplit = false
     @State private var exporting: ExportDocument?
-    @State private var notesDirty = false
+
+    init(meeting: Meeting, selection: Binding<String?>) {
+        self.meeting = meeting
+        _selection = selection
+        // Summarized meetings open on their summary; everything else on the transcript.
+        _page = State(initialValue: meeting.summary != nil && !meeting.status.isBusy ? .summary : .transcript)
+    }
+
+    private var naming: Bool { model.namingMeetings.contains(meeting.id) }
+    private var splitting: Bool { model.splittingMeetings.contains(meeting.id) }
+    private var busy: Bool { meeting.status.isBusy || splitting }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                header
-                if let error = meeting.error, meeting.status != .transcribing {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                        .font(StillnoteTheme.detailBodyFont)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentPanel()
+        VStack(spacing: 0) {
+            DetailToolbar(
+                actionsEnabled: !busy, deleteEnabled: !busy, page: $page, query: $query,
+                onSearch: searchTranscript(advance:)
+            ) {
+                actionButtons
+            } delete: {
+                ToolbarIconButton(icon: .trash, label: "Delete Meeting", tint: DS.danger, enabled: !busy) {
+                    selection = nil
+                    feedback.delete(MeetingListItem(meeting), model: model)
                 }
-                content
             }
-            .frame(maxWidth: StillnoteTheme.readingWidth, alignment: .leading)
-            .padding(StillnoteTheme.contentInset)
-            .frame(maxWidth: .infinity)
+            main
         }
-        .disabled(splitting)
-        .background(.background)
-        .playbackBar {
-            if let player {
-                PlayerView(player: player)
-                    .frame(maxWidth: StillnoteTheme.readingWidth)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-                    .padding(.bottom, 16)
-                    .frame(maxWidth: .infinity)
-            }
-        }
-        .navigationTitle(meeting.title)
-        // The heading already names the meeting. Keep room for navigation at compact
-        // widths; macOS retains the title in the Window menu and accessibility.
-        .toolbar(removing: .title)
-        .toolbar { toolbar }
         .onAppear {
             title = meeting.title
             if player == nil { player = PlayerModel(meeting: meeting, paths: model.paths) }
         }
-        .onDisappear(perform: commitTitle)
-        .confirmationDialog(
-            "Delete “\(meeting.title)”?", isPresented: $confirmingDelete, titleVisibility: .visible
-        ) {
-            Button("Delete Meeting", role: .destructive) {
-                Task {
-                    await model.delete(meeting.id)
-                    selection = nil
-                }
-            }
-        } message: {
-            Text("This permanently deletes the recording, transcript, summary, and context.")
+        .onDisappear {
+            commitTitle()
+            player?.player.pause()
         }
+        .onChange(of: meeting.status) { old, new in
+            // A finished summary is what the user was waiting for.
+            if old == .summarizing, new == .complete, meeting.summary != nil, picker == nil { page = .summary }
+        }
+        .onChange(of: query) { _, _ in searchTranscript(advance: false) }
+        .sheet(isPresented: $retranscribing) { RetranscribeSheet(meeting: meeting) }
         .sheet(isPresented: $confirmingSplit) {
-            VStack(alignment: .leading, spacing: 20) {
-                Label("Split Recording?", systemImage: "scissors")
-                    .font(.title2.bold())
-                Text("This replaces “\(meeting.title)” and its complete audio with these parts. The original summary will be removed. This cannot be undone.")
-                if let parts = try? RecordingSplit.parts(meeting) {
-                    ForEach(parts) { part in
-                        HStack {
-                            Text(part.title).lineLimit(2)
-                            Spacer()
-                            Text(Formatting.duration(part.duration)).monospacedDigit()
-                        }
-                    }
-                }
-                Text("Transcript sentences are assigned by their midpoint and timestamps restart in each part. Notes and context links are copied to every part. Summaries start empty.")
-                    .font(.callout).foregroundStyle(.secondary)
-                HStack {
-                    Spacer()
-                    Button("Cancel", role: .cancel) { confirmingSplit = false }
-                        .keyboardShortcut(.cancelAction)
-                    Button("Split and Replace Original", role: .destructive) {
-                        confirmingSplit = false
-                        player?.player.pause()
-                        Task {
-                            if let parts = await model.splitRecording(meeting.id) { selection = parts.first?.id }
-                        }
-                    }
-                    .disabled(meeting.status.isBusy || naming || !model.splittingMeetings.isEmpty)
-                }
-            }
-            .padding(24)
-            .frame(width: 480)
-        }
-        .sheet(isPresented: $retranscribing) {
-            RetranscribeSheet(meeting: meeting)
+            SplitRecordingSheet(meeting: meeting, selection: $selection) { player?.player.pause() }
         }
         .fileExporter(
             isPresented: Binding(get: { exporting != nil }, set: { if !$0 { exporting = nil } }),
@@ -120,267 +83,188 @@ struct MeetingDetailView: View {
         ) { _ in exporting = nil }
     }
 
-    // MARK: - Header
+    // MARK: Toolbar
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        let hasTranscript = !meeting.segments.isEmpty
+        ToolbarIconButton(icon: .nameMeeting, label: "Name Meeting", busy: naming,
+                          enabled: hasTranscript && !busy && !naming) {
+            // The provider chosen in Settings is the consent, so naming starts straight away.
+            Task { await model.suggestTitle(meeting.id, allowRemote: true) }
+        }
+        let blocker = model.autoTagBlocker(meeting)
+        ToolbarIconButton(icon: .autoTag, label: "Auto-Tag Speakers",
+                          help: blocker ?? "Link untagged speakers to the profiles their voices match",
+                          busy: model.autoTaggingMeetings.contains(meeting.id),
+                          enabled: hasTranscript && blocker == nil && !busy) {
+            Task {
+                do {
+                    let outcome = try await model.autoTag(meeting.id)
+                    feedback.show(outcome.summary)
+                } catch {
+                    model.report(error)
+                }
+            }
+        }
+        ToolbarIconButton(icon: .transcribeAgain, label: hasTranscript ? "Transcribe Again" : "Transcribe",
+                          enabled: !busy && model.speech.ready) {
+            if hasTranscript {
+                retranscribing = true
+            } else {
+                Task { await model.transcribe(meeting.id) }
+            }
+        }
+        ToolbarIconButton(icon: .regenerate, label: meeting.summary == nil ? "Create Summary" : "Regenerate Summary",
+                          enabled: hasTranscript && !busy) {
+            summarize()
+        }
+    }
+
+    // MARK: Main
+
+    private var main: some View {
+        VStack(spacing: 0) {
+            header
+            switch page {
+            case .transcript:
+                TranscriptPage(
+                    meeting: meeting, player: player, lyrics: lyrics, picker: $picker,
+                    retranscribe: { retranscribing = true }
+                )
+            case .summary:
+                SummaryPage(meeting: meeting, summarize: summarize)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .coordinateSpace(.named(PickerSpace.name))
+        .overlayPreferenceValue(PickerAnchors.self) { anchors in
+            if let picker, page == .transcript {
+                SpeakerPickerOverlay(
+                    meeting: meeting, target: picker, anchors: anchors, player: player,
+                    close: { self.picker = nil }
+                )
+            }
+        }
+        .toastOverlay(feedback, top: 12)
+        .onChange(of: page) { _, _ in picker = nil }
+    }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: .bottom, spacing: 16) {
+            VStack(alignment: .leading, spacing: 0) {
                 TextField("Meeting title", text: $title)
                     .textFieldStyle(.plain)
-                    .font(StillnoteTheme.detailTitleFont)
+                    .font(.system(size: 30, weight: .bold))
+                    .letterSpacing(-0.025, size: 30)
+                    .foregroundStyle(DS.text)
+                    .frame(height: 34.5)
                     .accessibilityLabel("Meeting title")
-                    .disabled(meeting.status.isBusy || naming)
+                    .disabled(busy || naming)
                     .focused($titleFocused)
                     .onSubmit(commitTitle)
-                    .onChange(of: titleFocused) {
-                        if !titleFocused { commitTitle() }
-                    }
-                    .onChange(of: meeting.id) { title = meeting.title }
+                    .onChange(of: titleFocused) { if !titleFocused { commitTitle() } }
                     // Name Meeting replaces the title from outside this field.
                     .onChange(of: meeting.title) { title = meeting.title }
-                if !meeting.segments.isEmpty {
-                    nameButton
+                    .contextMenu { moreItems }
+                HStack(spacing: 10) {
+                    if let pill = statusPill { pill }
+                    Text(subtitle)
+                        .font(.system(size: 13.5))
+                        .foregroundStyle(DS.text2)
+                        .lineLimit(1)
+                        .help(cleanupNote ?? "")
                 }
+                .padding(.top, 6)
+                .frame(minHeight: 22)
             }
+            Spacer(minLength: 0)
+            if !meeting.segments.isEmpty {
+                VoicePortraits(
+                    meeting: meeting, current: meeting.segments.indices.contains(lyrics.focus) ? meeting.segments[lyrics.focus].speaker : nil,
+                    picker: $picker,
+                    enabled: !busy, openPicker: { page = .transcript }
+                )
+                .padding(.bottom, 2)
+            }
+        }
+        .padding(EdgeInsets(top: 14, leading: 28, bottom: 4, trailing: 28))
+        .zIndex(1)
+    }
 
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 16) {
-                    metadata
-                    Spacer(minLength: 0)
-                    headerActions
-                }
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) { metadata }
-                    headerActions
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-            }
-
-            if splitting {
-                HStack {
-                    ProgressView().controlSize(.small)
-                    Text("Splitting recording…")
-                    Text(model.splitProgress[meeting.id] ?? "Preparing…").foregroundStyle(.secondary)
-                }
-            }
-            if meeting.status.isBusy {
-                jobProgress
-            }
+    private var statusPill: StatusPill? {
+        if splitting { return StatusPill(text: "Splitting", tone: .accent) }
+        switch meeting.status {
+        case .transcribing: return StatusPill(text: "Transcribing", tone: .accent)
+        case .summarizing: return StatusPill(text: "Summarizing", tone: .accent)
+        case .error: return StatusPill(text: "Needs attention", tone: .warning)
+        default: return naming ? StatusPill(text: "Naming", tone: .accent) : nil
         }
     }
 
-    private var splitting: Bool { model.splittingMeetings.contains(meeting.id) }
-
-    private var naming: Bool { model.namingMeetings.contains(meeting.id) }
-
-    private var nameButton: some View {
-        // The provider chosen in Settings is the consent, so naming starts straight away.
-        Button { Task { await model.suggestTitle(meeting.id, allowRemote: true) } } label: {
-            if naming {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text("Naming…")
-                }
-            } else {
-                Label("Name Meeting", systemImage: "wand.and.sparkles")
-            }
-        }
-        .font(StillnoteTheme.detailSupportingFont)
-        .buttonStyle(.borderless)
-        .fixedSize()
-        .disabled(meeting.status.isBusy || naming)
-        .help("Suggest a title from this meeting's summary, or its transcript when there is no summary")
+    private var subtitle: String {
+        if meeting.status == .error, let error = meeting.error { return error }
+        let start = meeting.startDate
+        var parts = ["\(MeetingText.day(start)) at \(MeetingText.time(start))"]
+        if meeting.duration > 0 { parts.append(MeetingText.length(meeting.duration)) }
+        if meeting.source == .import { parts.append("Imported") }
+        return parts.joined(separator: " · ")
     }
 
-    private var headerActions: some View {
-        HStack(spacing: 16) {
-            if model.canSplit(meeting) {
-                Button { confirmingSplit = true } label: {
-                    Label("Split Recording", systemImage: "scissors")
-                }
-                .font(StillnoteTheme.detailSupportingFont)
-                .buttonStyle(.borderless)
-                .disabled(meeting.status.isBusy || naming || !model.splittingMeetings.isEmpty)
-            }
-            if tab == .summary, meeting.summary != nil, !meeting.segments.isEmpty {
-                Button(action: summarize) {
-                    Label("Regenerate", systemImage: "arrow.clockwise")
-                }
-                .font(StillnoteTheme.detailSupportingFont)
-                .buttonStyle(.borderless)
-                .disabled(meeting.status.isBusy || splitting)
-            }
-            MeetingStatusLabel(status: meeting.status, font: StillnoteTheme.detailSupportingFont.weight(.medium))
-        }
-        .fixedSize(horizontal: true, vertical: false)
+    private var cleanupNote: String? {
+        guard let cleanup = meeting.cleanup, cleanup.removedDuration > 0 else { return nil }
+        return "Trimmed \(Formatting.duration(cleanup.removedDuration)) of silence from \(Formatting.duration(cleanup.originalDuration))"
     }
 
+    /// Less frequent meeting actions, kept on the title's context menu.
     @ViewBuilder
-    private var metadata: some View {
-        Group {
-            Label {
-                Text(meeting.createdDate, format: .dateTime.month(.abbreviated).day().year())
-            } icon: {
-                Image(systemName: "calendar")
-            }
-            Label {
-                Text(meeting.duration > 0 ? Formatting.duration(meeting.duration) : "Audio saved")
-                    .monospacedDigit()
-            } icon: {
-                Image(systemName: "clock")
-            }
-            Label(meeting.speakers.isEmpty ? "No speakers" : "\(meeting.speakers.count) \(meeting.speakers.count == 1 ? "speaker" : "speakers")",
-                  systemImage: "person.2")
-            // Keep the split action and trim badge mutually exclusive in this row.
-            // Cleanup metadata remains on the meeting when the badge is hidden.
-            if !model.canSplit(meeting), let cleanup = meeting.cleanup, cleanup.removedDuration > 0 {
-                Label {
-                    Text("Trimmed \(Formatting.duration(cleanup.removedDuration)) of silence from \(Formatting.duration(cleanup.originalDuration))")
-                        .monospacedDigit()
-                } icon: {
-                    Image(systemName: "scissors")
+    private var moreItems: some View {
+        Button("Copy Summary") {
+            guard let summary = meeting.summary else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(Exporter.summaryText(summary), forType: .string)
+        }
+        .disabled(meeting.summary == nil)
+        Menu("Export") {
+            ForEach(ExportFormat.allCases, id: \.self) { format in
+                Button(format.label) {
+                    exporting = ExportDocument(text: Exporter.text(meeting, format: format), format: format)
                 }
             }
         }
-        .font(StillnoteTheme.detailSupportingFont)
-        .foregroundStyle(.secondary)
-        .fixedSize()
-    }
-
-    private var jobProgress: some View {
-        HStack(spacing: 12) {
-            ProgressView(
-                value: meeting.progress, total: 100,
-                label: {
-                    Text(meeting.status == .transcribing ? "Transcribing" : "Summarizing")
-                        .font(StillnoteTheme.detailSupportingFont.weight(.medium))
-                },
-                currentValueLabel: {
-                    Text(meeting.stage.isEmpty ? "Preparing…" : meeting.stage)
-                        .font(StillnoteTheme.detailSupportingFont)
-                        .foregroundStyle(.secondary)
-                }
-            )
-            if meeting.status == .transcribing {
-                Button("Stop") { Task { await model.cancelTranscription(meeting.id) } }
-                    .font(StillnoteTheme.detailSupportingFont)
-                    .disabled(meeting.stage == "Stopping transcription…")
-            }
+        .disabled(busy)
+        if model.canSplit(meeting) {
+            Button("Split Recording…") { confirmingSplit = true }
+                .disabled(busy || naming || !model.splittingMeetings.isEmpty)
+        }
+        Divider()
+        Button("Reveal Original Audio in Finder") {
+            NSWorkspace.shared.activateFileViewerSelecting([model.paths.audioURL(meeting.id)])
         }
     }
 
-    @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .principal) {
-            Picker("Meeting view", selection: $tab) {
-                ForEach(MeetingTab.allCases) { tab in
-                    Text(tab == .context && notesDirty ? "\(tab.label) •" : tab.label).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-        }
-        ToolbarItemGroup(placement: .primaryAction) {
-            Menu {
-                Button("Copy Summary", systemImage: "doc.on.doc") {
-                    guard let summary = meeting.summary else { return }
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(Exporter.summaryText(summary), forType: .string)
-                }
-                .disabled(meeting.summary == nil)
-                Divider()
-                ForEach(ExportFormat.allCases, id: \.self) { format in
-                    Button(format.label) {
-                        exporting = ExportDocument(text: Exporter.text(meeting, format: format), format: format)
-                    }
-                }
-                Divider()
-                Button("Reveal Original Audio in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([model.paths.audioURL(meeting.id)])
-                }
-                if meeting.hasVideo {
-                    Button("Reveal Screen Recording in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([model.paths.videoURL(meeting.id)])
-                    }
-                }
-            } label: {
-                ToolbarIcon("Export", systemImage: "square.and.arrow.up")
-            }
-            .help("Export Meeting")
-            .disabled(meeting.status.isBusy || splitting)
-
-            Menu {
-                Button("Delete Meeting…", role: .destructive) {
-                    confirmingDelete = true
-                }
-            } label: {
-                ToolbarIcon("More", systemImage: "ellipsis")
-            }
-            .help("More Meeting Actions")
-            .disabled(meeting.status.isBusy || splitting)
-        }
-        if #available(macOS 26, *) {
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-        }
-    }
-
-    // MARK: - Content
-
-    @ViewBuilder
-    private var content: some View {
-        if meeting.segments.isEmpty && tab != .context {
-            emptyTranscript
-        } else {
-            switch tab {
-            case .summary:
-                SummaryTab(meeting: meeting, requestSummary: summarize)
-            case .transcript:
-                TranscriptTab(meeting: meeting, player: player, retranscribe: { retranscribing = true })
-            case .context:
-                ContextTab(meeting: meeting, notesDirty: $notesDirty)
-            }
-        }
-    }
-
-    private var emptyTranscript: some View {
-        ContentUnavailableView {
-            Label(emptyTitle, systemImage: "text.alignleft")
-        } description: {
-            Text(emptyDescription)
-        } actions: {
-            if meeting.status != .transcribing {
-                if model.speech.ready {
-                    Button("Transcribe Recording") { Task { await model.transcribe(meeting.id) } }
-                        .primaryActionStyle()
-                } else {
-                    Button("Set Up Transcription") { openSettings() }
-                        .primaryActionStyle()
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var emptyTitle: String {
-        if meeting.status == .transcribing { return "Transcribing…" }
-        if meeting.status == .transcribed || meeting.status == .complete { return "No speech detected" }
-        return "No transcript yet"
-    }
-
-    private var emptyDescription: String {
-        if meeting.status == .transcribing { return meeting.stage }
-        if meeting.status == .transcribed || meeting.status == .complete {
-            return "Your audio is saved. Check the microphone, language, or try a clearer recording."
-        }
-        return model.speech.ready
-            ? "Transcribe this recording to get a speaker-labeled transcript."
-            : model.speech.detail
-    }
+    // MARK: Actions
 
     /// The provider chosen in Settings is the consent, so a summary starts straight away.
     private func summarize() {
         Task { await model.summarize(meeting.id, allowRemote: true) }
+    }
+
+    /// Moves the transcript to the next line matching the search, or the first one as the query changes.
+    private func searchTranscript(advance: Bool) {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { lyrics.matches = []; return }
+        let matches = meeting.segments.indices.filter {
+            meeting.segments[$0].text.localizedCaseInsensitiveContains(needle)
+                || meeting.speakerName(meeting.segments[$0].speaker).localizedCaseInsensitiveContains(needle)
+        }
+        lyrics.matches = matches
+        guard !matches.isEmpty else { return }
+        page = .transcript
+        let next = advance
+            ? matches.first { $0 > lyrics.focus } ?? matches[0]
+            : matches.first { $0 >= lyrics.focus } ?? matches[0]
+        lyrics.browse(to: next)
     }
 
     private func commitTitle() {
@@ -401,6 +285,326 @@ struct MeetingDetailView: View {
             }
             if pendingTitle == cleaned { pendingTitle = nil }
         }
+    }
+}
+
+// MARK: - Toolbar
+
+/// The detail's toolbar row: meeting actions, delete, the page switcher, and transcript search.
+struct DetailToolbar<Actions: View, Delete: View>: View {
+    let actionsEnabled: Bool
+    let deleteEnabled: Bool
+    @Binding var page: MeetingPage
+    @Binding var query: String
+    let onSearch: (Bool) -> Void
+    @ViewBuilder let actions: Actions
+    @ViewBuilder let delete: Delete
+
+    var body: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 2) { actions }
+                .padding(.horizontal, 3)
+                .frame(height: 36)
+                .designGlassCapsule()
+                .opacity(actionsEnabled ? 1 : 0.38)
+                .fixedSize()
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Meeting actions")
+            HStack(spacing: 2) { delete }
+                .padding(.horizontal, 3)
+                .frame(height: 36)
+                .designGlassCapsule()
+                .opacity(deleteEnabled ? 1 : 0.38)
+                .fixedSize()
+            Spacer(minLength: 0)
+            // Narrow windows keep the switcher's icons and let search shrink first.
+            ViewThatFits(in: .horizontal) {
+                PageSwitcher(page: $page, compact: false).fixedSize()
+                PageSwitcher(page: $page, compact: true).fixedSize()
+            }
+            .layoutPriority(1)
+            Spacer(minLength: 0)
+            ViewThatFits(in: .horizontal) {
+                SearchCapsule(query: $query, placeholder: "Search transcript", onSubmit: { onSearch(true) })
+                    .frame(minWidth: 160, maxWidth: 216)
+                SearchCapsule(query: $query, placeholder: "Search", onSubmit: { onSearch(true) })
+                    .frame(minWidth: 36, maxWidth: 110)
+            }
+        }
+        .padding(EdgeInsets(top: 28, leading: 28, bottom: 8, trailing: 28))
+        .frame(height: 72)
+    }
+}
+
+struct ToolbarIconButton: View {
+    let icon: DesignIcon
+    let label: String
+    var help: String?
+    var tint: Color = DS.text
+    var busy = false
+    var enabled = true
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Group {
+                if busy {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Icon(icon, size: 20)
+                }
+            }
+            .foregroundStyle(tint)
+            .frame(width: 40, height: 30)
+            .hoverFill(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled || busy)
+        .help(help ?? label)
+        .accessibilityLabel(label)
+    }
+}
+
+private struct PageSwitcher: View {
+    @Binding var page: MeetingPage
+    let compact: Bool
+
+    var body: some View {
+        HStack(spacing: 2) {
+            tab(.transcript, "Transcript", icon: .transcript, lineWidth: 1.9)
+            tab(.summary, "Summary", icon: .sparkle, lineWidth: 1.8)
+        }
+        .padding(.horizontal, 3)
+        .frame(height: 36)
+        .designGlassCapsule()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Meeting pages")
+    }
+
+    private func tab(_ value: MeetingPage, _ title: String, icon: DesignIcon, lineWidth: CGFloat) -> some View {
+        let selected = page == value
+        return Button { page = value } label: {
+            HStack(spacing: 7) {
+                Icon(icon, size: 17, lineWidth: lineWidth)
+                if !compact { Text(title).font(.system(size: 13, weight: .semibold)) }
+            }
+            .foregroundStyle(selected ? Color.white : DS.text2)
+            .padding(.leading, compact ? 12 : 11)
+            .padding(.trailing, compact ? 12 : 14)
+            .frame(height: 30)
+            .background(selected ? DS.selection : .clear, in: .capsule)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+struct SearchCapsule: View {
+    @Binding var query: String
+    let placeholder: String
+    var onSubmit: () -> Void = {}
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Icon(.search, size: 17, lineWidth: 1.8)
+            TextField(placeholder, text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14))
+                .foregroundStyle(DS.text)
+                .onSubmit(onSubmit)
+                .onExitCommand { query = "" }
+                .accessibilityLabel(placeholder)
+        }
+        .foregroundStyle(DS.text2)
+        .padding(.horizontal, 10)
+        .frame(height: 36)
+        .designGlassCapsule()
+        .clipShape(.capsule)
+    }
+}
+
+/// The header's colored status: a dot and a word.
+struct StatusPill: View {
+    enum Tone { case accent, record, warning }
+    let text: String
+    let tone: Tone
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if tone == .record {
+                PulsingDot(color: DS.record, size: 7)
+            } else {
+                Circle().fill(dot).frame(width: 7, height: 7)
+            }
+            Text(text).font(.system(size: 12, weight: .semibold))
+        }
+        .foregroundStyle(ink)
+        .padding(.leading, 8)
+        .padding(.trailing, 10)
+        .frame(height: 22)
+        .background(fill, in: .capsule)
+    }
+
+    private var dot: Color {
+        switch tone {
+        case .accent: DS.accent
+        case .record: DS.record
+        case .warning: .orange
+        }
+    }
+
+    private var ink: Color {
+        switch tone {
+        case .accent: DS.accentInk
+        case .record: DS.danger
+        case .warning: .orange
+        }
+    }
+
+    private var fill: Color {
+        switch tone {
+        case .accent: DS.Accent.blue.tint
+        case .record: DS.recordTint
+        case .warning: Color.orange.opacity(0.18)
+        }
+    }
+}
+
+// MARK: - Speakers
+
+/// One portrait per voice. Choosing one opens Assign Speaker for every line in that voice.
+private struct VoicePortraits: View {
+    let meeting: Meeting
+    let current: String?
+    @Binding var picker: PickerTarget?
+    let enabled: Bool
+    let openPicker: () -> Void
+
+    var body: some View {
+        let order = meeting.speakerOrder
+        HStack(spacing: 8) {
+            ForEach(order, id: \.self) { id in
+                let look = meeting.look(id)
+                let open = picker == .voice(id)
+                let lines = meeting.segments.count { $0.speaker == id }
+                Button {
+                    if open {
+                        picker = nil
+                    } else {
+                        openPicker()
+                        picker = .voice(id)
+                    }
+                } label: {
+                    SpeakerPortrait(look: look, size: 32, fontSize: 13)
+                        .overlay {
+                            if open {
+                                Circle().stroke(DS.menuSolid, lineWidth: 2).padding(-2)
+                                Circle().stroke(DS.accent, lineWidth: 2).padding(-4)
+                            }
+                        }
+                        .frame(width: 40, height: 40)
+                        .hoverFill(Circle())
+                        .overlay(alignment: .bottom) {
+                            if current == id {
+                                Capsule().fill(DS.accent).frame(width: 14, height: 3).offset(y: 3)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .disabled(!enabled)
+                .help(enabled ? look.name : "Available when processing finishes")
+                .accessibilityLabel("\(look.unknown ? "Identify" : "Change speaker for") \(look.name), \(lines) \(lines == 1 ? "line" : "lines")")
+                .anchorPreference(key: PickerAnchors.self, value: .bounds) { [.voice(id): $0] }
+            }
+        }
+        .transformAnchorPreference(key: PickerAnchors.self, value: .bounds) { $0[.voiceGroup] = $1 }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Speakers")
+    }
+}
+
+/// A speaker's initial (or number) in a tinted circle; unidentified voices are dashed.
+struct SpeakerPortrait: View {
+    let look: SpeakerLook
+    let size: CGFloat
+    let fontSize: CGFloat
+
+    var body: some View {
+        Text(look.initial)
+            .font(.system(size: fontSize, weight: .bold))
+            .foregroundStyle(look.ink)
+            .frame(width: size, height: size)
+            .background(look.fill, in: .circle)
+            .overlay {
+                if look.unknown {
+                    Circle().strokeBorder(DS.text3, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                }
+            }
+    }
+}
+
+enum PickerSpace {
+    static let name = "detail-main"
+}
+
+enum PickerAnchorID: Hashable {
+    case voice(String)
+    case voiceGroup
+    case line
+}
+
+struct PickerAnchors: PreferenceKey {
+    static let defaultValue: [PickerAnchorID: Anchor<CGRect>] = [:]
+    static func reduce(value: inout [PickerAnchorID: Anchor<CGRect>], nextValue: () -> [PickerAnchorID: Anchor<CGRect>]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+// MARK: - Split
+
+/// Confirms splitting a long recording into parts.
+struct SplitRecordingSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    let meeting: Meeting
+    @Binding var selection: String?
+    let willSplit: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Label("Split Recording?", systemImage: "scissors")
+                .font(.title2.bold())
+            Text("This replaces “\(meeting.title)” and its complete audio with these parts. The original summary will be removed. This cannot be undone.")
+            if let parts = try? RecordingSplit.parts(meeting) {
+                ForEach(parts) { part in
+                    HStack {
+                        Text(part.title).lineLimit(2)
+                        Spacer()
+                        Text(Formatting.duration(part.duration)).monospacedDigit()
+                    }
+                }
+            }
+            Text("Transcript sentences are assigned by their midpoint and timestamps restart in each part. Notes and context links are copied to every part. Summaries start empty.")
+                .font(.callout).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Split and Replace Original", role: .destructive) {
+                    dismiss()
+                    willSplit()
+                    Task {
+                        if let parts = await model.splitRecording(meeting.id) { selection = parts.first?.id }
+                    }
+                }
+                .disabled(meeting.status.isBusy || !model.splittingMeetings.isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
     }
 }
 

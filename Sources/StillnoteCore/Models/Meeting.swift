@@ -33,13 +33,16 @@ public struct ActionItem: Codable, Hashable, Identifiable, Sendable {
     public var text: String
     public var owner: String?
     public var due: String?
+    /// Checked off in the summary. Items without the field are open.
+    public var completed: Bool?
 
     public var id: String { "\(text)|\(owner ?? "")|\(due ?? "")" }
 
-    public init(text: String, owner: String? = nil, due: String? = nil) {
+    public init(text: String, owner: String? = nil, due: String? = nil, completed: Bool? = nil) {
         self.text = text
         self.owner = owner
         self.due = due
+        self.completed = completed
     }
 }
 

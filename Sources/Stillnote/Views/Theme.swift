@@ -26,20 +26,6 @@ extension View {
     func contentPanel(padding: CGFloat = 16) -> some View {
         modifier(ContentPanel(padding: padding))
     }
-
-    func playbackSurface() -> some View {
-        modifier(PlaybackSurface())
-    }
-
-    /// Register the floating transport with the system's scroll-edge treatment.
-    @ViewBuilder
-    func playbackBar<Bar: View>(@ViewBuilder content: () -> Bar) -> some View {
-        if #available(macOS 26, *) {
-            safeAreaBar(edge: .bottom, spacing: 0, content: content)
-        } else {
-            safeAreaInset(edge: .bottom, spacing: 0, content: content)
-        }
-    }
 }
 
 private struct ContentPanel: ViewModifier {
@@ -57,28 +43,6 @@ private struct ContentPanel: ViewModifier {
                         .allowsHitTesting(false)
                 }
             }
-    }
-}
-
-private struct PlaybackSurface: ViewModifier {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorSchemeContrast) private var contrast
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if reduceTransparency || contrast == .increased {
-            content
-                .background(.background, in: .rect(cornerRadius: 24))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 24)
-                        .stroke(.secondary, lineWidth: 1)
-                        .allowsHitTesting(false)
-                }
-        } else if #available(macOS 26, *) {
-            content.glassEffect(.regular, in: .rect(cornerRadius: 24))
-        } else {
-            content.background(.regularMaterial, in: .rect(cornerRadius: 24))
-        }
     }
 }
 

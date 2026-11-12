@@ -61,9 +61,12 @@ Meeting = {id,title,created_at,updated_at,duration,status:'ready'|'transcribing'
   starred?,category_id?}
 Category = {id,name,color:'blue'|'purple'|'pink'|'orange'|'green'|'teal'|'yellow'|'red'|'gray',position}
 Segment = {id,start,end,speaker,text}
-Summary = {overview,key_points[],decisions[],action_items:[{text,owner,due}],provider,model,generated_at}
+Summary = {overview,key_points[],decisions[],action_items:[{text,owner,due,completed?}],provider,model,generated_at}
 ContextLink = {url,title}
 ```
+
+`completed` is set when an action item is checked off on the Summary page; items without it are
+open. Checking one off is a plain edit, so the summary stays current.
 
 `starred` and `category_id` drive the sidebar's Starred list and categories. Documents without
 them read as unstarred and uncategorized. Deleting a category clears `category_id` from its
@@ -120,7 +123,7 @@ through cleanup and persistence; a discard already waiting on a save cannot dele
 meeting or the next recovered session. Transcription requests reserve their meeting before
 awaiting the store so concurrent stop callers queue only one job.
 
-The recording window and the menu bar offer two ways to stop: **Stop Recording** saves only,
+The recording page and the menu bar offer two ways to stop: **Stop Recording** saves only,
 and **Stop, Transcribe & Summarize** runs `AppModel.processRecording`. A saved recording that
 `RecordingSplit.eligible` accepts is split first, without the confirmation sheet; a split that
 fails or is refused leaves the recording whole and processes it as is. Each resulting meeting is
@@ -294,26 +297,47 @@ match the catalog in both directions.
 
 ## Interface
 
-The interface is built from stock SwiftUI and AppKit controls with system semantic colors
-and SF Symbols, so it follows the viewer's appearance, accent color, and contrast settings
-rather than carrying its own palette. `NavigationSplitView` hosts the sidebar and either
-All Meetings, shown either as a `Table` or as a calendar, or a meeting's detail view. The
-calendar (`MeetingCalendarView`) has Day, Week, and Month ranges laid out like Calendar.app. Each
+The meeting pages follow the UI refresh design: its colors, glass controls, and SVG icons for
+light and dark appearances live in `Views/DesignStyle.swift` (`DS`, `Icon`), and Reduce
+Transparency swaps the glass for opaque fills. Settings keep stock controls. `NavigationSplitView`
+hosts the sidebar; its detail column holds the 300-point meeting list beside the open meeting, or
+the calendar in place of both. The window has no visible toolbar; each page draws its own controls
+in the design's top row.
+
+The meeting list groups meetings as Mail does (Today, Yesterday, Previous 7 and 30 Days, then
+months and years) and shows each one's time, length, people, and a `snippet`: the summary
+overview, or the first transcript line. Swiping a row right stars it and left deletes it, by
+two-finger trackpad swipe or by dragging; a short swipe reveals the action and a long one performs
+it. Deletions are held while their toast offers Undo (`Feedback`), then carried out. **New
+Meeting** starts a recording with the saved defaults; ⌘R opens the recording options first.
+Recordings show in the window as their own page, from whichever entry point started them.
+
+A meeting opens on its Summary page when it has one, and otherwise on its Transcript. The
+transcript reads like lyrics: the focused line is large in the middle and fills in as it plays,
+with the lines around it fading. Focus follows playback; scrolling browses lines without seeking,
+and choosing a line plays from it. The dock below has 15-second skips and a timeline drawn from
+the transcript's speech. Header portraits open **Assign Speaker** for a whole voice; the focused
+line's speaker chip opens it for that line alone, which moves the line to the voice linked to the
+chosen person (or a new voice) and, like any transcript correction, clears the summary. Both show
+a toast with Undo. The Summary page holds the overview, key points, decisions, action items,
+links, and notes.
+
+The calendar (`MeetingCalendarView`) has Day, Week, and Month ranges, with events tinted by
+category. Each
 meeting appears at `Meeting.startDate`, which is `recorded_at` when it's set. An older recording
 is estimated as its save time minus its kept duration and any trimmed tail. An import stays at
 the time it was imported. Records older than `source` with the audio name `recording.wav` are
-treated as recordings, which includes the rare older import of a file with that name. A meeting's block is as tall as its duration, with a 15-minute
-minimum. Positions are local clock times rather than time elapsed since midnight, so a meeting
-on a daylight-saving changeover day still lines up with its hour label. A meeting's block covers
-every clock reading the meeting passed through. Across a spring-forward change it ends at the
-clock time it finished. Across a fall-back change it includes both passes through the repeated
-hour, so meetings held in either pass still overlap it. Overlapping meetings share a column. The date math and the overlap columns are
-in `StillnoteCore/Models/CalendarLayout.swift`. The chosen tab, range, and date are kept per
-window in scene storage. Playback is one compact transport for every
-meeting; recordings with screen video open AVKit's `VideoPlayer` in a sheet that shares its player. Settings live in the
+treated as recordings, which includes the rare older import of a file with that name. The week
+grid spans 7 AM to 9 PM, widened to fit any meeting shown, and a meeting's block is as tall as its
+duration, with a 26-minute minimum so its title fits. Positions are local clock times rather than
+time elapsed since midnight, so a meeting on a daylight-saving changeover day still lines up with
+its hour label. Overlapping meetings share a column. The date math and the overlap columns are
+in `StillnoteCore/Models/CalendarLayout.swift`. The chosen range and date are kept per
+window in scene storage. Recordings with screen video open AVKit's `VideoPlayer` in a sheet that
+shares the dock's player. Settings live in the
 standard Settings scene. The main window is a single `Window` scene; a `MenuBarExtra` starts a
 recording with the saved transcription defaults, stops it with the same two actions as the
-recording window, shows the elapsed time while capturing,
+recording page, shows the elapsed time while capturing,
 and opens the window or Settings, which keeps the app running after the window closes. Notes autosave after a 700 ms pause, with an unsaved draft kept in
 `UserDefaults` until it matches what was saved.
 
@@ -458,19 +482,20 @@ journal for a later launch. A failed export/transaction never deletes the origin
 
 ### Library loading and search
 
-The sidebar shows the 50 most recently created meetings. An opened older meeting
-appears separately under Selected Meeting; All Meetings and its calendar cover the
-whole library. `AppModel.meetings` contains `MeetingListItem` metadata, not full
+The meeting list and the calendar cover the whole library. `AppModel.meetings` contains `MeetingListItem` metadata, not full
 `Meeting` documents. Only the selected detail is retained; jobs hold their own snapshots
 for their lifetimes. Selection requests are cancellable, revisions reject stale reads,
 and returning to All Meetings releases the selected transcript, summary and notes.
 Ordinary metadata updates replace one row without sorting the entire library.
 
-`meeting_library` is a derived SQLite table containing a body-free JSON projection,
+`meeting_library` is a derived SQLite table containing a body-free JSON projection with the
+list's `snippet` (at most 160 characters),
 a row revision, a search-content revision and a cached search document. The original
 `meetings(id,data)` schema and JSON format stay authoritative and unchanged. A transaction
 creates and backfills the derived table on first writable open. SQLite triggers maintain
-metadata and invalidate search text, including when an older app writes a meeting.
+metadata and invalidate search text, including when an older app writes a meeting. A library
+indexed before snippets existed gets the current triggers and its snippets on its next writable
+open, in one transaction that leaves row revisions alone.
 Insert/update savepoints rebuild invalidated search text in the same commit; profile
 and recording-split transactions include those changes and roll them back together.
 Legacy cache rebuilds and speaker migration process one meeting at a time. Read-only

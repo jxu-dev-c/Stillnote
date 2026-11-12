@@ -16,10 +16,12 @@ Transcription and speaker detection are powered by [OpenMOSS's MOSS-Transcribe-D
 - **AI Agent summaries.** Use **Codex or Claude Code CLI** for summaries, without needing extra API configurations. 
 - **Stop how you like.** End a recording with **Stop Recording** to just save it, or with
   **Stop, Transcribe & Summarize** to have it split if it's long, transcribed, summarized, and
-  named without another click, from the recording window or the menu bar.
-- **Recent meetings.** The sidebar keeps your latest 50 meetings close at hand. Find the full history in All Meetings; an opened older meeting stays visible under Selected Meeting.
-- **Calendar view.** In All Meetings, switch from the list to a Day, Week, or Month calendar
-  that looks like Apple's Calendar, with each meeting at the time it was recorded.
+  named without another click, from the recording page or the menu bar.
+- **Read meetings like lyrics.** The transcript follows playback line by line, and the summary
+  keeps decisions, action items, links, and notes on one page. Swipe meetings in the list to star
+  or delete them.
+- **Calendar view.** Choose Calendar in the sidebar for a Day, Week, or Month calendar with each
+  meeting at the time it was recorded, in its category's color.
 - **Recognize speakers by voice.** Tag speakers in a few meetings, then **Learn Voices** in
   **Settings → Speakers**. Stillnote checks itself against your own tags and reports how
   accurate it is, then **Auto-Tag Speakers** links the speakers of new meetings whose voices

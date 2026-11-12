@@ -41,7 +41,7 @@ the app's own compatibility; the CLI does not expose them.
   "language": "en", "has_video": false, "segment_count": 148,
   "speakers": [ { "id": "speaker_1", "name": "Jackson", "profile": true } ],
   "summary": { "overview": "…", "key_points": ["…"], "decisions": ["…"],
-               "action_items": [ { "text": "…", "owner": "Jackson", "due": "2026-09-20" } ],
+               "action_items": [ { "text": "…", "owner": "Jackson", "due": "2026-09-20", "completed": true } ],
                "provider": "codex", "model": "gpt-5-codex", "generated_at": "…",
                "context_fingerprint": "…" },
   "notes": "…",
@@ -52,7 +52,8 @@ the app's own compatibility; the CLI does not expose them.
 ```
 
 `segments` is present only with `--segments`, and is filtered when `--speaker` is given;
-`segment_count` is always the full count. `summary` is `null` until one is generated.
+`segment_count` is always the full count. `summary` is `null` until one is generated. An action
+item has `completed` only once it has been checked off in the app.
 `summary.context_fingerprint` identifies the notes and links the summary was made from; it is
 absent on summaries set with `summary set` or made before summaries used them.
 `speakers[].profile` is true when the name comes from a reusable speaker profile.
