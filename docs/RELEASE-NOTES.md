@@ -2,30 +2,35 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
-## What's new in 0.12.0
+## What's new in 0.13.0
 
-### Stop, Transcribe & Summarize runs the whole pipeline
+### A redesigned sidebar
 
-- A recording at or above the split threshold in **Settings → Transcription → Long recordings**
-  is now split into 20-minute parts before it is transcribed.
-- Once its summary is ready, each meeting is named with **Name Meeting**'s provider. Named parts
-  keep their `partN` suffix.
+- The sidebar now has **All Meetings**, **Today**, **Starred**, and **Calendar**, plus your own
+  **Categories**, each with a meeting count. Calendar moved here from the toolbar, and the
+  sidebar's Recent Meetings list was removed.
+- Star a meeting or put it in a category from its context menu in the list or calendar. Create
+  categories with **New Category**; rename, recolor, or delete them from their context menu; and
+  sort them manually (drag to reorder), by name, or by meeting count from the **…** menu.
 
-### Process meetings already in your library
+### Redesigned meeting pages
 
-- `stillnote process <meeting>` runs one meeting through the same pipeline — split, transcribe,
-  auto-tag, summarize, and name — and `stillnote process --all` does it for every unfinished
-  meeting. Each resumes where it stopped, so a transcribed meeting goes straight to its summary.
-- `--dry-run` shows the plan; `--status`, `--since`, `--until`, and `--limit` narrow the batch;
-  `--no-split` and `--keep-title` skip those steps.
-- `stillnote name <meeting> --allow-remote` titles one meeting.
+- Meetings are listed beside the open one, grouped by date with a line from each summary. Swipe
+  right to star or left to delete, with Undo.
+- A meeting opens on its summary — overview, decisions, action items you can check off, links,
+  and notes on one page — or on its transcript, which now reads like lyrics: the current line
+  large and filling in as it plays, with the recording's real waveform as the playback timeline.
+- Choose a speaker's portrait to assign that voice to a person, or the speaker on a single line to
+  reassign just that line.
+- **New Meeting** starts recording at once and shows the recording in the window; ⌘R still opens
+  recording options. The calendar's week view is redrawn with events in their category's color.
 
-### Capture permissions survive updates
+### Summaries no longer wait behind transcription
 
-- Releases are now signed with one persistent Stillnote certificate instead of a per-build ad-hoc
-  signature, which macOS treated as a new app every time. Updating from 0.11.0 or earlier asks for
-  microphone and screen/system audio permissions one last time. The app is still not
-  Apple-notarized.
+- Summaries and **Name Meeting** now run alongside transcription instead of queueing behind every
+  pending one, so a large `stillnote process` batch no longer locks meetings for hours. Up to 3 run
+  at once; change it in **Settings → Summaries → Jobs at once** (1–8).
+- `stillnote show --json` marks checked-off action items with `"completed": true`.
 
 ## The `stillnote` command and AI agents
 
@@ -49,6 +54,15 @@ still asks for consent, as `stillnote summarize <id> --allow-remote`.
 
 To let a coding agent drive it, install the published skill with
 `npx skills add jxu-dev-c/Stillnote`.
+
+## Upgrading from 0.12.0
+
+Existing meetings, settings, speaker profiles, and downloaded models are preserved, no new
+download is needed, and capture permissions carry over. Meetings start unstarred and
+uncategorized.
+
+**Changed:** **New Meeting** starts recording immediately; use ⌘R to choose recording options
+first. Calendar is now in the sidebar instead of the toolbar.
 
 ## Upgrading from 0.11.0
 
