@@ -159,6 +159,11 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     /// True while the title is one Stillnote chose rather than one the user typed: a placeholder,
     /// an import's filename, or a title suggested by `MeetingNamer`.
     public var automaticTitle: Bool
+    /// Shown in the sidebar's Starred list. Older documents have none.
+    public var starred: Bool
+    /// The `MeetingCategory` this meeting belongs to, if any. A deleted category's id is
+    /// cleared from its meetings; an id with no category is treated as uncategorized.
+    public var categoryID: String?
     /// Earlier builds stored false even for untouched default titles. This marker
     /// distinguishes their records from explicit title choices saved by the corrected form.
     private var titleOwnershipVersion = 1
@@ -178,6 +183,8 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         case source
         case automaticTitle = "automatic_title"
         case titleOwnershipVersion = "title_ownership_version"
+        case starred
+        case categoryID = "category_id"
     }
 
     public init(from decoder: Decoder) throws {
@@ -208,6 +215,8 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         recordedAt = try values.decodeIfPresent(String.self, forKey: .recordedAt)
         // A value from a newer build is treated as unknown rather than failing the document.
         source = (try? values.decodeIfPresent(MeetingSource.self, forKey: .source)) ?? nil
+        starred = (try? values.decodeIfPresent(Bool.self, forKey: .starred)) ?? false
+        categoryID = (try? values.decodeIfPresent(String.self, forKey: .categoryID)) ?? nil
         let storedAutomaticTitle = try values.decodeIfPresent(Bool.self, forKey: .automaticTitle)
         automaticTitle = storedAutomaticTitle ?? false
         let storedTitleOwnershipVersion = try values.decodeIfPresent(Int.self, forKey: .titleOwnershipVersion) ?? 0
@@ -256,6 +265,8 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         self.recordedAt = recordedAt
         self.source = source
         self.automaticTitle = automaticTitle
+        self.starred = false
+        self.categoryID = nil
     }
 
     public var hasVideo: Bool { videoURL != nil }

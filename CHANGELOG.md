@@ -6,6 +6,12 @@
   on the agent CLI, so they no longer queue behind every pending transcription and lock their
   meetings for hours during a large `stillnote process` batch. Up to 3 run at once; change it in
   Settings → Summary → Jobs at once (1–8).
+- Redesign the sidebar. It now has **All Meetings**, **Today**, **Starred**, and **Calendar**, plus
+  your own **Categories**, each with a meeting count. Star a meeting or put it in a category from
+  its context menu in the list or calendar. Create categories with **New Category**; rename,
+  recolor, or delete them from their context menu; and sort them manually (drag to reorder), by
+  name, or by meeting count from the **…** menu. Calendar moved from the toolbar into the sidebar,
+  and the sidebar's Recent Meetings list was removed.
 
 ## 0.12.0
 

@@ -59,6 +59,7 @@ public actor Store {
         try Store.run(database, "CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
         try Store.run(database, "CREATE TABLE IF NOT EXISTS speaker_profiles (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
         try Store.run(database, "CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL)")
+        try Store.run(database, "CREATE TABLE IF NOT EXISTS categories (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
         try Self.prepareVoiceTables(database)
         try Self.prepareLibrary(database)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: paths.databaseURL.path)
@@ -509,6 +510,76 @@ public actor Store {
         meeting.error = nil
         meeting.progress = hasTranscript ? 100 : 0
         meeting.stage = hasTranscript ? "Transcript ready" : "Ready to transcribe"
+    }
+
+    // MARK: - Categories
+
+    /// Categories in manual order. A read-only open of a library from before categories
+    /// has no table, and so no categories.
+    public func categories() throws -> [MeetingCategory] {
+        guard try hasTable("categories") else { return [] }
+        return MeetingCategory.sorted(
+            try documents("SELECT data FROM categories").map { try decoder.decode(MeetingCategory.self, from: $0) },
+            by: .manual
+        )
+    }
+
+    @discardableResult
+    public func saveCategory(_ category: MeetingCategory) throws -> MeetingCategory {
+        var category = category
+        category.name = try Validation.categoryName(category.name)
+        try execute("INSERT OR REPLACE INTO categories VALUES (?, ?)", [
+            category.id, String(decoding: try encoder.encode(category), as: UTF8.self)
+        ])
+        return category
+    }
+
+    /// Rewrites every category's manual position to match `ids`, in one transaction.
+    /// Categories missing from `ids` keep their relative order after the listed ones.
+    @discardableResult
+    public func reorderCategories(_ ids: [String]) throws -> [MeetingCategory] {
+        let db = try database()
+        try Self.run(db, "BEGIN IMMEDIATE")
+        do {
+            let current = try categories()
+            let listed = ids.compactMap { id in current.first { $0.id == id } }
+            let ordered = listed + current.filter { !ids.contains($0.id) }
+            var saved: [MeetingCategory] = []
+            for (position, var category) in ordered.enumerated() {
+                category.position = position
+                saved.append(try saveCategory(category))
+            }
+            try Self.run(db, "COMMIT")
+            return saved
+        } catch {
+            try? Self.run(db, "ROLLBACK")
+            throw error
+        }
+    }
+
+    /// Removes the category and clears it from its meetings atomically. Returns the meetings
+    /// that changed so the caller can refresh them.
+    public func deleteCategory(_ id: String) throws -> [Meeting] {
+        let db = try database()
+        try Self.run(db, "BEGIN IMMEDIATE")
+        do {
+            let ids = try documents(
+                "SELECT id FROM meetings WHERE json_valid(data) AND json_extract(data, '$.category_id')=?", [id]
+            ).map { String(decoding: $0, as: UTF8.self) }
+            var changed: [Meeting] = []
+            for meetingID in ids {
+                var meeting = try get(meetingID)
+                meeting.categoryID = nil
+                try execute("UPDATE meetings SET data=? WHERE id=?", [try encoded(meeting), meeting.id])
+                changed.append(meeting)
+            }
+            try execute("DELETE FROM categories WHERE id=?", [id])
+            try Self.run(db, "COMMIT")
+            return changed
+        } catch {
+            try? Self.run(db, "ROLLBACK")
+            throw error
+        }
     }
 
     // MARK: - Voice recognition

@@ -11,6 +11,7 @@ public enum Validation {
     public static let maxLinkTitleLength = 240
     public static let maxSpeakers = 100
     public static let maxSpeakerNameLength = 100
+    public static let maxCategoryNameLength = 60
     public static let maxSegments = 100_000
     public static let maxSegmentTextLength = 50_000
     public static let maxSummaryModelLength = 200
@@ -47,6 +48,14 @@ public enum Validation {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= maxSpeakerNameLength else {
             throw ValidationError("Use a nonempty speaker name of at most 100 characters.")
+        }
+        return trimmed
+    }
+
+    public static func categoryName(_ value: String) throws -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= maxCategoryNameLength else {
+            throw ValidationError("Use a category name between 1 and \(maxCategoryNameLength) characters.")
         }
         return trimmed
     }

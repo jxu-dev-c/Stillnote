@@ -44,6 +44,14 @@ import Testing
         #expect(Set(parts.map(\.id)).count == parts.count)
     }
 
+    @Test func partsKeepStarAndCategory() throws {
+        var original = meeting()
+        original.starred = true
+        original.categoryID = "product"
+        let parts = try RecordingSplit.parts(original)
+        #expect(parts.allSatisfy { $0.starred && $0.categoryID == "product" })
+    }
+
     @Test func importedAudioBeyondSpeechLimitCanBeSplit() throws {
         var original = meeting(120)
         original.source = .import

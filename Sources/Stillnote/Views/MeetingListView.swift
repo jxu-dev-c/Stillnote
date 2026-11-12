@@ -1,19 +1,12 @@
 import StillnoteCore
 import SwiftUI
 
-enum LibraryTab: String, CaseIterable, Identifiable {
-    case list, calendar
-    var id: String { rawValue }
-    var label: String { rawValue.capitalized }
-}
-
 struct MeetingListView: View {
     @Environment(AppModel.self) private var model
+    let destination: SidebarDestination
     @Binding var selection: String?
     @Binding var search: String
     @Binding var sheet: RootSheet?
-    // Scene storage survives this view being rebuilt when a meeting is opened and closed.
-    @SceneStorage("libraryTab") private var tab: LibraryTab = .list
 
     private struct SearchRequest: Equatable {
         var query: String
@@ -33,7 +26,41 @@ struct MeetingListView: View {
     }
 
     private var filtered: [MeetingListItem] {
-        request.query.isEmpty ? model.meetings : model.meetings.filter { matchingIDs.contains($0.id) }
+        model.meetings.filter {
+            destination.includes($0) && (request.query.isEmpty || matchingIDs.contains($0.id))
+        }
+    }
+
+    private var title: String {
+        switch destination {
+        case .all: "All Meetings"
+        case .today: "Today"
+        case .starred: "Starred"
+        case .calendar: "Calendar"
+        case .category(let id): model.category(id)?.name ?? "All Meetings"
+        }
+    }
+
+    /// Shown when a destination other than All Meetings has nothing in it yet.
+    @ViewBuilder
+    private var emptyDestination: some View {
+        switch destination {
+        case .today:
+            ContentUnavailableView(
+                "No meetings today", systemImage: "clock",
+                description: Text("Meetings recorded today appear here.")
+            )
+        case .starred:
+            ContentUnavailableView(
+                "No starred meetings", systemImage: "star",
+                description: Text("Star a meeting from its context menu to keep it here.")
+            )
+        default:
+            ContentUnavailableView(
+                "No meetings in \(title)", systemImage: "folder",
+                description: Text("Add a meeting to this category from its context menu.")
+            )
+        }
     }
 
     private func updateSearch(_ requested: SearchRequest) async {
@@ -84,9 +111,13 @@ struct MeetingListView: View {
                         Task { await updateSearch(request) }
                     }
                 }
-            } else if tab == .list && filtered.isEmpty {
-                ContentUnavailableView.search(text: search)
-            } else if tab == .calendar {
+            } else if destination != .calendar && filtered.isEmpty {
+                if request.query.isEmpty {
+                    emptyDestination
+                } else {
+                    ContentUnavailableView.search(text: search)
+                }
+            } else if destination == .calendar {
                 MeetingCalendarView(meetings: filtered, selection: $selection) { id in
                     Task { await model.delete(id) }
                 }
@@ -95,24 +126,15 @@ struct MeetingListView: View {
             }
         }
         .task(id: request) { await updateSearch(request) }
-        .toolbar {
-            if !model.meetings.isEmpty {
-                ToolbarItem(placement: .principal) {
-                    Picker("Library view", selection: $tab) {
-                        ForEach(LibraryTab.allCases) { tab in
-                            Text(tab.label).tag(tab)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .fixedSize()
-                }
-            }
-        }
         .font(StillnoteTheme.detailBodyFont)
-        .navigationTitle("All Meetings")
+        .navigationTitle(title)
         .searchable(text: $search, placement: .toolbar, prompt: "Search meetings")
-        .navigationSubtitle("\(model.meetings.count) \(model.meetings.count == 1 ? "meeting" : "meetings")")
+        .navigationSubtitle(subtitle)
+    }
+
+    private var subtitle: String {
+        let count = destination == .calendar ? model.meetings.count : model.meetings.count(where: destination.includes)
+        return "\(count) \(count == 1 ? "meeting" : "meetings")"
     }
 
     private var table: some View {
@@ -125,7 +147,15 @@ struct MeetingListView: View {
                         .frame(width: 36, height: 36)
                         .background(.tint.opacity(0.10), in: .rect(cornerRadius: 10))
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(meeting.title).fontWeight(.medium).lineLimit(1)
+                        HStack(spacing: 6) {
+                            Text(meeting.title).fontWeight(.medium).lineLimit(1)
+                            if meeting.starred {
+                                Image(systemName: "star.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.yellow)
+                                    .accessibilityLabel("Starred")
+                            }
+                        }
                         Text(meeting.speakers.isEmpty ? "Recording" : "\(meeting.speakers.count) \(meeting.speakers.count == 1 ? "speaker" : "speakers")")
                             .font(StillnoteTheme.detailSupportingFont)
                             .foregroundStyle(.secondary)
@@ -155,6 +185,11 @@ struct MeetingListView: View {
         .contextMenu(forSelectionType: String.self) { ids in
             if let id = ids.first {
                 Button("Open") { selection = id }
+                if let meeting = model.libraryItem(id) {
+                    Divider()
+                    MeetingOrganizeItems(meeting: meeting)
+                    Divider()
+                }
                 Button("Delete…", role: .destructive) { Task { await model.delete(id) } }
             }
         } primaryAction: { ids in
