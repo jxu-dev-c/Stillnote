@@ -54,6 +54,8 @@ struct MeetingDetailView: View {
                     feedback.delete(MeetingListItem(meeting), model: model)
                 }
             }
+            // Above the page, so nothing the page draws past its top edge can take its clicks.
+            .zIndex(1)
             main
         }
         .onAppear {
@@ -140,7 +142,8 @@ struct MeetingDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .coordinateSpace(.named(PickerSpace.name))
         .overlayPreferenceValue(PickerAnchors.self) { anchors in
-            if let picker, page == .transcript {
+            // Switching pages closes the picker, so a line's picker never outlives the transcript.
+            if let picker {
                 SpeakerPickerOverlay(
                     meeting: meeting, target: picker, anchors: anchors, player: player,
                     close: { self.picker = nil }
@@ -184,7 +187,7 @@ struct MeetingDetailView: View {
                 VoicePortraits(
                     meeting: meeting, current: meeting.segments.indices.contains(lyrics.focus) ? meeting.segments[lyrics.focus].speaker : nil,
                     picker: $picker,
-                    enabled: !busy, openPicker: { page = .transcript }
+                    enabled: !busy
                 )
                 .padding(.bottom, 2)
             }
@@ -549,7 +552,6 @@ private struct VoicePortraits: View {
     let current: String?
     @Binding var picker: PickerTarget?
     let enabled: Bool
-    let openPicker: () -> Void
 
     var body: some View {
         let order = meeting.speakerOrder
@@ -559,12 +561,7 @@ private struct VoicePortraits: View {
                 let open = picker == .voice(id)
                 let lines = meeting.segments.count { $0.speaker == id }
                 Button {
-                    if open {
-                        picker = nil
-                    } else {
-                        openPicker()
-                        picker = .voice(id)
-                    }
+                    picker = open ? nil : .voice(id)
                 } label: {
                     SpeakerPortrait(look: look, size: 32, fontSize: 13)
                         .overlay {

@@ -247,6 +247,8 @@ private struct LyricsView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 0, idealHeight: 0, maxHeight: .infinity, alignment: .bottomLeading)
             .clipped()
+            // Clipping hides overflowing lines but leaves them clickable; keep clicks inside too.
+            .contentShape(.rect)
             .mask {
                 LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.45)],
                                startPoint: .top, endPoint: .bottom)
@@ -263,6 +265,8 @@ private struct LyricsView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 0, idealHeight: 0, maxHeight: .infinity, alignment: .topLeading)
             .clipped()
+            // Clipping hides overflowing lines but leaves them clickable; keep clicks inside too.
+            .contentShape(.rect)
             .mask {
                 LinearGradient(stops: [.init(color: .black, location: 0.4), .init(color: .clear, location: 1)],
                                startPoint: .top, endPoint: .bottom)
