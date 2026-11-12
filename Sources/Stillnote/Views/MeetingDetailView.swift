@@ -54,6 +54,8 @@ struct MeetingDetailView: View {
                     feedback.delete(MeetingListItem(meeting), model: model)
                 }
             }
+            // Above the page, so nothing the page draws past its top edge can take its clicks.
+            .zIndex(1)
             main
         }
         .onAppear {
