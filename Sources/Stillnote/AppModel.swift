@@ -16,6 +16,8 @@ final class AppModel {
     @ObservationIgnored private var removedMeetingIDs: Set<String> = []
     private(set) var meetingSearchRevision = 0
     private(set) var speakerProfiles: [SpeakerProfile] = []
+    /// Sidebar categories in manual order. The workflow lives in AppModel+Categories.swift.
+    var categories: [MeetingCategory] = []
     var settingsTab = "transcription"
     var requestedSpeakerProfileID: String?
     var settings = AppSettings()
@@ -121,6 +123,7 @@ final class AppModel {
             settings = try await store.settings()
             await agentJobs.setLimit(settings.summary.concurrency)
             speakerProfiles = try await store.profiles()
+            categories = try await store.categories()
             voiceModel = try? await store.voiceModel()
             startupStage = "Recovering interrupted recordings…"
             await recorder.recover()

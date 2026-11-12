@@ -6,13 +6,16 @@ struct RootView: View {
     @Binding var sheet: RootSheet?
     @State private var selection: String?
     @State private var search = ""
+    @SceneStorage("sidebarDestination") private var storedDestination: SidebarDestination = .all
 
-    private static let libraryID = "all-meetings"
-
-    private var sidebarSelection: Binding<String?> {
+    /// The stored destination, or All Meetings when it names a category that was deleted.
+    private var destination: Binding<SidebarDestination> {
         Binding(
-            get: { selection ?? Self.libraryID },
-            set: { selection = $0 == Self.libraryID ? nil : $0 }
+            get: {
+                if case .category(let id) = storedDestination, model.category(id) == nil { return .all }
+                return storedDestination
+            },
+            set: { storedDestination = $0 }
         )
     }
 
@@ -25,7 +28,7 @@ struct RootView: View {
                 starting
             } else {
                 NavigationSplitView {
-                    sidebar
+                    SidebarView(destination: destination, selection: $selection)
                 } detail: {
                     if let selection {
                         if let meeting = model.meeting(selection) {
@@ -42,7 +45,10 @@ struct RootView: View {
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                     } else {
-                        MeetingListView(selection: $selection, search: $search, sheet: $sheet)
+                        MeetingListView(
+                            destination: destination.wrappedValue, selection: $selection,
+                            search: $search, sheet: $sheet
+                        )
                     }
                 }
                 .navigationSplitViewStyle(.balanced)
@@ -105,92 +111,6 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
-
-    private var sidebar: some View {
-        VStack(spacing: 0) {
-            sidebarList
-            Divider()
-            sidebarFooter
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
-    }
-
-    private var sidebarList: some View {
-        List(selection: sidebarSelection) {
-            Section {
-                NavigationLink(value: Self.libraryID) {
-                    Label("All Meetings", systemImage: "rectangle.stack")
-                        .font(StillnoteTheme.detailBodyFont)
-                        .badge(Text(model.meetings.count.formatted()).font(StillnoteTheme.detailSupportingFont))
-                }
-            }
-
-            Section {
-                ForEach(model.meetings.prefix(MeetingLibrary.recentLimit)) { meeting in
-                    sidebarRow(meeting)
-                }
-            } header: {
-                Text("Recent Meetings").font(StillnoteTheme.detailSupportingFont.weight(.semibold))
-            }
-
-            if let selection,
-               !model.meetings.prefix(MeetingLibrary.recentLimit).contains(where: { $0.id == selection }),
-               let meeting = model.libraryItem(selection) {
-                Section("Selected Meeting") {
-                    sidebarRow(meeting)
-                }
-            }
-        }
-        .listStyle(.sidebar)
-        .frame(maxHeight: .infinity)
-    }
-
-    private func sidebarRow(_ meeting: MeetingListItem) -> some View {
-        NavigationLink(value: meeting.id) {
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(meeting.title).font(StillnoteTheme.detailBodyFont.weight(.medium)).lineLimit(1)
-                    Text(meeting.createdDate, format: .dateTime.month(.abbreviated).day())
-                        .font(StillnoteTheme.detailSupportingFont)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 5)
-                if meeting.status.isBusy {
-                    ProgressView().controlSize(.mini)
-                } else if meeting.status == .error {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                        .accessibilityLabel("Error")
-                }
-            }
-        }
-        .tag(meeting.id)
-        .contextMenu {
-            Button("Delete…", role: .destructive) {
-                Task { await model.delete(meeting.id) }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var sidebarFooter: some View {
-        if !model.speech.ready {
-            SetupNotice()
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-        } else {
-            SettingsLink {
-                Label("Settings", systemImage: "gearshape")
-                    .font(StillnoteTheme.detailSupportingFont)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
-            }
-            .buttonStyle(.plain)
-            .help("Open Settings")
-        }
-    }
 }
 
 /// A quiet reminder that transcription needs a one-time local setup.
@@ -202,25 +122,32 @@ struct SetupNotice: View {
         Button {
             openSettings()
         } label: {
-            HStack(spacing: 8) {
-                if model.speech.installing {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Image(systemName: "arrow.down.circle")
+            HStack(alignment: .top, spacing: 10) {
+                Group {
+                    if model.speech.installing {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "arrow.down.circle").font(.system(size: 15))
+                    }
                 }
-                VStack(alignment: .leading, spacing: 4) {
+                .foregroundStyle(SidebarStyle.accent)
+                .frame(width: SidebarStyle.iconSize, height: 17)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(model.speech.installing ? "Downloading speech model" : "Set up transcription")
-                        .font(StillnoteTheme.detailBodyFont.weight(.medium))
+                        .font(SidebarStyle.labelFont.weight(.semibold))
+                        .foregroundStyle(SidebarStyle.text)
                     Text(model.speech.detail)
-                        .font(StillnoteTheme.detailSupportingFont)
-                        .foregroundStyle(.secondary)
+                        .font(SidebarStyle.countFont)
+                        .foregroundStyle(SidebarStyle.text2)
                         .lineLimit(2)
                 }
                 Spacer(minLength: 0)
             }
+            .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background(SidebarStyle.field, in: .rect(cornerRadius: SidebarStyle.rowRadius))
+            .contentShape(.rect(cornerRadius: SidebarStyle.rowRadius))
         }
         .buttonStyle(.plain)
-        .contentPanel(padding: 12)
     }
 }

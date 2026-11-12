@@ -11,6 +11,8 @@ public struct MeetingListItem: Identifiable, Hashable, Sendable {
     public let status: MeetingStatus
     public let hasVideo: Bool
     public let speakers: [String: String]
+    public let starred: Bool
+    public let categoryID: String?
     public let revision: Int64
     public let searchRevision: Int64
 
@@ -24,6 +26,8 @@ public struct MeetingListItem: Identifiable, Hashable, Sendable {
         status = meeting.status
         hasVideo = meeting.hasVideo
         speakers = meeting.speakers
+        starred = meeting.starred
+        categoryID = meeting.categoryID
         self.revision = revision
         self.searchRevision = searchRevision
     }

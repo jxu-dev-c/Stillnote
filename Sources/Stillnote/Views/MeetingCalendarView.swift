@@ -141,7 +141,7 @@ private extension MeetingListItem {
     }
 }
 
-/// Open and delete actions shared by both event styles, matching the table's context menu.
+/// Open, star, category, and delete actions shared by both event styles, matching the table's context menu.
 private struct MeetingEventMenu: ViewModifier {
     let meeting: MeetingListItem
     let open: (String) -> Void
@@ -151,6 +151,9 @@ private struct MeetingEventMenu: ViewModifier {
         content
             .contextMenu {
                 Button("Open") { open(meeting.id) }
+                Divider()
+                MeetingOrganizeItems(meeting: meeting)
+                Divider()
                 Button("Delete…", role: .destructive) { onDelete(meeting.id) }
                     .disabled(meeting.status.isBusy)
             }

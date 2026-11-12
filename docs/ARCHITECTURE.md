@@ -39,8 +39,8 @@ CREATE TABLE meetings (id TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL);  -- single row id=1
 ```
 
-Later tables are additive and created on the first writable open: `speaker_profiles`, the
-derived `meeting_library`, and for voice recognition `voiceprints(meeting_id, data)` and
+Later tables are additive and created on the first writable open: `speaker_profiles`,
+`categories(id, data)`, the derived `meeting_library`, and for voice recognition `voiceprints(meeting_id, data)` and
 `voice_model(id, data)` (single row id=1). A trigger deletes a meeting's voiceprints when the
 meeting row is deleted, so a library edited by an older build cannot keep voices for a meeting
 that no longer exists.
@@ -57,11 +57,19 @@ Meeting = {id,title,created_at,updated_at,duration,status:'ready'|'transcribing'
   progress,stage,error,audio_name,audio_url,video_url,language,speaker_count,
   speakers:Record<string,string>,speaker_profiles:Record<string,string>,auto_speaker_profiles:Record<string,number>,
   segments:Segment[],summary:Summary|null,notes,context_links:ContextLink[],
-  cleanup:{original_duration,head,tail,applied_at}|null,recorded_at?,source?:'recording'|'import',automatic_title,title_ownership_version}
+  cleanup:{original_duration,head,tail,applied_at}|null,recorded_at?,source?:'recording'|'import',automatic_title,title_ownership_version,
+  starred?,category_id?}
+Category = {id,name,color:'blue'|'purple'|'pink'|'orange'|'green'|'teal'|'yellow'|'red'|'gray',position}
 Segment = {id,start,end,speaker,text}
 Summary = {overview,key_points[],decisions[],action_items:[{text,owner,due}],provider,model,generated_at}
 ContextLink = {url,title}
 ```
+
+`starred` and `category_id` drive the sidebar's Starred list and categories. Documents without
+them read as unstarred and uncategorized. Deleting a category clears `category_id` from its
+meetings in the same transaction, and split parts keep both fields. `position` is the manual sidebar
+order; the Name and Meeting Count sorts are a per-user view preference, not stored in the library.
+An older build drops both meeting fields when it re-saves a meeting.
 
 `created_at` is when the meeting was saved, which for a recording is after it ended.
 `recorded_at` is when a recording's kept audio began: the capture start written to the
