@@ -16,7 +16,7 @@
   line from each summary; swipe right to star or left to delete, with Undo. A meeting opens on its
   summary — overview, decisions, action items you can check off, links, and notes on one page —
   or on its transcript, which now reads like lyrics: the current line large and filling in as it
-  plays, with a timeline of the conversation in the playback dock. Choose a speaker's portrait to
+  plays, with the recording's waveform as the timeline in the playback dock. Choose a speaker's portrait to
   assign that voice to a person, or the speaker on a single line to reassign just that line.
   **New Meeting** starts recording at once and shows the recording in the window (⌘R still opens
   recording options). The calendar's week view is redrawn with events in their category's color.
