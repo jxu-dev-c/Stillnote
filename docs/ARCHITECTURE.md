@@ -302,7 +302,8 @@ light and dark appearances live in `Views/DesignStyle.swift` (`DS`, `Icon`), and
 Transparency swaps the glass for opaque fills. Settings keep stock controls. `NavigationSplitView`
 hosts the sidebar; its detail column holds the 300-point meeting list beside the open meeting, or
 the calendar in place of both. The window has no visible toolbar; each page draws its own controls
-in the design's top row.
+in the design's top row. That row adapts to the pane's width: the four meeting actions fold into
+one menu first, then the Transcript/Summary switcher drops its labels and search shortens.
 
 The meeting list groups meetings as Mail does (Today, Yesterday, Previous 7 and 30 Days, then
 months and years) and shows each one's time, length, people, and a `snippet`: the summary
@@ -315,8 +316,9 @@ Recordings show in the window as their own page, from whichever entry point star
 A meeting opens on its Summary page when it has one, and otherwise on its Transcript. The
 transcript reads like lyrics: the focused line is large in the middle and fills in as it plays,
 with the lines around it fading. Focus follows playback; scrolling browses lines without seeking,
-and choosing a line plays from it. The dock below has 15-second skips and a timeline drawn from
-the transcript's speech. Header portraits open **Assign Speaker** for a whole voice; the focused
+and choosing a line plays from it. The dock below has 15-second skips and a timeline of the
+recording's loudness (`AudioEnvelope`, read once per meeting at 8 kHz off the main actor and
+scaled to the loud end of its speech), drawn from the transcript until that read finishes. Header portraits open **Assign Speaker** for a whole voice; the focused
 line's speaker chip opens it for that line alone, which moves the line to the voice linked to the
 chosen person (or a new voice) and, like any transcript correction, clears the summary. Both show
 a toast with Undo. The Summary page holds the overview, key points, decisions, action items,

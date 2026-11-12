@@ -597,15 +597,19 @@ private struct PlaybackDock: View {
 
 /// The whole meeting as speech-shaped bars, brightest for the focused line. Drag or click to skip.
 private struct Timeline: View {
+    @Environment(AppModel.self) private var model
     let meeting: Meeting
     let player: PlayerModel
     let lyrics: LyricsState
+    private let waveforms = WaveformCache.shared
 
     private static let count = 150
 
     var body: some View {
-        let bars = Self.bars(for: meeting, duration: max(player.duration, meeting.duration))
+        let duration = max(player.duration, meeting.duration)
+        let bars = Self.bars(for: meeting, duration: duration, levels: waveforms.levels[meeting.id])
         let focus = lyrics.focus
+        let focusStart = meeting.segments.indices.contains(focus) ? meeting.segments[focus].start : player.currentTime
         let fraction = player.duration > 0 ? player.currentTime / player.duration : 0
         GeometryReader { proxy in
             let width = proxy.size.width
@@ -613,8 +617,10 @@ private struct Timeline: View {
             ZStack(alignment: .leading) {
                 Canvas { context, size in
                     for (index, bar) in bars.enumerated() {
-                        let opacity: Double = bar.segment == nil ? 0.3
-                            : bar.segment == focus ? 1 : (bar.segment! < focus ? 0.6 : 0.3)
+                        // The line in focus is darkest, what came before it is dimmed, and what
+                        // is still to come is lightest.
+                        let opacity: Double = bar.segment == focus && bar.segment != nil ? 1
+                            : bar.time < focusStart ? 0.6 : 0.3
                         let x = CGFloat(index) * (2 + gap)
                         let rect = CGRect(x: x, y: (size.height - bar.height) / 2, width: 2, height: bar.height)
                         context.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(DS.text.opacity(opacity)))
@@ -635,6 +641,7 @@ private struct Timeline: View {
             })
         }
         .frame(height: 44)
+        .task(id: meeting.id) { await waveforms.load(meeting, paths: model.paths) }
         .mask {
             LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.03),
                                    .init(color: .black, location: 0.97), .init(color: .clear, location: 1)],
@@ -654,30 +661,67 @@ private struct Timeline: View {
 
     struct Bar {
         let height: CGFloat
+        /// The transcript line spoken at this bar, if any.
         let segment: Int?
+        let time: Double
     }
 
-    /// Bursts where people speak, low ticks in the gaps. Seeded per bar so it never shimmers.
-    static func bars(for meeting: Meeting, duration: Double) -> [Bar] {
+    /// One bar per stretch of the recording, as tall as its loudness: silence is a dot. Until the
+    /// recording's loudness has been read, or when it can't be, the bars follow the transcript:
+    /// speech-shaped bursts where people talk. Seeded per bar so they never shimmer.
+    static func bars(for meeting: Meeting, duration: Double, levels: [Float]?) -> [Bar] {
         let segments = meeting.segments
-        guard duration > 0 else { return Array(repeating: Bar(height: 2, segment: nil), count: count) }
+        guard duration > 0 else { return (0..<count).map { _ in Bar(height: 2, segment: nil, time: 0) } }
         func random(_ n: Double) -> Double { abs((sin(n * 12.9898) * 43758.5453).truncatingRemainder(dividingBy: 1)) }
         var bars: [Bar] = []
         var cursor = 0
         for k in 0..<count {
             let time = (Double(k) + 0.5) / Double(count) * duration
             while cursor < segments.count - 1, segments[cursor].end < time { cursor += 1 }
-            guard cursor < segments.count, segments[cursor].start <= time, time <= segments[cursor].end else {
-                bars.append(Bar(height: 2, segment: nil))
-                continue
+            let inside = cursor < segments.count && segments[cursor].start <= time && time <= segments[cursor].end
+            let segment = inside ? cursor : nil
+            let amplitude: Double
+            if let levels, !levels.isEmpty {
+                // Each bar takes the loudest of the stretches it covers, so short words still show.
+                let lower = k * levels.count / count, upper = max(lower + 1, (k + 1) * levels.count / count)
+                amplitude = pow(Double(levels[lower..<min(upper, levels.count)].max() ?? 0), 0.8)
+            } else if inside {
+                let line = segments[cursor]
+                let local = (time - line.start) / max(0.1, line.end - line.start)
+                let envelope = pow(sin(.pi * min(1, max(0, local * 1.1 - 0.03))), 0.6)
+                amplitude = envelope * (0.3 + 0.7 * (0.6 * random(Double(k) + Double(cursor) * 7.3) + 0.4 * random(Double(k) * 1.7 + 3.1)))
+            } else {
+                amplitude = 0
             }
-            let segment = segments[cursor]
-            let local = (time - segment.start) / max(0.1, segment.end - segment.start)
-            let envelope = pow(sin(.pi * min(1, max(0, local * 1.1 - 0.03))), 0.6)
-            let amplitude = envelope * (0.3 + 0.7 * (0.6 * random(Double(k) + Double(cursor) * 7.3) + 0.4 * random(Double(k) * 1.7 + 3.1)))
-            bars.append(Bar(height: CGFloat(max(2, min(26, (2 + 24 * amplitude).rounded()))), segment: cursor))
+            bars.append(Bar(height: CGFloat(max(2, min(26, (2 + 24 * amplitude).rounded()))), segment: segment, time: time))
         }
         return bars
+    }
+}
+
+/// Recordings' loudness, read once per meeting while the app runs.
+@MainActor
+@Observable
+final class WaveformCache {
+    static let shared = WaveformCache()
+    /// Enough resolution to stay accurate when the dock is wide.
+    static let resolution = 600
+
+    private(set) var levels: [String: [Float]] = [:]
+    @ObservationIgnored private var loading: Set<String> = []
+
+    func load(_ meeting: Meeting, paths: Paths) async {
+        guard levels[meeting.id] == nil, loading.insert(meeting.id).inserted else { return }
+        defer { loading.remove(meeting.id) }
+        let url = MediaFile.audioURL(for: meeting, paths: paths)
+        let read = Task.detached(priority: .utility) {
+            try await AudioEnvelope.read(url, buckets: Self.resolution)
+        }
+        // A recording that can't be read keeps the transcript-shaped bars.
+        guard let envelope = try? await withTaskCancellationHandler(
+            operation: { try await read.value }, onCancel: { read.cancel() }
+        ) else { return }
+        levels[meeting.id] = envelope
     }
 }
 
