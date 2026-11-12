@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.1
+
+- Fix clicks on the **Summary** tab and the folded **…** actions menu during playback. Once a
+  meeting had played a few lines, the hidden lines above the current one covered the toolbar,
+  so these clicks jumped playback instead.
+- Open **Assign Speaker** from a speaker's portrait on the summary page without switching to the
+  transcript.
+
 ## 0.13.0
 
 - Run summaries and **Name Meeting** alongside transcription instead of behind it. They only wait

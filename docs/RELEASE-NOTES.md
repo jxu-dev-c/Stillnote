@@ -2,6 +2,13 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
+## What's new in 0.13.1
+
+- The **Summary** tab and the folded **…** actions menu respond during playback again, instead of
+  jumping playback to an earlier line.
+- Choosing a speaker's portrait on the summary page opens **Assign Speaker** there, without
+  switching to the transcript.
+
 ## What's new in 0.13.0
 
 ### A redesigned sidebar
@@ -54,6 +61,10 @@ still asks for consent, as `stillnote summarize <id> --allow-remote`.
 
 To let a coding agent drive it, install the published skill with
 `npx skills add jxu-dev-c/Stillnote`.
+
+## Upgrading from 0.13.0
+
+Everything is preserved and capture permissions carry over; nothing new to download or set up.
 
 ## Upgrading from 0.12.0
 
