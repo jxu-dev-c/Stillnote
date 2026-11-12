@@ -16,6 +16,14 @@ struct RecordingPage: View {
 
     private enum FinishAction { case stop, summarize }
 
+    /// The meeting actions, shown but unavailable until the recording is saved.
+    private static let idleActions = [
+        ToolbarAction(icon: .nameMeeting, symbol: "wand.and.sparkles", label: "Name Meeting", enabled: false) {},
+        ToolbarAction(icon: .autoTag, symbol: "wand.and.stars", label: "Auto-Tag Speakers", enabled: false) {},
+        ToolbarAction(icon: .transcribeAgain, symbol: "waveform.badge.magnifyingglass", label: "Transcribe Again", enabled: false) {},
+        ToolbarAction(icon: .regenerate, symbol: "arrow.triangle.2.circlepath", label: "Regenerate Summary", enabled: false) {},
+    ]
+
     var body: some View {
         if let session = model.recorder.session {
             content(session)
@@ -26,12 +34,8 @@ struct RecordingPage: View {
 
     private func content(_ session: RecordingSessionState) -> some View {
         VStack(spacing: 0) {
-            DetailToolbar(actionsEnabled: false, deleteEnabled: false, page: $page, query: $query, onSearch: { _ in }) {
-                ToolbarIconButton(icon: .nameMeeting, label: "Name Meeting", enabled: false) {}
-                ToolbarIconButton(icon: .autoTag, label: "Auto-Tag Speakers", enabled: false) {}
-                ToolbarIconButton(icon: .transcribeAgain, label: "Transcribe Again", enabled: false) {}
-                ToolbarIconButton(icon: .regenerate, label: "Regenerate Summary", enabled: false) {}
-            } delete: {
+            DetailToolbar(actions: Self.idleActions, actionsEnabled: false, deleteEnabled: false,
+                          page: $page, query: $query, onSearch: { _ in }) {
                 ToolbarIconButton(icon: .trash, label: "Delete Meeting", tint: DS.danger, enabled: false) {}
             }
             VStack(spacing: 0) {

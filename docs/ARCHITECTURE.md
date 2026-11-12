@@ -302,7 +302,8 @@ light and dark appearances live in `Views/DesignStyle.swift` (`DS`, `Icon`), and
 Transparency swaps the glass for opaque fills. Settings keep stock controls. `NavigationSplitView`
 hosts the sidebar; its detail column holds the 300-point meeting list beside the open meeting, or
 the calendar in place of both. The window has no visible toolbar; each page draws its own controls
-in the design's top row.
+in the design's top row. That row adapts to the pane's width: the four meeting actions fold into
+one menu first, then the Transcript/Summary switcher drops its labels and search shortens.
 
 The meeting list groups meetings as Mail does (Today, Yesterday, Previous 7 and 30 Days, then
 months and years) and shows each one's time, length, people, and a `snippet`: the summary

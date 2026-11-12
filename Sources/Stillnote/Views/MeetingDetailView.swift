@@ -46,11 +46,9 @@ struct MeetingDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             DetailToolbar(
-                actionsEnabled: !busy, deleteEnabled: !busy, page: $page, query: $query,
+                actions: actions, actionsEnabled: !busy, deleteEnabled: !busy, page: $page, query: $query,
                 onSearch: searchTranscript(advance:)
             ) {
-                actionButtons
-            } delete: {
                 ToolbarIconButton(icon: .trash, label: "Delete Meeting", tint: DS.danger, enabled: !busy) {
                     selection = nil
                     feedback.delete(MeetingListItem(meeting), model: model)
@@ -85,40 +83,43 @@ struct MeetingDetailView: View {
 
     // MARK: Toolbar
 
-    @ViewBuilder
-    private var actionButtons: some View {
+    private var actions: [ToolbarAction] {
         let hasTranscript = !meeting.segments.isEmpty
-        ToolbarIconButton(icon: .nameMeeting, label: "Name Meeting", busy: naming,
-                          enabled: hasTranscript && !busy && !naming) {
-            // The provider chosen in Settings is the consent, so naming starts straight away.
-            Task { await model.suggestTitle(meeting.id, allowRemote: true) }
-        }
         let blocker = model.autoTagBlocker(meeting)
-        ToolbarIconButton(icon: .autoTag, label: "Auto-Tag Speakers",
+        return [
+            ToolbarAction(icon: .nameMeeting, symbol: "wand.and.sparkles", label: "Name Meeting", busy: naming,
+                          enabled: hasTranscript && !busy && !naming) {
+                // The provider chosen in Settings is the consent, so naming starts straight away.
+                Task { await model.suggestTitle(meeting.id, allowRemote: true) }
+            },
+            ToolbarAction(icon: .autoTag, symbol: "wand.and.stars", label: "Auto-Tag Speakers",
                           help: blocker ?? "Link untagged speakers to the profiles their voices match",
                           busy: model.autoTaggingMeetings.contains(meeting.id),
                           enabled: hasTranscript && blocker == nil && !busy) {
-            Task {
-                do {
-                    let outcome = try await model.autoTag(meeting.id)
-                    feedback.show(outcome.summary)
-                } catch {
-                    model.report(error)
+                Task {
+                    do {
+                        let outcome = try await model.autoTag(meeting.id)
+                        feedback.show(outcome.summary)
+                    } catch {
+                        model.report(error)
+                    }
                 }
-            }
-        }
-        ToolbarIconButton(icon: .transcribeAgain, label: hasTranscript ? "Transcribe Again" : "Transcribe",
+            },
+            ToolbarAction(icon: .transcribeAgain, symbol: "waveform.badge.magnifyingglass",
+                          label: hasTranscript ? "Transcribe Again…" : "Transcribe",
                           enabled: !busy && model.speech.ready) {
-            if hasTranscript {
-                retranscribing = true
-            } else {
-                Task { await model.transcribe(meeting.id) }
-            }
-        }
-        ToolbarIconButton(icon: .regenerate, label: meeting.summary == nil ? "Create Summary" : "Regenerate Summary",
+                if hasTranscript {
+                    retranscribing = true
+                } else {
+                    Task { await model.transcribe(meeting.id) }
+                }
+            },
+            ToolbarAction(icon: .regenerate, symbol: "arrow.triangle.2.circlepath",
+                          label: meeting.summary == nil ? "Create Summary" : "Regenerate Summary",
                           enabled: hasTranscript && !busy) {
-            summarize()
-        }
+                summarize()
+            },
+        ]
     }
 
     // MARK: Main
@@ -290,19 +291,56 @@ struct MeetingDetailView: View {
 
 // MARK: - Toolbar
 
+/// One of the meeting actions in the toolbar, drawn as an icon button or as a menu item.
+struct ToolbarAction: Identifiable {
+    let icon: DesignIcon
+    /// The menu item's image when the toolbar is too narrow for icon buttons.
+    let symbol: String
+    let label: String
+    var help: String?
+    var busy = false
+    var enabled = true
+    let perform: () -> Void
+
+    var id: String { symbol }
+}
+
 /// The detail's toolbar row: meeting actions, delete, the page switcher, and transcript search.
-struct DetailToolbar<Actions: View, Delete: View>: View {
+/// As the pane narrows, the meeting actions fold into one menu first, then the switcher drops
+/// its labels and search shortens.
+struct DetailToolbar<Delete: View>: View {
+    let actions: [ToolbarAction]
     let actionsEnabled: Bool
     let deleteEnabled: Bool
     @Binding var page: MeetingPage
     @Binding var query: String
     let onSearch: (Bool) -> Void
-    @ViewBuilder let actions: Actions
     @ViewBuilder let delete: Delete
 
+    /// Widths at which the full design no longer fits, measured inside the row's padding:
+    /// four 40-point buttons, the labeled switcher, and a 160-point search with their gaps.
+    static var collapseBelow: CGFloat { 670 }
+    /// Below this the labeled switcher and full search no longer fit beside the folded menu.
+    static var compactBelow: CGFloat { 545 }
+
     var body: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 2) { actions }
+        GeometryReader { proxy in
+            let width = proxy.size.width - 56
+            let collapsed = width < Self.collapseBelow
+            let compact = width < Self.compactBelow
+            HStack(spacing: 10) {
+                Group {
+                    if collapsed {
+                        ActionsMenu(actions: actions)
+                    } else {
+                        HStack(spacing: 2) {
+                            ForEach(actions) { action in
+                                ToolbarIconButton(icon: action.icon, label: action.label, help: action.help,
+                                                  busy: action.busy, enabled: action.enabled, action: action.perform)
+                            }
+                        }
+                    }
+                }
                 .padding(.horizontal, 3)
                 .frame(height: 36)
                 .designGlassCapsule()
@@ -310,29 +348,59 @@ struct DetailToolbar<Actions: View, Delete: View>: View {
                 .fixedSize()
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Meeting actions")
-            HStack(spacing: 2) { delete }
-                .padding(.horizontal, 3)
-                .frame(height: 36)
-                .designGlassCapsule()
-                .opacity(deleteEnabled ? 1 : 0.38)
-                .fixedSize()
-            Spacer(minLength: 0)
-            // Narrow windows keep the switcher's icons and let search shrink first.
-            ViewThatFits(in: .horizontal) {
-                PageSwitcher(page: $page, compact: false).fixedSize()
-                PageSwitcher(page: $page, compact: true).fixedSize()
+                HStack(spacing: 2) { delete }
+                    .padding(.horizontal, 3)
+                    .frame(height: 36)
+                    .designGlassCapsule()
+                    .opacity(deleteEnabled ? 1 : 0.38)
+                    .fixedSize()
+                Spacer(minLength: 0)
+                PageSwitcher(page: $page, compact: compact).fixedSize()
+                Spacer(minLength: 0)
+                SearchCapsule(query: $query, placeholder: compact ? "Search" : "Search transcript",
+                              onSubmit: { onSearch(true) })
+                    .frame(minWidth: 36, maxWidth: compact ? 110 : 216)
+                    .layoutPriority(-1)
             }
-            .layoutPriority(1)
-            Spacer(minLength: 0)
-            ViewThatFits(in: .horizontal) {
-                SearchCapsule(query: $query, placeholder: "Search transcript", onSubmit: { onSearch(true) })
-                    .frame(minWidth: 160, maxWidth: 216)
-                SearchCapsule(query: $query, placeholder: "Search", onSubmit: { onSearch(true) })
-                    .frame(minWidth: 36, maxWidth: 110)
-            }
+            .padding(EdgeInsets(top: 28, leading: 28, bottom: 8, trailing: 28))
+            .animation(.snappy(duration: 0.2), value: collapsed)
+            .animation(.snappy(duration: 0.2), value: compact)
         }
-        .padding(EdgeInsets(top: 28, leading: 28, bottom: 8, trailing: 28))
         .frame(height: 72)
+    }
+}
+
+/// The meeting actions folded into one button, for narrow windows.
+private struct ActionsMenu: View {
+    let actions: [ToolbarAction]
+
+    var body: some View {
+        Menu {
+            ForEach(actions) { action in
+                Button(action: action.perform) {
+                    Label(action.busy ? action.label.replacingOccurrences(of: "…", with: "") + "…" : action.label,
+                          systemImage: action.symbol)
+                }
+                .disabled(!action.enabled || action.busy)
+            }
+        } label: {
+            Group {
+                if actions.contains(where: \.busy) {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Icon(.more, size: 20, filled: true)
+                }
+            }
+            .foregroundStyle(DS.text)
+            .frame(width: 40, height: 30)
+            .hoverFill(Capsule())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Meeting actions")
+        .accessibilityLabel("Meeting actions")
     }
 }
 
