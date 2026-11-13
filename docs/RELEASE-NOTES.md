@@ -2,6 +2,14 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
+## What's new in 0.14.1
+
+- Tag suggestions now use OpenAI's Decisions API with `gpt-6-luna`. Each existing tag is checked
+  independently; up to five tags with at least 80% confidence are added. The previous default
+  model setting updates automatically.
+- The meeting list's search button responds reliably to clicks through the transparent title bar.
+- The Transcript and Summary tabs no longer show redundant hover labels.
+
 ## What's new in 0.14.0
 
 ### Categories are now tags
@@ -99,6 +107,12 @@ still asks for consent, as `stillnote summarize <id> --allow-remote`.
 
 To let a coding agent drive it, install the published skill with
 `npx skills add jxu-dev-c/Stillnote`.
+
+## Upgrading from 0.14.0
+
+Existing meetings, tags, settings, downloaded models, and capture permissions are preserved.
+The old default tag-suggestion model migrates to `gpt-6-luna`; custom model names must be changed
+to `gpt-6-luna` in Settings → Summaries. Your existing OpenAI API key is reused.
 
 ## Upgrading from 0.13.1
 

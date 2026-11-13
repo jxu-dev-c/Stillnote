@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.1
+
+- Use OpenAI's Decisions API with `gpt-6-luna` for tag suggestions. Evaluate each existing tag
+  independently, adding up to five with a confidence of at least 80%. The previous default
+  model setting migrates automatically.
+- Fix the meeting list's search button so clicks reach it through the transparent title bar.
+- Remove redundant hover labels from the already labeled Transcript and Summary tabs.
+
 ## 0.14.0
 
 - Turn categories into tags. A meeting can now carry several tags, toggled from the **Tags** menu
