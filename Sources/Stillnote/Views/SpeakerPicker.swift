@@ -173,19 +173,7 @@ private struct SpeakerPicker: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Button(action: listen) {
-                HStack(spacing: 6) {
-                    Icon(.play, size: 13, filled: true)
-                    Text("Listen").font(.system(size: 12.5, weight: .semibold))
-                }
-                .foregroundStyle(DS.text)
-                .padding(.leading, 9)
-                .padding(.trailing, 12)
-                .frame(height: 30)
-                .background(DS.hover, in: .capsule)
-                .contentShape(.capsule)
-            }
-            .buttonStyle(.plain)
+            CapsuleButton(title: "Listen", icon: .play, iconFilled: true, action: listen)
             .disabled(player?.unplayableReason != nil || player == nil)
             .accessibilityLabel("Play a voice sample from this speaker")
         }

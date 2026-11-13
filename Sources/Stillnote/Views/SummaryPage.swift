@@ -40,19 +40,9 @@ struct SummaryPage: View {
                     .help(meeting.summary.map { "Generated with \($0.provider) · \($0.model)" } ?? "")
                 Spacer(minLength: 8)
                 if let summary = meeting.summary {
-                    Button { copy(summary) } label: {
-                        HStack(spacing: 6) {
-                            Icon(copied ? .check : .copy, size: 15, lineWidth: 1.8)
-                            Text(copied ? "Copied" : "Copy").font(.system(size: 13, weight: .semibold))
-                        }
-                        .foregroundStyle(DS.text)
-                        .padding(.leading, 10)
-                        .padding(.trailing, 12)
-                        .frame(height: 30)
-                        .background(DS.hover, in: .capsule)
-                        .contentShape(.capsule)
+                    CapsuleButton(title: copied ? "Copied" : "Copy", icon: copied ? .check : .copy) {
+                        copy(summary)
                     }
-                    .buttonStyle(.plain)
                     .help("Copy summary")
                 }
             }

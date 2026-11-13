@@ -34,7 +34,7 @@ struct RecentlyDeletedView: View {
                                             .font(.caption).foregroundStyle(DS.text2)
                                     }
                                     Spacer()
-                                    Button("Restore") {
+                                    CapsuleButton(title: "Restore") {
                                         restoring.insert(meeting.id)
                                         Task {
                                             await model.restoreDeleted(meeting.id)
