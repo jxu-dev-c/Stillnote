@@ -18,7 +18,7 @@ account policies apply. No cloud transcription fallback is used.
 
 **Suggest Tags**, **Auto-Tag Meetings…**, and `stillnote tag auto` send a meeting's title, its
 summary (overview, key points, and decisions) or the opening of its transcript with speaker labels,
-and the names of your tags to OpenAI's Responses API, with `store: false`. Nothing is sent until you
+and the names of your tags to OpenAI's Decisions API. Nothing is sent until you
 choose one of those, or turn on **Suggest tags after each summary** in **Settings → Summaries**,
 which then tags each newly summarized meeting without asking again. The `stillnote` command needs
 `--allow-remote` on every `tag auto`. OpenAI's API data policies apply.

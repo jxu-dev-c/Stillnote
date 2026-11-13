@@ -341,7 +341,7 @@ struct SummarySettingsView: View {
     }
 }
 
-/// Suggested meeting tags, through OpenAI's Responses API. The key goes to the Keychain, never
+/// Suggested meeting tags, through OpenAI's Decisions API. The key goes to the Keychain, never
 /// to the settings record.
 struct TagSettingsSection: View {
     @Environment(AppModel.self) private var model
@@ -372,6 +372,7 @@ struct TagSettingsSection: View {
             Text("Saved in your Keychain. Without one, Stillnote uses \(OpenAICredentials.variable) from your shell.")
                 .font(.caption).foregroundStyle(.secondary)
             TextField("Model", text: $tagModel, prompt: Text(TaggingSettings.defaultModel))
+            Text("Tag decisions use gpt-6-luna.").font(.caption).foregroundStyle(.secondary)
             Toggle("Suggest tags after each summary", isOn: $afterSummary)
             Text("Suggest Tags and Auto-Tag Meetings send the meeting's title and summary, or the opening of its "
                 + "transcript, with your tag names to OpenAI. Stillnote only adds tags you created; it never removes one.")

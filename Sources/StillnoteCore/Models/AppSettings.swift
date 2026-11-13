@@ -250,7 +250,7 @@ public struct SpeakerRecognitionSettings: Codable, Hashable, Sendable {
 
 /// Meeting tags suggested by OpenAI. The API key is not stored here; see `OpenAICredentials`.
 public struct TaggingSettings: Codable, Hashable, Sendable {
-    public static let defaultModel = "gpt-5.4-mini"
+    public static let defaultModel = "gpt-6-luna"
 
     /// Suggest tags for a meeting once its summary is saved. Opt-in: it sends meeting text to OpenAI.
     public var autoTagAfterSummary: Bool
@@ -264,7 +264,7 @@ public struct TaggingSettings: Codable, Hashable, Sendable {
 
     public init(autoTagAfterSummary: Bool = false, model: String = TaggingSettings.defaultModel) {
         self.autoTagAfterSummary = autoTagAfterSummary
-        self.model = model
+        self.model = model == "gpt-5.4-mini" ? Self.defaultModel : model
     }
 
     public init(from decoder: Decoder) throws {
@@ -277,10 +277,10 @@ public struct TaggingSettings: Codable, Hashable, Sendable {
 
     public func resolvedModel() throws -> String {
         let model = model.trimmingCharacters(in: .whitespaces)
-        guard model.count <= Validation.maxSummaryModelLength,
-              !model.contains(where: { $0.isWhitespace || ($0.asciiValue.map { $0 < 32 } ?? false) })
-        else { throw SummaryError("Enter a valid OpenAI model name in Settings → Summaries.") }
-        return model.isEmpty ? Self.defaultModel : model
+        guard model.isEmpty || model == Self.defaultModel else {
+            throw SummaryError("The Decisions API requires the model name gpt-6-luna in Settings → Summaries.")
+        }
+        return Self.defaultModel
     }
 }
 

@@ -111,15 +111,18 @@ current default.
 
 **Suggest Tags** (a meeting's Tags menu), **Auto-Tag Meetings…** (the sidebar's Tags menu), and
 `stillnote tag auto` ask OpenAI which of the library's existing tags fit a meeting.
-`MeetingTagger` makes one Responses API request (`OpenAIResponses`, `store: false`, low reasoning
-effort) with a strict JSON schema whose `tag_ids` items are an `enum` of the tag ids, so the model
-cannot invent a tag; the answer is filtered against the tags again before use. It sends the title,
+`MeetingTagger` uses the Decisions API (`OpenAIDecisions`, `POST /v1/decisions`) with one
+predicate per existing tag, in batches of at most 400 questions. It requires a valid answer
+for every question, selects up to five tags with probability at least 0.8 (highest first, ties
+in sidebar order), and returns them in sidebar order. This threshold is an application policy,
+not a calibrated accuracy guarantee. It sends the title,
 the tag names and ids, and the summary (overview, key points, decisions) or, without one, the
 transcript's first 30 KB. `AppModel.tagMeeting` only adds tags, never removes one, and runs on the
 agent slots like naming. With **Suggest tags after each summary** on (`AppSettings.tagging`, off by
 default), a saved summary starts it the way it starts naming, so Stop, Transcribe & Summarize and
 `process` tag new meetings too; turning it on is the consent. The model defaults to
-`gpt-5.4-mini`. `OpenAICredentials` finds the key in the login Keychain (saved from
+`gpt-6-luna`, the supported Decisions model; the previous `gpt-5.4-mini` default migrates
+automatically. Other unsupported model settings produce an actionable error. `OpenAICredentials` finds the key in the login Keychain (saved from
 Settings → Summaries), then `OPENAI_API_KEY` in the app's environment, then in the login shell,
 read the way `AgentEnvironment` reads it for the agent CLIs. The key is never written to the
 settings record.
