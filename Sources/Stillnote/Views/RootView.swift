@@ -80,6 +80,8 @@ struct RootView: View {
     private var library: some View {
         if destination.wrappedValue == .calendar {
             MeetingCalendarView(destination: destination, selection: $selection, sheet: $sheet)
+        } else if destination.wrappedValue == .recentlyDeleted {
+            RecentlyDeletedView()
         } else {
             HStack(spacing: 0) {
                 // With the sidebar folded, the window's controls sit where the list's title is.

@@ -9,6 +9,8 @@ import StillnoteCore
 @Observable
 final class AppModel {
     private(set) var meetings: [MeetingListItem] = []
+    private(set) var recentlyDeleted: [DeletedMeeting] = []
+    @ObservationIgnored private var retentionTask: Task<Void, Never>?
     private(set) var selectedMeeting: Meeting?
     private(set) var detailError: String?
     @ObservationIgnored private var detailID: String?
@@ -118,6 +120,7 @@ final class AppModel {
             try await store.migrateNamedSpeakers()
             startupStage = "Preparing library search…"
             try await store.prepareLibrarySearch()
+            try await refreshRecentlyDeleted()
             meetings = try await store.libraryItems()
             meetingSearchRevision += 1
             settings = try await store.settings()
@@ -128,6 +131,13 @@ final class AppModel {
             startupStage = "Recovering interrupted recordings…"
             await recorder.recover()
             isReady = true
+            retentionTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                    guard let self else { return }
+                    do { try await self.refreshRecentlyDeleted() } catch { self.report(error) }
+                }
+            }
             // Only now is there a store and a recorder for a command to reach.
             commands.start(model: self)
             meetingReminder.sync(model: self)
@@ -308,24 +318,36 @@ final class AppModel {
     }
 
     func delete(_ id: String) async {
-        guard !splittingMeetings.contains(id) else { return }
+        guard !splittingMeetings.contains(id), !namingMeetings.contains(id),
+              !autoTaggingMeetings.contains(id) else { return }
         guard let meeting = libraryItem(id), !meeting.status.isBusy else {
             alertMessage = "This meeting is processing. Wait for it to finish."
             return
         }
-        MediaFile.forget(id, paths: paths)
-        try? FileManager.default.removeItem(at: paths.audioURL(id))
-        try? FileManager.default.removeItem(at: paths.videoURL(id))
         do {
-            try await store.delete(id)
+            try await store.moveToRecentlyDeleted(id)
             removedMeetingIDs.insert(id)
             meetings.removeAll { $0.id == id }
             if selectedMeeting?.id == id { selectedMeeting = nil }
             meetingSearchRevision += 1
-            discardNotesDraft(id)
+            recentlyDeleted = try await store.recentlyDeleted()
         } catch {
             report(error)
         }
+    }
+
+    func refreshRecentlyDeleted() async throws {
+        for id in try await store.purgeExpiredDeleted() { discardNotesDraft(id) }
+        recentlyDeleted = try await store.recentlyDeleted()
+    }
+
+    func restoreDeleted(_ id: String) async {
+        do {
+            let meeting = try await store.restoreDeleted(id)
+            removedMeetingIDs.remove(id)
+            await apply(meeting)
+            recentlyDeleted = try await store.recentlyDeleted()
+        } catch { report(error) }
     }
 
     var splittingMeetings: Set<String> = []
@@ -859,6 +881,8 @@ final class AppModel {
     }
 
     func shutdown() async {
+        retentionTask?.cancel()
+        retentionTask = nil
         commands.stop()
         for task in transcriptions.values { task.cancel() }
         cancelVoiceJob()

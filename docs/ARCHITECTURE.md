@@ -40,7 +40,7 @@ CREATE TABLE settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL);  -- single r
 ```
 
 Later tables are additive and created on the first writable open: `speaker_profiles`,
-`categories(id, data)`, the derived `meeting_library`, and for voice recognition `voiceprints(meeting_id, data)` and
+`categories(id, data)`, `deleted_meetings(id, data, deleted_at, voiceprints)`, the derived `meeting_library`, and for voice recognition `voiceprints(meeting_id, data)` and
 `voice_model(id, data)` (single row id=1). A trigger deletes a meeting's voiceprints when the
 meeting row is deleted, so a library edited by an older build cannot keep voices for a meeting
 that no longer exists.
@@ -310,7 +310,7 @@ months and years) and shows each one's time, length, people, and a `snippet`: th
 overview, or the first transcript line. Swiping a row right stars it and left deletes it, by
 two-finger trackpad swipe or by dragging; a short swipe reveals the action and a long one performs
 it. The open meeting swipes like any other; only meetings still being processed can't be deleted.
-The list's title is hidden while the sidebar is folded, where the window's controls sit. Deletions are held while their toast offers Undo (`Feedback`), then carried out. **New
+The list's title is hidden while the sidebar is folded, where the window's controls sit. Deletion moves the document and voiceprints into `deleted_meetings` in one transaction; media stays in place. The five-second Undo toast restores it immediately. **Recently Deleted**, pinned above Settings, also restores meetings for five days (120 hours). Expired records and media are purged at launch and every minute while the app runs; cleanup retries file failures. Archived meetings are absent from normal lists, search, calendar, and CLI reads. Restore retains notes, summaries, and speaker assignments, but clears a category that no longer exists. **New
 Meeting** starts a recording with the saved defaults; ⌘R opens the recording options first.
 Recordings show in the window as their own page, from whichever entry point started them.
 

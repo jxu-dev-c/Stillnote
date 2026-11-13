@@ -21,7 +21,7 @@ meeting sounds. They are computed on this Mac by the bundled worker and stored i
 private database as the meetings, never sent to a summary provider, written to exports, or
 printed by the `stillnote` command, which reports only counts and accuracy. The first run
 downloads a public 15 MB voice model from Hugging Face, which sends no audio. Deleting a meeting
-deletes its voiceprints; **Forget Voices** in Settings → Speakers deletes all of them. Profile
+retains its voiceprints in Recently Deleted for five days; **Forget Voices** in Settings → Speakers deletes all of them, including archived voiceprints. Profile
 links made by voice are ordinary speaker tags and stay until changed.
 
 ## Meeting reminders
@@ -52,3 +52,7 @@ To uninstall, quit Stillnote, remove the app, and optionally remove its Applicat
 folder to delete recordings and models (and any legacy Python runtime). Back up wanted recordings
 first. Environment-variable overrides may place data elsewhere; remove those separately.
 CLI accounts and their credentials belong to the independently installed provider CLIs.
+
+## Recently Deleted
+
+Deleted meetings, transcripts, notes, and recordings stay on this Mac for five days and can be restored from Recently Deleted above Settings. After 120 hours, Stillnote removes them permanently on its next cleanup (at launch and every minute while running). They are not moved to macOS Trash. Meetings deleted before this feature cannot be recovered through it.

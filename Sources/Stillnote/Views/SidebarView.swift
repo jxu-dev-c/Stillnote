@@ -4,7 +4,7 @@ import SwiftUI
 
 /// What the sidebar shows in the content area. Stored per window as a string.
 enum SidebarDestination: Hashable, RawRepresentable {
-    case all, today, starred, calendar
+    case all, today, starred, calendar, recentlyDeleted
     case category(String)
 
     private static let categoryPrefix = "category:"
@@ -15,6 +15,7 @@ enum SidebarDestination: Hashable, RawRepresentable {
         case "today": self = .today
         case "starred": self = .starred
         case "calendar": self = .calendar
+        case "recentlyDeleted": self = .recentlyDeleted
         default:
             guard rawValue.hasPrefix(Self.categoryPrefix) else { return nil }
             self = .category(String(rawValue.dropFirst(Self.categoryPrefix.count)))
@@ -27,6 +28,7 @@ enum SidebarDestination: Hashable, RawRepresentable {
         case .today: "today"
         case .starred: "starred"
         case .calendar: "calendar"
+        case .recentlyDeleted: "recentlyDeleted"
         case .category(let id): Self.categoryPrefix + id
         }
     }
@@ -34,6 +36,7 @@ enum SidebarDestination: Hashable, RawRepresentable {
     func includes(_ meeting: MeetingListItem) -> Bool {
         switch self {
         case .all, .calendar: true
+        case .recentlyDeleted: false
         case .today: Calendar.current.isDateInToday(meeting.startDate)
         case .starred: meeting.starred
         case .category(let id): meeting.categoryID == id
@@ -315,6 +318,11 @@ struct SidebarView: View {
             if !model.speech.ready {
                 SetupNotice()
                     .padding(.bottom, 6)
+            }
+            SidebarRow(title: "Recently Deleted", count: model.recentlyDeleted.count,
+                       selected: destination == .recentlyDeleted,
+                       action: { choose(.recentlyDeleted) }) {
+                Icon(.trash, size: 18).foregroundStyle(SidebarStyle.text2)
             }
             SettingsLink {
                 SidebarRowLabel(title: "Settings") {

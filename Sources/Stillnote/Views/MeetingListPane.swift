@@ -31,6 +31,7 @@ struct MeetingListPane: View {
     private var title: String {
         switch destination {
         case .all, .calendar: "All Meetings"
+        case .recentlyDeleted: "Recently Deleted"
         case .today: "Today"
         case .starred: "Starred"
         case .category(let id): model.category(id)?.name ?? "All Meetings"
