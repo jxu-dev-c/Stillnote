@@ -128,6 +128,14 @@ final class CommandServer {
             return try await learnVoices(request, model: model)
         case ["speaker", "autotag"]:
             return try await autoTag(request, model: model)
+        case ["tag", "create"]:
+            return try await createTag(request, model: model)
+        case ["tag", "apply"]:
+            return try await applyTag(request, model: model, adding: true)
+        case ["tag", "remove"]:
+            return try await applyTag(request, model: model, adding: false)
+        case ["tag", "auto"]:
+            return try await suggestTags(request, model: model)
         case ["summary", "set"]:
             return try await setSummary(request, model: model)
         case ["notes", "set"]:
@@ -155,6 +163,11 @@ final class CommandServer {
     }
 
     // MARK: - Helpers
+
+    /// A meeting's details, with its tag names.
+    private func meetingResponse(_ message: String, _ meeting: Meeting) throws -> CLIResponse {
+        try CommandRunner.meetingResponse(message, meeting, tags: model?.tags ?? [])
+    }
 
     private func resolve(_ request: CLIRequest, model: AppModel) async throws -> Meeting {
         guard let reference = request.positionals.first else {
@@ -278,7 +291,7 @@ final class CommandServer {
             },
             "The segment"
         )
-        return try CommandRunner.meetingResponse(
+        return try meetingResponse(
             "Updated segment \(segmentID) in '\(saved.title)'."
                 + (saved.summary == nil && meeting.summary != nil
                     ? " Its summary was cleared; run 'stillnote summarize \(saved.id) --allow-remote' to rebuild one."
@@ -305,7 +318,7 @@ final class CommandServer {
         guard let saved = try? await model.store.get(meeting.id) else {
             throw CLIError.failed("The speaker rename could not be read back.")
         }
-        return try CommandRunner.meetingResponse(
+        return try meetingResponse(
             "Renamed \(speakerID) to '\(saved.speakerName(speakerID))' in '\(saved.title)'.", saved
         )
     }
@@ -415,7 +428,7 @@ final class CommandServer {
         if meeting.summary != nil, saved.summary == nil {
             message += " Its summary was cleared; run 'stillnote summarize \(saved.id) --allow-remote' to rebuild one."
         }
-        return try CommandRunner.meetingResponse(message, saved)
+        return try meetingResponse(message, saved)
     }
 
     // MARK: - Voice recognition
@@ -500,7 +513,7 @@ final class CommandServer {
                 await model.edit(meeting.id) { $0.summary = replacement; $0.status = .complete },
                 "The summary"
             )
-            return try CommandRunner.meetingResponse("Replaced the summary of '\(saved.title)'.", saved)
+            return try meetingResponse("Replaced the summary of '\(saved.title)'.", saved)
         }
         guard let overview = request.value("overview") else {
             throw CLIError.usage("Give --overview <text>, or --json-stdin with a full summary document.")
@@ -513,7 +526,7 @@ final class CommandServer {
         }
         summary.overview = overview
         let saved = try edited(await model.edit(meeting.id) { $0.summary = summary }, "The summary")
-        return try CommandRunner.meetingResponse("Updated the overview of '\(saved.title)'.", saved)
+        return try meetingResponse("Updated the overview of '\(saved.title)'.", saved)
     }
 
     private func setNotes(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
@@ -555,7 +568,7 @@ final class CommandServer {
         guard let queued = try? await model.store.get(meeting.id), queued.status == .transcribing else {
             throw CLIError.failed(model.alertMessage ?? "Transcription could not be queued.")
         }
-        return try CommandRunner.meetingResponse(
+        return try meetingResponse(
             "Queued local transcription for '\(queued.title)'. Check 'stillnote show \(queued.id)' for progress.",
             queued
         )
@@ -574,7 +587,7 @@ final class CommandServer {
         guard let queued = try? await model.store.get(meeting.id), queued.status == .summarizing else {
             throw CLIError.failed(model.alertMessage ?? "The summary could not be queued.")
         }
-        return try CommandRunner.meetingResponse(
+        return try meetingResponse(
             "Queued a summary for '\(queued.title)' via \(model.settings.summary.provider.rawValue). "
                 + "Check 'stillnote summary show \(queued.id)' shortly.",
             queued
@@ -610,7 +623,7 @@ final class CommandServer {
         guard let named else {
             throw CLIError.busy("'\(meeting.title)' is already being named or split. Try again when it finishes.")
         }
-        return try CommandRunner.meetingResponse("Named '\(meeting.title)' as '\(named.title)'.", named)
+        return try meetingResponse("Named '\(meeting.title)' as '\(named.title)'.", named)
     }
 
     /// Stop, Transcribe & Summarize for meetings already in the library. Each meeting resumes
@@ -685,6 +698,110 @@ final class CommandServer {
             throw CLIError.failed(skip.reason)
         }
         return try CommandRunner.processResponse(ProcessPayload(dryRun: false, meetings: queued, skipped: skipped))
+    }
+
+    // MARK: - Tags
+
+    private func createTag(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
+        guard let name = request.value("name") else { throw CLIError.usage("Give the new tag a --name.") }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Resolving by name must stay unambiguous, so a second tag with the same name is refused.
+        if let existing = model.tags.first(where: { $0.name.lowercased() == trimmed.lowercased() }) {
+            throw CLIError.usage("A tag called '\(existing.name)' already exists (\(existing.id)).")
+        }
+        let color = try request.value("color").map(TagQuery.color)
+        let saved = try await saving { try await model.addTag(name: name, color: color) }
+        return try CommandRunner.tagResponse(
+            "Created tag '\(saved.name)'.", saved, tags: model.tags, meetings: try await model.store.list()
+        )
+    }
+
+    private func applyTag(_ request: CLIRequest, model: AppModel, adding: Bool) async throws -> CLIResponse {
+        guard let reference = request.value("tag") else {
+            throw CLIError.usage("Name the tag with --tag. 'stillnote tag list' lists them.")
+        }
+        let tag = try TagQuery.resolve(reference, in: model.tags)
+        let meeting = try await resolve(request, model: model)
+        let has = meeting.tagIDs.contains(tag.id)
+        if has == adding {
+            return try meetingResponse(
+                "'\(meeting.title)' \(adding ? "already carries" : "doesn't carry") '\(tag.name)'.", meeting
+            )
+        }
+        let saved = try edited(await model.edit(meeting.id) { meeting in
+            if adding { meeting.addTags([tag.id]) } else { meeting.removeTag(tag.id) }
+        }, "The tag")
+        return try meetingResponse(
+            adding ? "Tagged '\(saved.title)' with '\(tag.name)'." : "Removed '\(tag.name)' from '\(saved.title)'.",
+            saved
+        )
+    }
+
+    /// `tag auto`: OpenAI picks from the existing tags. `--all` covers every untagged, transcribed
+    /// meeting; `--dry-run` reports the picks without saving them but still sends the meetings.
+    private func suggestTags(_ request: CLIRequest, model: AppModel) async throws -> CLIResponse {
+        let all = request.has("all")
+        guard all != (request.positionals.first != nil) else {
+            throw CLIError.usage("Name one meeting, or use --all for every untagged meeting.")
+        }
+        guard request.has("allow-remote") else {
+            throw CLIError.usage(
+                "Suggesting tags sends each meeting's title and summary, or the opening of its transcript, "
+                    + "to OpenAI (\(model.settings.tagging.model)). Pass --allow-remote to consent."
+            )
+        }
+        guard !model.tags.isEmpty else {
+            throw CLIError.usage("There are no tags to choose from. Create one with 'stillnote tag create --name <name>'.")
+        }
+        let dryRun = request.has("dry-run")
+        var targets: [Meeting]
+        if all {
+            let ids = Set(model.untaggedMeetingIDs)
+            targets = try await model.store.list().filter { ids.contains($0.id) }.sorted { $0.createdAt > $1.createdAt }
+        } else {
+            let meeting = try await resolve(request, model: model)
+            try requireIdle(meeting)
+            guard !meeting.segments.isEmpty else {
+                throw CLIError.usage("Transcribe '\(meeting.title)' before suggesting tags for it.")
+            }
+            targets = [meeting]
+        }
+        var results: [TagSuggestionPayload] = []
+        for meeting in targets {
+            do {
+                guard let suggestion = try await model.tagMeeting(meeting.id, allowRemote: true, dryRun: dryRun) else {
+                    results.append(TagSuggestionPayload(
+                        id: meeting.id, title: meeting.title, suggested: [], added: [],
+                        tags: MeetingTag.names(of: meeting.tagIDs, in: model.tags),
+                        error: "It is already being tagged or split, or was deleted."
+                    ))
+                    continue
+                }
+                results.append(TagSuggestionPayload(
+                    id: meeting.id, title: suggestion.meeting.title,
+                    suggested: MeetingTag.names(of: suggestion.suggested, in: model.tags),
+                    added: MeetingTag.names(of: suggestion.added, in: model.tags),
+                    tags: MeetingTag.names(of: suggestion.meeting.tagIDs, in: model.tags)
+                ))
+            } catch {
+                let message = AppModel.taggingMessage(error)
+                // One meeting asked for by name reports its failure directly; so does a failure
+                // every remaining meeting would repeat, such as a missing or rejected key.
+                if !all || Self.repeats(message) { throw CLIError.failed(message) }
+                results.append(TagSuggestionPayload(
+                    id: meeting.id, title: meeting.title, suggested: [], added: [],
+                    tags: MeetingTag.names(of: meeting.tagIDs, in: model.tags), error: message
+                ))
+            }
+        }
+        return try CommandRunner.tagAutoResponse(TagAutoPayload(
+            dryRun: dryRun, model: (try? model.settings.tagging.resolvedModel()) ?? model.settings.tagging.model,
+            meetings: results
+        ))
+    }
+
+    private static func repeats(_ message: String) -> Bool {
+        ["API key", "OPENAI_API_KEY", "model name", "rate limiting", "Couldn't reach"].contains { message.contains($0) }
     }
 
     // MARK: - Recording

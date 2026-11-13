@@ -66,11 +66,13 @@ public struct MeetingPayload: Codable, Hashable, Sendable {
     public var contextLinks: [ContextLink]
     public var cleanup: MeetingCleanup?
     public var hasVideo: Bool
+    /// Names of the meeting's tags, in the order they were applied.
+    public var tags: [String]
     /// Present only when the transcript was asked for.
     public var segments: [TranscriptLine]?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, duration, status, stage, error, language, speakers, summary, notes, cleanup, segments
+        case id, title, duration, status, stage, error, language, speakers, summary, notes, cleanup, segments, tags
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case segmentCount = "segment_count"
@@ -78,8 +80,9 @@ public struct MeetingPayload: Codable, Hashable, Sendable {
         case hasVideo = "has_video"
     }
 
-    public init(_ meeting: Meeting, includeSegments: Bool, speakerFilter: String? = nil) {
+    public init(_ meeting: Meeting, includeSegments: Bool, speakerFilter: String? = nil, tags: [MeetingTag] = []) {
         id = meeting.id
+        self.tags = MeetingTag.names(of: meeting.tagIDs, in: tags)
         title = meeting.title
         createdAt = meeting.createdAt
         updatedAt = meeting.updatedAt
@@ -503,5 +506,106 @@ public struct AutoTagPayload: Codable, Hashable, Sendable {
         self.meetings = meetings
         self.skipped = skipped
         tagged = meetings.reduce(0) { $0 + $1.tagged }
+    }
+}
+
+/// One meeting carrying a tag, for `tag show`.
+public struct TaggedMeeting: Codable, Hashable, Sendable {
+    public var id: String
+    public var title: String
+    public var createdAt: String
+    public var status: MeetingStatus
+    public var hasSummary: Bool
+    /// Every tag on the meeting, including the one shown.
+    public var tags: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, status, tags
+        case createdAt = "created_at"
+        case hasSummary = "has_summary"
+    }
+
+    public init(_ meeting: Meeting, tags: [MeetingTag]) {
+        id = meeting.id
+        title = meeting.title
+        createdAt = meeting.createdAt
+        status = meeting.status
+        hasSummary = meeting.summary != nil
+        self.tags = MeetingTag.names(of: meeting.tagIDs, in: tags)
+    }
+}
+
+public struct TagPayload: Codable, Hashable, Sendable {
+    public var id: String
+    public var name: String
+    public var color: TagColor
+    public var meetingCount: Int
+    /// Present on `tag show` and on changes; omitted from `tag list`.
+    public var meetings: [TaggedMeeting]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, color, meetings
+        case meetingCount = "meeting_count"
+    }
+
+    public init(_ tag: MeetingTag, meetings: [Meeting], allTags: [MeetingTag], includeMeetings: Bool) {
+        id = tag.id
+        name = tag.name
+        color = tag.color
+        let tagged = TagQuery.meetings(tagged: tag.id, in: meetings)
+        meetingCount = tagged.count
+        self.meetings = includeMeetings ? tagged.map { TaggedMeeting($0, tags: allTags) } : nil
+    }
+}
+
+public struct TagListPayload: Codable, Hashable, Sendable {
+    public var count: Int
+    public var tags: [TagPayload]
+
+    public init(_ tags: [TagPayload]) {
+        self.count = tags.count
+        self.tags = tags
+    }
+}
+
+/// `tag auto`: the tags OpenAI chose for each meeting, and which of them were new.
+public struct TagSuggestionPayload: Codable, Hashable, Sendable {
+    public var id: String
+    public var title: String
+    /// Every tag OpenAI chose, by name.
+    public var suggested: [String]
+    /// The chosen tags the meeting didn't already carry. Saved unless this was a dry run.
+    public var added: [String]
+    /// Every tag on the meeting afterwards (or as it would be, on a dry run).
+    public var tags: [String]
+    /// Why the meeting was skipped or failed, if it was.
+    public var error: String?
+
+    public init(id: String, title: String, suggested: [String], added: [String], tags: [String], error: String? = nil) {
+        self.id = id
+        self.title = title
+        self.suggested = suggested
+        self.added = added
+        self.tags = tags
+        self.error = error
+    }
+}
+
+public struct TagAutoPayload: Codable, Hashable, Sendable {
+    public var dryRun: Bool
+    public var model: String
+    public var count: Int
+    public var meetings: [TagSuggestionPayload]
+
+    enum CodingKeys: String, CodingKey {
+        case model, count, meetings
+        case dryRun = "dry_run"
+    }
+
+    public init(dryRun: Bool, model: String, meetings: [TagSuggestionPayload]) {
+        self.dryRun = dryRun
+        self.model = model
+        self.count = meetings.count
+        self.meetings = meetings
     }
 }

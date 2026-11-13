@@ -5,9 +5,11 @@ import SwiftUI
 /// What the sidebar shows in the content area. Stored per window as a string.
 enum SidebarDestination: Hashable, RawRepresentable {
     case all, today, starred, calendar, recentlyDeleted
-    case category(String)
+    case tag(String)
 
-    private static let categoryPrefix = "category:"
+    /// Tags were called categories when destinations were first stored; the prefix stays so a
+    /// window reopens on the tag it last showed.
+    private static let tagPrefix = "category:"
 
     init?(rawValue: String) {
         switch rawValue {
@@ -17,8 +19,8 @@ enum SidebarDestination: Hashable, RawRepresentable {
         case "calendar": self = .calendar
         case "recentlyDeleted": self = .recentlyDeleted
         default:
-            guard rawValue.hasPrefix(Self.categoryPrefix) else { return nil }
-            self = .category(String(rawValue.dropFirst(Self.categoryPrefix.count)))
+            guard rawValue.hasPrefix(Self.tagPrefix) else { return nil }
+            self = .tag(String(rawValue.dropFirst(Self.tagPrefix.count)))
         }
     }
 
@@ -29,7 +31,7 @@ enum SidebarDestination: Hashable, RawRepresentable {
         case .starred: "starred"
         case .calendar: "calendar"
         case .recentlyDeleted: "recentlyDeleted"
-        case .category(let id): Self.categoryPrefix + id
+        case .tag(let id): Self.tagPrefix + id
         }
     }
 
@@ -39,7 +41,7 @@ enum SidebarDestination: Hashable, RawRepresentable {
         case .recentlyDeleted: false
         case .today: Calendar.current.isDateInToday(meeting.startDate)
         case .starred: meeting.starred
-        case .category(let id): meeting.categoryID == id
+        case .tag(let id): meeting.tagIDs.contains(id)
         }
     }
 }
@@ -84,7 +86,7 @@ extension Color {
     }
 }
 
-extension CategoryColor {
+extension TagColor {
     /// The design's accents for the first four, then the matching system colors.
     var color: Color {
         switch self {
@@ -105,7 +107,7 @@ extension CategoryColor {
 
 /// The design's stroke icons, drawn from their 24-unit SVG paths.
 enum SidebarGlyph {
-    case allMeetings, today, starred, calendar, settings, newCategory, more, check, sparkle
+    case allMeetings, today, starred, calendar, settings, newTag, more, check, sparkle
 
     var isFilled: Bool { self == .more }
 
@@ -144,7 +146,7 @@ enum SidebarGlyph {
                 circle(12, 12, 2.5); circle(12, 12, 6)
                 line((12, 3.5), (12, 6)); line((12, 18), (12, 20.5)); line((3.5, 12), (6, 12)); line((18, 12), (20.5, 12))
                 line((7.8, 7.8), (6, 6)); line((16.2, 16.2), (18, 18)); line((16.2, 7.8), (18, 6)); line((7.8, 16.2), (6, 18))
-            case .newCategory:
+            case .newTag:
                 circle(12, 12, 8.5)
                 line((12, 8.5), (12, 15.5)); line((8.5, 12), (15.5, 12))
             case .more:
@@ -185,33 +187,34 @@ struct SidebarView: View {
     @Environment(AppModel.self) private var model
     @Binding var destination: SidebarDestination
     @Binding var selection: String?
-    @AppStorage("categorySort") private var sort: CategorySort = .manual
+    @AppStorage("categorySort") private var sort: TagSort = .manual
 
     private enum Naming: Identifiable {
         case new
-        case rename(MeetingCategory)
+        case rename(MeetingTag)
 
         var id: String {
-            if case .rename(let category) = self { return category.id }
+            if case .rename(let tag) = self { return tag.id }
             return "new"
         }
     }
 
     @State private var naming: Naming?
     @State private var draftName = ""
-    @State private var pendingDelete: MeetingCategory?
+    @State private var pendingDelete: MeetingTag?
     @State private var menuOpen = false
     @State private var menuMonitor: Any?
     @State private var sidebarMaxX: CGFloat = 0
     @State private var dropTarget: String?
+    @State private var confirmingAutoTag = false
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 0) {
                     library
-                    categoriesHeader
-                    categoryList
+                    tagsHeader
+                    tagList
                 }
                 .padding(.bottom, 10)
             }
@@ -228,10 +231,13 @@ struct SidebarView: View {
             if menuOpen, let anchor {
                 GeometryReader { proxy in
                     let button = proxy[anchor]
-                    CategoryMenu(sort: $sort, newCategory: {
+                    TagMenu(sort: $sort, autoTag: autoTagState, newTag: {
                         menuOpen = false
                         draftName = ""
                         naming = .new
+                    }, autoTagAction: {
+                        menuOpen = false
+                        confirmingAutoTag = true
                     }) { menuOpen = false }
                         .offset(x: button.maxX - SidebarStyle.menuWidth, y: button.maxY + 6)
                 }
@@ -256,15 +262,25 @@ struct SidebarView: View {
         }
         .confirmationDialog(
             "Delete “\(pendingDelete?.name ?? "")”?", isPresented: isDeleting, presenting: pendingDelete
-        ) { category in
-            Button("Delete Category", role: .destructive) {
-                Task { await model.deleteCategory(category.id) }
+        ) { tag in
+            Button("Delete Tag", role: .destructive) {
+                Task { await model.deleteTag(tag.id) }
             }
-        } message: { category in
-            let count = model.categoryCounts[category.id, default: 0]
+        } message: { tag in
+            let count = model.tagCounts[tag.id, default: 0]
             Text(count == 0
-                 ? "No meetings are in this category."
-                 : "\(count) \(count == 1 ? "meeting" : "meetings") will no longer be in this category. The meetings are not deleted.")
+                 ? "No meetings carry this tag."
+                 : "\(count) \(count == 1 ? "meeting" : "meetings") will lose this tag. The meetings and their other tags are kept.")
+        }
+        .confirmationDialog(
+            autoTagTitle, isPresented: $confirmingAutoTag
+        ) {
+            Button("Suggest Tags") {
+                Task { await model.tagUntaggedMeetings() }
+            }
+        } message: {
+            Text("Each meeting's title and summary, or the opening of its transcript, and your tag names are "
+                + "sent to OpenAI (\(model.settings.tagging.model)). Stillnote only adds existing tags; it never removes one.")
         }
     }
 
@@ -281,9 +297,9 @@ struct SidebarView: View {
         .padding(.horizontal, 10)
     }
 
-    private var categoriesHeader: some View {
+    private var tagsHeader: some View {
         HStack {
-            Text("Categories")
+            Text("Tags")
                 .font(SidebarStyle.headerFont)
                 .foregroundStyle(SidebarStyle.text2)
                 .accessibilityAddTraits(.isHeader)
@@ -296,18 +312,18 @@ struct SidebarView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(SidebarStyle.text2)
-            .help("Category options")
-            .accessibilityLabel("Category options")
+            .help("Tag options")
+            .accessibilityLabel("Tag options")
             .anchorPreference(key: MenuButtonAnchor.self, value: .bounds) { $0 }
         }
         .padding(EdgeInsets(top: 14, leading: 20, bottom: 4, trailing: 12))
     }
 
-    private var categoryList: some View {
-        let counts = model.categoryCounts
+    private var tagList: some View {
+        let counts = model.tagCounts
         return VStack(spacing: 2) {
-            ForEach(MeetingCategory.sorted(model.categories, by: sort, counts: counts)) { category in
-                categoryRow(category, count: counts[category.id, default: 0])
+            ForEach(MeetingTag.sorted(model.tags, by: sort, counts: counts)) { tag in
+                tagRow(tag, count: counts[tag.id, default: 0])
             }
         }
         .padding(.horizontal, 10)
@@ -352,39 +368,52 @@ struct SidebarView: View {
         }
     }
 
-    private func categoryRow(_ category: MeetingCategory, count: Int) -> some View {
-        let item = SidebarDestination.category(category.id)
+    private func tagRow(_ tag: MeetingTag, count: Int) -> some View {
+        let item = SidebarDestination.tag(tag.id)
         return SidebarRow(
-            title: category.name, count: count, selected: destination == item,
-            highlighted: dropTarget == category.id, action: { choose(item) }
+            title: tag.name, count: count, selected: destination == item,
+            highlighted: dropTarget == tag.id, action: { choose(item) }
         ) {
             Circle()
-                .fill(category.color.color)
+                .fill(tag.color.color)
                 .frame(width: 10, height: 10)
                 .frame(width: SidebarStyle.iconSize, height: SidebarStyle.iconSize)
         }
         .contextMenu {
             Button("Rename…") {
-                draftName = category.name
-                naming = .rename(category)
+                draftName = tag.name
+                naming = .rename(tag)
             }
             Picker("Color", selection: Binding(
-                get: { category.color },
-                set: { color in Task { await model.recolorCategory(category.id, color) } }
+                get: { tag.color },
+                set: { color in Task { await model.recolorTag(tag.id, color) } }
             )) {
-                ForEach(CategoryColor.allCases) { color in
+                ForEach(TagColor.allCases) { color in
                     Text(color.label).tag(color)
                 }
             }
             .pickerStyle(.menu)
             Divider()
-            Button("Delete…", role: .destructive) { pendingDelete = category }
+            Button("Delete…", role: .destructive) { pendingDelete = tag }
         }
-        .modifier(CategoryReorder(
-            enabled: sort == .manual, id: category.id, dropTarget: $dropTarget,
-            isCategory: { model.category($0) != nil },
-            move: { dragged in Task { await model.moveCategory(dragged, onto: category.id) } }
+        .modifier(TagReorder(
+            enabled: sort == .manual, id: tag.id, dropTarget: $dropTarget,
+            isTag: { model.tag($0) != nil },
+            move: { dragged in Task { await model.moveTag(dragged, onto: tag.id) } }
         ))
+    }
+
+    private var autoTagState: AutoTagMenuState {
+        if model.tags.isEmpty { return AutoTagMenuState(reason: "Create a tag first") }
+        if model.openAIKeySource == nil { return AutoTagMenuState(reason: "Add an OpenAI API key in Settings → Summaries") }
+        if !model.taggingMeetings.isEmpty { return AutoTagMenuState(reason: "Suggesting tags…") }
+        if model.untaggedMeetingIDs.isEmpty { return AutoTagMenuState(reason: "Every transcribed meeting has a tag") }
+        return AutoTagMenuState(reason: nil)
+    }
+
+    private var autoTagTitle: String {
+        let count = model.untaggedMeetingIDs.count
+        return "Suggest tags for \(count) untagged \(count == 1 ? "meeting" : "meetings")?"
     }
 
     // MARK: Actions
@@ -423,8 +452,8 @@ struct SidebarView: View {
     }
 
     private var namingTitle: String {
-        if case .rename = naming { return "Rename Category" }
-        return "New Category"
+        if case .rename = naming { return "Rename Tag" }
+        return "New Tag"
     }
 
     private var namingAction: String {
@@ -437,10 +466,10 @@ struct SidebarView: View {
         switch naming {
         case .new:
             Task {
-                if let category = await model.createCategory(name: name) { choose(.category(category.id)) }
+                if let tag = await model.createTag(name: name) { choose(.tag(tag.id)) }
             }
-        case .rename(let category):
-            Task { await model.renameCategory(category.id, to: name) }
+        case .rename(let tag):
+            Task { await model.renameTag(tag.id, to: name) }
         case nil:
             break
         }
@@ -510,12 +539,12 @@ private struct SidebarRow<Icon: View>: View {
     }
 }
 
-/// Drag a category onto another to reorder them, when the sort is Manual.
-private struct CategoryReorder: ViewModifier {
+/// Drag a tag onto another to reorder them, when the sort is Manual.
+private struct TagReorder: ViewModifier {
     let enabled: Bool
     let id: String
     @Binding var dropTarget: String?
-    let isCategory: (String) -> Bool
+    let isTag: (String) -> Bool
     let move: (String) -> Void
 
     func body(content: Content) -> some View {
@@ -523,7 +552,7 @@ private struct CategoryReorder: ViewModifier {
             content
                 .draggable(id)
                 .dropDestination(for: String.self) { ids, _ in
-                    guard let dragged = ids.first, dragged != id, isCategory(dragged) else { return false }
+                    guard let dragged = ids.first, dragged != id, isTag(dragged) else { return false }
                     move(dragged)
                     return true
                 } isTargeted: { targeted in
@@ -537,23 +566,30 @@ private struct CategoryReorder: ViewModifier {
 
 // MARK: - Sort menu
 
-private struct CategoryMenu: View {
-    @Binding var sort: CategorySort
-    let newCategory: () -> Void
+/// Whether Auto-Tag Meetings can run, and why not when it can't.
+private struct AutoTagMenuState {
+    let reason: String?
+}
+
+private struct TagMenu: View {
+    @Binding var sort: TagSort
+    let autoTag: AutoTagMenuState
+    let newTag: () -> Void
+    let autoTagAction: () -> Void
     let close: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            CategoryMenuItem(title: "New Category…", action: newCategory) {
-                GlyphView(glyph: .newCategory, size: 16, lineWidth: 1.8).foregroundStyle(SidebarStyle.accent)
+            TagMenuItem(title: "New Tag…", action: newTag) {
+                GlyphView(glyph: .newTag, size: 16, lineWidth: 1.8).foregroundStyle(SidebarStyle.accent)
             }
             separator
             Text("Sort By")
                 .font(SidebarStyle.headerFont)
                 .foregroundStyle(SidebarStyle.text2)
                 .padding(EdgeInsets(top: 4, leading: 10, bottom: 3, trailing: 10))
-            ForEach(CategorySort.allCases) { option in
-                CategoryMenuItem(title: option.label, action: {
+            ForEach(TagSort.allCases) { option in
+                TagMenuItem(title: option.label, action: {
                     sort = option
                     close()
                 }) {
@@ -564,12 +600,13 @@ private struct CategoryMenu: View {
                 .accessibilityAddTraits(sort == option ? .isSelected : [])
             }
             separator
-            // Auto-Categorize arrives in a later phase; the menu shows where it will live.
-            CategoryMenuItem(title: "Auto-Categorize", action: close) {
+            TagMenuItem(title: "Auto-Tag Meetings…", action: autoTagAction) {
                 GlyphView(glyph: .sparkle, size: 15, lineWidth: 1.9).foregroundStyle(SidebarStyle.accentInk)
             }
-            .help("Auto-Categorize is coming in a later update")
-            .accessibilityHint("Coming in a later update")
+            .disabled(autoTag.reason != nil)
+            .opacity(autoTag.reason == nil ? 1 : 0.45)
+            .help(autoTag.reason ?? "Ask OpenAI which of your tags fit each untagged meeting")
+            .accessibilityHint(autoTag.reason ?? "Suggests tags for untagged meetings with OpenAI")
         }
         .padding(6)
         .frame(width: SidebarStyle.menuWidth, alignment: .leading)
@@ -585,7 +622,7 @@ private struct CategoryMenu: View {
         }
         .shadow(color: SidebarStyle.menuShadow, radius: 25, y: 18)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Category options")
+        .accessibilityLabel("Tag options")
     }
 
     private var separator: some View {
@@ -597,7 +634,7 @@ private struct CategoryMenu: View {
     }
 }
 
-private struct CategoryMenuItem<Icon: View>: View {
+private struct TagMenuItem<Icon: View>: View {
     let title: String
     let action: () -> Void
     @ViewBuilder let icon: Icon
@@ -624,7 +661,7 @@ private struct CategoryMenuItem<Icon: View>: View {
     }
 }
 
-/// Star and category actions, shared by the meeting table and calendar context menus.
+/// Star and tag actions, shared by the meeting table and calendar context menus.
 struct MeetingOrganizeItems: View {
     @Environment(AppModel.self) private var model
     let meeting: MeetingListItem
@@ -633,16 +670,25 @@ struct MeetingOrganizeItems: View {
         Button(meeting.starred ? "Unstar" : "Star") {
             Task { await model.setStarred(meeting.id, !meeting.starred) }
         }
-        Picker("Category", selection: Binding(
-            get: { model.category(meeting.categoryID)?.id },
-            set: { id in Task { await model.setCategory(meeting.id, id) } }
-        )) {
-            Text("None").tag(String?.none)
-            if !model.categories.isEmpty { Divider() }
-            ForEach(model.categories) { category in
-                Text(category.name).tag(String?.some(category.id))
+        Menu("Tags") {
+            ForEach(MeetingTag.sorted(model.tags, by: .manual)) { tag in
+                Toggle(tag.name, isOn: Binding(
+                    get: { meeting.tagIDs.contains(tag.id) },
+                    set: { _ in Task { await model.toggleTag(tag.id, on: meeting.id) } }
+                ))
             }
+            if !model.tags.isEmpty { Divider() }
+            Button("Suggest Tags") {
+                Task { await model.suggestTags(meeting.id) }
+            }
+            .disabled(
+                model.tags.isEmpty || model.openAIKeySource == nil || meeting.status.isBusy
+                    || ![.transcribed, .complete].contains(meeting.status) || model.taggingMeetings.contains(meeting.id)
+            )
+            Button("Clear Tags") {
+                Task { await model.clearTags(meeting.id) }
+            }
+            .disabled(meeting.tagIDs.isEmpty)
         }
-        .pickerStyle(.menu)
     }
 }

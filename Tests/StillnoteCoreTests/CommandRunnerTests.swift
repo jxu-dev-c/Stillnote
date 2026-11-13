@@ -30,6 +30,7 @@ import Testing
         launch.notes = "Ping Jackson about ANE coverage."
         launch.status = .complete
         launch.progress = 100
+        launch.tagIDs = ["tag-product", "tag-eng"]
 
         var sync = Meeting(
             id: "cc33dd44", title: "Weekly sync", audioName: "b.wav", language: "en", speakerCount: 1,
@@ -41,6 +42,9 @@ import Testing
         sync.segments = [Segment(id: "s0", start: 0, end: 9, speaker: "speaker_1", text: "ANE throughput.")]
         sync.status = .transcribed
 
+        try await store.saveTag(MeetingTag(id: "tag-product", name: "Product", color: .blue, position: 0))
+        try await store.saveTag(MeetingTag(id: "tag-eng", name: "Engineering", color: .green, position: 1))
+        try await store.saveTag(MeetingTag(id: "tag-empty", name: "Hiring", color: .pink, position: 2))
         try await store.insert(launch)
         try await store.insert(sync)
         return (store, paths)
@@ -64,6 +68,63 @@ import Testing
         #expect(payload?.meetings.first?.speakers == ["Jackson", "Priya"])
         #expect(payload?.meetings.first?.hasSummary == true)
         #expect(payload?.meetings.last?.hasSummary == false)
+    }
+
+    @Test func listsTagsWithTheirMeetingCounts() async throws {
+        let (store, paths) = try await library()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let response = try await run(["tag", "list"], store)
+        let payload = try #require(try response.payload?.decoded(TagListPayload.self))
+        #expect(payload.count == 3)
+        #expect(payload.tags.map(\.name) == ["Product", "Engineering", "Hiring"])
+        #expect(payload.tags.map(\.meetingCount) == [1, 1, 0])
+        #expect(payload.tags.allSatisfy { $0.meetings == nil })
+        #expect(response.message.contains("Product (blue) — 1 meeting(s)"))
+    }
+
+    @Test func showsWhatATagContains() async throws {
+        let (store, paths) = try await library()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        for reference in ["product", "tag-prod", "TAG-PRODUCT"] {
+            let payload = try #require(try await run(["tag", "show", reference], store).payload?.decoded(TagPayload.self))
+            #expect(payload.id == "tag-product")
+            #expect(payload.meetings?.map(\.id) == ["aa11bb22"])
+            #expect(payload.meetings?.first?.tags == ["Product", "Engineering"])
+            #expect(payload.meetings?.first?.hasSummary == true)
+        }
+        let empty = try await run(["tag", "show", "Hiring"], store)
+        #expect(try empty.payload?.decoded(TagPayload.self).meetings?.isEmpty == true)
+        #expect(empty.message.contains("No meetings carry this tag."))
+        await #expect(throws: CLIError.self) { try await run(["tag", "show", "tag-"], store) }
+        await #expect(throws: CLIError.self) { try await run(["tag", "show", "Nope"], store) }
+    }
+
+    @Test func listAndShowCarryTagNames() async throws {
+        let (store, paths) = try await library()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let tagged = try await run(["list", "--tag", "Engineering"], store).payload?.decoded(ListPayload.self)
+        #expect(tagged?.meetings.map(\.id) == ["aa11bb22"])
+        #expect(tagged?.meetings.first?.tags == ["Product", "Engineering"])
+        let none = try await run(["list", "--tag", "Hiring"], store).payload?.decoded(ListPayload.self)
+        #expect(none?.count == 0)
+        let all = try await run(["list"], store).payload?.decoded(ListPayload.self)
+        #expect(all?.meetings.last?.tags == [])
+        let shown = try await run(["show", "aa11"], store)
+        #expect(try shown.payload?.decoded(MeetingPayload.self).tags == ["Product", "Engineering"])
+        #expect(shown.message.contains("Tags: Product, Engineering"))
+        await #expect(throws: CLIError.self) { try await run(["list", "--tag", "Nope"], store) }
+    }
+
+    @Test func tagAutoResponseSaysWhatWouldChange() throws {
+        let response = try CommandRunner.tagAutoResponse(TagAutoPayload(dryRun: true, model: "gpt-5.4-mini", meetings: [
+            TagSuggestionPayload(id: "a", title: "Launch", suggested: ["Product"], added: ["Product"], tags: ["Product"]),
+            TagSuggestionPayload(id: "b", title: "Sync", suggested: [], added: [], tags: []),
+            TagSuggestionPayload(id: "c", title: "Broken", suggested: [], added: [], tags: [], error: "Boom."),
+        ]))
+        #expect(response.message.contains("Launch: would add Product."))
+        #expect(response.message.contains("Sync: no tag fits."))
+        #expect(response.message.contains("Broken: Boom."))
+        #expect(response.message.contains("Nothing was saved."))
     }
 
     @Test func showOmitsTheTranscriptUnlessAsked() async throws {
@@ -174,6 +235,10 @@ import Testing
             ["speaker", "learn", "--wait"],
             ["speaker", "autotag", "aa11", "--dry-run"],
             ["speaker", "autotag", "--all"],
+            ["tag", "create", "--name", "Ops"],
+            ["tag", "apply", "aa11", "--tag", "Product"],
+            ["tag", "remove", "aa11", "--tag", "Product"],
+            ["tag", "auto", "--all", "--allow-remote", "--dry-run"],
         ] {
             let invocation = try CommandCatalog.parse(argv)
             #expect(invocation.spec.requiresApp, "\(invocation.spec.name) must require the app")
@@ -191,7 +256,7 @@ import Testing
             // `status` is the one read command the CLI answers itself, from the paths it resolved.
             guard spec.path != ["status"] else { continue }
             let argv = spec.path + spec.positionals.compactMap { name in
-                name.hasSuffix("?") ? nil : ["query": "ANE", "profile": "Jackson"][name, default: "latest"]
+                name.hasSuffix("?") ? nil : ["query": "ANE", "profile": "Jackson", "tag": "Product"][name, default: "latest"]
             }
             let invocation = try CommandCatalog.parse(argv)
             let response = try await CommandRunner.read(invocation.request, store: store)

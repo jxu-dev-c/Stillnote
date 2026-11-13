@@ -164,9 +164,12 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
     public var automaticTitle: Bool
     /// Shown in the sidebar's Starred list. Older documents have none.
     public var starred: Bool
-    /// The `MeetingCategory` this meeting belongs to, if any. A deleted category's id is
-    /// cleared from its meetings; an id with no category is treated as uncategorized.
-    public var categoryID: String?
+    /// The `MeetingTag`s on this meeting, in the order they were applied. A deleted tag's id is
+    /// removed from its meetings; an id with no tag left is ignored.
+    public var tagIDs: [String] { didSet { legacyCategoryID = tagIDs.first } }
+    /// The first tag, written as `category_id` so a build from before tags still shows one.
+    /// Only read when a document has no `tag_ids`.
+    private var legacyCategoryID: String?
     /// Earlier builds stored false even for untouched default titles. This marker
     /// distinguishes their records from explicit title choices saved by the corrected form.
     private var titleOwnershipVersion = 1
@@ -187,7 +190,8 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         case automaticTitle = "automatic_title"
         case titleOwnershipVersion = "title_ownership_version"
         case starred
-        case categoryID = "category_id"
+        case tagIDs = "tag_ids"
+        case legacyCategoryID = "category_id"
     }
 
     public init(from decoder: Decoder) throws {
@@ -219,7 +223,10 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         // A value from a newer build is treated as unknown rather than failing the document.
         source = (try? values.decodeIfPresent(MeetingSource.self, forKey: .source)) ?? nil
         starred = (try? values.decodeIfPresent(Bool.self, forKey: .starred)) ?? false
-        categoryID = (try? values.decodeIfPresent(String.self, forKey: .categoryID)) ?? nil
+        let legacyCategory = (try? values.decodeIfPresent(String.self, forKey: .legacyCategoryID)) ?? nil
+        let storedTags = (try? values.decodeIfPresent([String].self, forKey: .tagIDs)) ?? nil
+        tagIDs = Meeting.normalizedTags(storedTags ?? [legacyCategory].compactMap { $0 })
+        legacyCategoryID = tagIDs.first
         let storedAutomaticTitle = try values.decodeIfPresent(Bool.self, forKey: .automaticTitle)
         automaticTitle = storedAutomaticTitle ?? false
         let storedTitleOwnershipVersion = try values.decodeIfPresent(Int.self, forKey: .titleOwnershipVersion) ?? 0
@@ -269,10 +276,29 @@ public struct Meeting: Codable, Identifiable, Sendable, Hashable {
         self.source = source
         self.automaticTitle = automaticTitle
         self.starred = false
-        self.categoryID = nil
+        self.tagIDs = []
+        self.legacyCategoryID = nil
     }
 
     public var hasVideo: Bool { videoURL != nil }
+
+    /// Adds tags not already on the meeting, after the ones it has. Returns the ids added.
+    @discardableResult
+    public mutating func addTags(_ ids: [String]) -> [String] {
+        let added = Meeting.normalizedTags(ids).filter { !tagIDs.contains($0) }
+        if !added.isEmpty { tagIDs += added }
+        return added
+    }
+
+    public mutating func removeTag(_ id: String) {
+        tagIDs.removeAll { $0 == id }
+    }
+
+    /// Drops empty and repeated ids, keeping the first occurrence of each.
+    public static func normalizedTags(_ ids: [String]) -> [String] {
+        var seen = Set<String>()
+        return ids.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
 
     /// A blank import title uses the filename until a summary supplies a descriptive title.
     /// Keeping the typed title separate from that fallback preserves explicit user choices.

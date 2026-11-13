@@ -34,7 +34,7 @@ struct MeetingListPane: View {
         case .recentlyDeleted: "Recently Deleted"
         case .today: "Today"
         case .starred: "Starred"
-        case .category(let id): model.category(id)?.name ?? "All Meetings"
+        case .tag(let id): model.tag(id)?.name ?? "All Meetings"
         }
     }
 
@@ -195,7 +195,7 @@ struct MeetingListPane: View {
         switch destination {
         case .today: return "Meetings recorded today appear here."
         case .starred: return "Swipe right on a meeting to star it."
-        default: return "Add a meeting to this category from its context menu."
+        default: return "Add this tag to a meeting from its context menu."
         }
     }
 

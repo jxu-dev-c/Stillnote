@@ -18,8 +18,8 @@ final class AppModel {
     @ObservationIgnored private var removedMeetingIDs: Set<String> = []
     private(set) var meetingSearchRevision = 0
     private(set) var speakerProfiles: [SpeakerProfile] = []
-    /// Sidebar categories in manual order. The workflow lives in AppModel+Categories.swift.
-    var categories: [MeetingCategory] = []
+    /// Sidebar tags in manual order. The workflow lives in AppModel+Tags.swift.
+    var tags: [MeetingTag] = []
     var settingsTab = "transcription"
     var requestedSpeakerProfileID: String?
     var settings = AppSettings()
@@ -36,6 +36,10 @@ final class AppModel {
     /// Meetings waiting on a suggested title. Naming leaves the meeting's status alone, so a
     /// failed request never marks the meeting as failed.
     private(set) var namingMeetings: Set<String> = []
+    /// Meetings waiting on suggested tags from OpenAI. Like naming, this leaves status alone.
+    var taggingMeetings: Set<String> = []
+    /// Where the OpenAI key for meeting tags comes from, or nil when none was found.
+    var openAIKeySource: OpenAICredentials.Source?
 
     // Voice recognition. The workflow lives in AppModel+Voices.swift.
     /// What Learn Voices last produced; nil until voices have been learned.
@@ -126,7 +130,7 @@ final class AppModel {
             settings = try await store.settings()
             await agentJobs.setLimit(settings.summary.concurrency)
             speakerProfiles = try await store.profiles()
-            categories = try await store.categories()
+            tags = try await store.tags()
             voiceModel = try? await store.voiceModel()
             startupStage = "Recovering interrupted recordings…"
             await recorder.recover()
@@ -169,6 +173,7 @@ final class AppModel {
         speech = probe.0
         agents = probe.1
         capabilities = probe.2
+        await refreshOpenAIKey()
     }
 
     func meeting(_ id: String) -> Meeting? {
@@ -758,6 +763,10 @@ final class AppModel {
                 Task { [weak self] in
                     await self?.suggestTitle(id, allowRemote: allowRemote, suffix: suffix)
                 }
+            }
+            // Turning this on in Settings is the consent to send the meeting to OpenAI.
+            if self.settings.tagging.autoTagAfterSummary, !tags.isEmpty, openAIKeySource != nil {
+                Task { [weak self] in await self?.suggestTags(id) }
             }
         } catch {
             let message = (error as? SummaryError)?.message

@@ -21,7 +21,11 @@ Transcription and speaker detection are powered by [OpenMOSS's MOSS-Transcribe-D
   keeps decisions, action items, links, and notes on one page. Swipe meetings in the list to star
   or delete them. Recently Deleted, above Settings, keeps deleted meetings and recordings recoverable for five days.
 - **Calendar view.** Choose Calendar in the sidebar for a Day, Week, or Month calendar with each
-  meeting at the time it was recorded, in its category's color.
+  meeting at the time it was recorded, in its first tag's color.
+- **Tags.** Give a meeting as many tags as fit, from its context menu, and browse each tag from the
+  sidebar. **Suggest Tags** and **Auto-Tag Meetings** ask OpenAI which of your tags fit, using an
+  API key saved in Settings or `OPENAI_API_KEY`; nothing is sent unless you ask, or turn on
+  tagging after each summary.
 - **Recognize speakers by voice.** Tag speakers in a few meetings, then **Learn Voices** in
   **Settings → Speakers**. Stillnote checks itself against your own tags and reports how
   accurate it is, then **Auto-Tag Speakers** links the speakers of new meetings whose voices
