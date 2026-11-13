@@ -248,6 +248,42 @@ public struct SpeakerRecognitionSettings: Codable, Hashable, Sendable {
     }
 }
 
+/// Meeting tags suggested by OpenAI. The API key is not stored here; see `OpenAICredentials`.
+public struct TaggingSettings: Codable, Hashable, Sendable {
+    public static let defaultModel = "gpt-5.4-mini"
+
+    /// Suggest tags for a meeting once its summary is saved. Opt-in: it sends meeting text to OpenAI.
+    public var autoTagAfterSummary: Bool
+    /// The OpenAI model; empty means `defaultModel`.
+    public var model: String
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case autoTagAfterSummary = "auto_tag_after_summary"
+    }
+
+    public init(autoTagAfterSummary: Bool = false, model: String = TaggingSettings.defaultModel) {
+        self.autoTagAfterSummary = autoTagAfterSummary
+        self.model = model
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            autoTagAfterSummary: try values.decodeIfPresent(Bool.self, forKey: .autoTagAfterSummary) ?? false,
+            model: try values.decodeIfPresent(String.self, forKey: .model) ?? TaggingSettings.defaultModel
+        )
+    }
+
+    public func resolvedModel() throws -> String {
+        let model = model.trimmingCharacters(in: .whitespaces)
+        guard model.count <= Validation.maxSummaryModelLength,
+              !model.contains(where: { $0.isWhitespace || ($0.asciiValue.map { $0 < 32 } ?? false) })
+        else { throw SummaryError("Enter a valid OpenAI model name in Settings → Summaries.") }
+        return model.isEmpty ? Self.defaultModel : model
+    }
+}
+
 public struct AppSettings: Codable, Hashable, Sendable {
     public var splitThresholdMinutes: Int = 50
     public var transcription: TranscriptionSettings
@@ -256,9 +292,10 @@ public struct AppSettings: Codable, Hashable, Sendable {
     public var cli: CLISettings
     public var meetingReminders: MeetingReminderSettings
     public var speakerRecognition: SpeakerRecognitionSettings
+    public var tagging: TaggingSettings
 
     enum CodingKeys: String, CodingKey {
-        case transcription, summary, cleanup, cli
+        case transcription, summary, cleanup, cli, tagging
         case splitThresholdMinutes = "split_threshold_minutes"
         case meetingReminders = "meeting_reminders"
         case speakerRecognition = "speaker_recognition"
@@ -268,7 +305,8 @@ public struct AppSettings: Codable, Hashable, Sendable {
         transcription: TranscriptionSettings = .init(), summary: SummarySettings = .init(),
         cleanup: AudioCleanupSettings = .init(), cli: CLISettings = .init(),
         meetingReminders: MeetingReminderSettings = .init(),
-        speakerRecognition: SpeakerRecognitionSettings = .init()
+        speakerRecognition: SpeakerRecognitionSettings = .init(),
+        tagging: TaggingSettings = .init()
     ) {
         self.transcription = transcription
         self.summary = summary
@@ -276,6 +314,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
         self.cli = cli
         self.meetingReminders = meetingReminders
         self.speakerRecognition = speakerRecognition
+        self.tagging = tagging
     }
 
     public init(from decoder: Decoder) throws {
@@ -290,7 +329,9 @@ public struct AppSettings: Codable, Hashable, Sendable {
             // Meeting reminders are opt-in, so records written before them decode as off.
             meetingReminders: try values.decodeIfPresent(MeetingReminderSettings.self, forKey: .meetingReminders) ?? .init(),
             // Auto-tagging is opt-in as well.
-            speakerRecognition: try values.decodeIfPresent(SpeakerRecognitionSettings.self, forKey: .speakerRecognition) ?? .init()
+            speakerRecognition: try values.decodeIfPresent(SpeakerRecognitionSettings.self, forKey: .speakerRecognition) ?? .init(),
+            // Records written before meeting tags carry no key; suggesting tags is opt-in.
+            tagging: try values.decodeIfPresent(TaggingSettings.self, forKey: .tagging) ?? .init()
         )
         let threshold = try values.decodeIfPresent(Int.self, forKey: .splitThresholdMinutes) ?? 50
         splitThresholdMinutes = threshold > 0 ? threshold : 50
@@ -373,6 +414,13 @@ public struct AppSettings: Codable, Hashable, Sendable {
         if let recognition = object["speaker_recognition"] as? [String: Any] {
             settings.speakerRecognition = SpeakerRecognitionSettings(
                 autoTagAfterTranscription: recognition["auto_tag_after_transcription"] as? Bool ?? false
+            )
+        }
+
+        if let tagging = object["tagging"] as? [String: Any] {
+            settings.tagging = TaggingSettings(
+                autoTagAfterSummary: tagging["auto_tag_after_summary"] as? Bool ?? false,
+                model: tagging["model"] as? String ?? TaggingSettings.defaultModel
             )
         }
 

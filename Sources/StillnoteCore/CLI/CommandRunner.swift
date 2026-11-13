@@ -32,6 +32,10 @@ public enum CommandRunner {
             return try await speakerShow(request, store: store)
         case ["speaker", "voices"]:
             return try await speakerVoices(store: store)
+        case ["tag", "list"]:
+            return try await tagList(store: store)
+        case ["tag", "show"]:
+            return try await tagShow(request, store: store)
         default:
             return nil
         }
@@ -71,8 +75,10 @@ public enum CommandRunner {
     static func list(_ request: CLIRequest, store: Store) async throws -> CLIResponse {
         var filter = try filter(request)
         if filter.limit == nil { filter.limit = 50 }
+        let tags = try await store.tags()
+        if let reference = request.value("tag") { filter.tagID = try TagQuery.resolve(reference, in: tags).id }
         let meetings = MeetingQuery.filter(try await store.list(), filter)
-        let digests = meetings.map(MeetingDigest.init)
+        let digests = meetings.map { MeetingDigest($0, tags: tags) }
         var lines: [String]
         if digests.isEmpty {
             lines = ["No meetings match."]
@@ -83,6 +89,7 @@ public enum CommandRunner {
                     + "\(Formatting.duration(digest.duration).padding(toLength: 8, withPad: " ", startingAt: 0))"
                     + "\(digest.status.rawValue.padding(toLength: 13, withPad: " ", startingAt: 0))"
                     + "\(digest.title) — \(speakers)"
+                    + (digest.tags.isEmpty ? "" : "  #" + digest.tags.joined(separator: " #"))
             }
             lines.append("")
             lines.append("\(digests.count) meeting(s).")
@@ -100,7 +107,8 @@ public enum CommandRunner {
     static func show(_ request: CLIRequest, store: Store) async throws -> CLIResponse {
         let meeting = try await meeting(request, store: store)
         let payload = MeetingPayload(
-            meeting, includeSegments: request.has("segments"), speakerFilter: request.value("speaker")
+            meeting, includeSegments: request.has("segments"), speakerFilter: request.value("speaker"),
+            tags: try await store.tags()
         )
         return try .success(render(payload), payload)
     }
@@ -113,6 +121,7 @@ public enum CommandRunner {
         if let error = payload.error { lines.append("Error: \(error)") }
         let speakers = payload.speakers.map { $0.profile ? "\($0.name) [\($0.id), profile]" : "\($0.name) [\($0.id)]" }
         lines.append("Speakers: \(speakers.isEmpty ? "none yet" : speakers.joined(separator: ", "))")
+        lines.append("Tags: \(payload.tags.isEmpty ? "none" : payload.tags.joined(separator: ", "))")
         lines.append("Transcript: \(payload.segmentCount) segment(s)")
         if let cleanup = payload.cleanup, cleanup.removedDuration > 0 {
             lines.append(
@@ -289,6 +298,76 @@ public enum CommandRunner {
         return lines.joined(separator: "\n")
     }
 
+    // MARK: - Tags
+
+    static func tagList(store: Store) async throws -> CLIResponse {
+        let tags = try await store.tags()
+        let meetings = try await store.list()
+        let payloads = tags.map { TagPayload($0, meetings: meetings, allTags: tags, includeMeetings: false) }
+        var lines: [String]
+        if payloads.isEmpty {
+            lines = ["No tags yet. Add one with 'stillnote tag create --name <name>'."]
+        } else {
+            lines = payloads.map { "\($0.id)  \($0.name) (\($0.color.rawValue)) — \($0.meetingCount) meeting(s)" }
+            lines.append("")
+            lines.append("\(payloads.count) tag(s).")
+        }
+        return try .success(lines.joined(separator: "\n"), TagListPayload(payloads))
+    }
+
+    static func tagShow(_ request: CLIRequest, store: Store) async throws -> CLIResponse {
+        guard let reference = request.positionals.first else {
+            throw CLIError.usage("Name a tag. 'stillnote tag list' lists them.")
+        }
+        let tags = try await store.tags()
+        return try tagResponse(nil, try TagQuery.resolve(reference, in: tags), tags: tags, meetings: try await store.list())
+    }
+
+    /// A tag with every meeting carrying it, optionally led by what changed.
+    public static func tagResponse(
+        _ message: String?, _ tag: MeetingTag, tags: [MeetingTag], meetings: [Meeting]
+    ) throws -> CLIResponse {
+        let payload = TagPayload(tag, meetings: meetings, allTags: tags, includeMeetings: true)
+        return try .success(([message].compactMap { $0 } + [render(payload)]).joined(separator: "\n\n"), payload)
+    }
+
+    public static func render(_ payload: TagPayload) -> String {
+        var lines = [payload.name, "Id: \(payload.id)", "Color: \(payload.color.rawValue)"]
+        let meetings = payload.meetings ?? []
+        if meetings.isEmpty {
+            lines.append("No meetings carry this tag.")
+        } else {
+            lines.append("Meetings (\(payload.meetingCount)):")
+            lines += meetings.map { meeting in
+                let others = meeting.tags.filter { $0 != payload.name }
+                return "  \(meeting.id)  \(meeting.createdAt.prefix(10))  \(meeting.title)"
+                    + (others.isEmpty ? "" : "  #" + others.joined(separator: " #"))
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    public static func tagAutoResponse(_ payload: TagAutoPayload) throws -> CLIResponse {
+        var lines: [String] = []
+        if payload.meetings.isEmpty { lines.append("No meetings to tag.") }
+        for meeting in payload.meetings {
+            if let error = meeting.error {
+                lines.append("\(meeting.title): \(error)")
+            } else if meeting.suggested.isEmpty {
+                lines.append("\(meeting.title): no tag fits.")
+            } else if meeting.added.isEmpty {
+                lines.append("\(meeting.title): already tagged \(meeting.suggested.joined(separator: ", ")).")
+            } else {
+                let verb = payload.dryRun ? "would add" : "added"
+                lines.append("\(meeting.title): \(verb) \(meeting.added.joined(separator: ", ")).")
+            }
+        }
+        if payload.dryRun, payload.meetings.contains(where: { !$0.added.isEmpty }) {
+            lines += ["", "Nothing was saved. Run the same command without --dry-run to apply it."]
+        }
+        return try .success(lines.joined(separator: "\n"), payload)
+    }
+
     static func speakerVoices(store: Store) async throws -> CLIResponse {
         try voicesResponse(nil, try await store.voiceModel(), settings: try await store.settings())
     }
@@ -387,8 +466,8 @@ public enum CommandRunner {
         return CLIResponse(code: .ok, message: lines.joined(separator: "\n"), payload: try CLIJSON(payload))
     }
 
-    public static func meetingResponse(_ message: String, _ meeting: Meeting) throws -> CLIResponse {
-        try .success(message, MeetingPayload(meeting, includeSegments: false))
+    public static func meetingResponse(_ message: String, _ meeting: Meeting, tags: [MeetingTag] = []) throws -> CLIResponse {
+        try .success(message, MeetingPayload(meeting, includeSegments: false, tags: tags))
     }
 
     public static func processResponse(_ payload: ProcessPayload) throws -> CLIResponse {

@@ -10,12 +10,15 @@ public struct MeetingFilter: Hashable, Sendable {
     public var status: MeetingStatus?
     /// Substring of a speaker's display name or diarization id, matched case-insensitively.
     public var speaker: String?
+    /// A tag id the meeting must carry.
+    public var tagID: String?
     public var limit: Int?
 
     public init(
         since: Date? = nil, until: Date? = nil, status: MeetingStatus? = nil, speaker: String? = nil,
-        limit: Int? = nil
+        tagID: String? = nil, limit: Int? = nil
     ) {
+        self.tagID = tagID
         self.since = since
         self.until = until
         self.status = status
@@ -65,16 +68,19 @@ public struct MeetingDigest: Codable, Hashable, Sendable {
     public var segments: Int
     public var hasSummary: Bool
     public var hasNotes: Bool
+    /// Names of the meeting's tags, in the order they were applied.
+    public var tags: [String]
 
     enum CodingKeys: String, CodingKey {
-        case id, title, duration, status, speakers, segments
+        case id, title, duration, status, speakers, segments, tags
         case createdAt = "created_at"
         case hasSummary = "has_summary"
         case hasNotes = "has_notes"
     }
 
-    public init(_ meeting: Meeting) {
+    public init(_ meeting: Meeting, tags: [MeetingTag] = []) {
         id = meeting.id
+        self.tags = MeetingTag.names(of: meeting.tagIDs, in: tags)
         title = meeting.title
         createdAt = meeting.createdAt
         duration = meeting.duration
@@ -123,6 +129,7 @@ public enum MeetingQuery {
             if let until = filter.until, date >= until { return false }
             if let status = filter.status, meeting.status != status { return false }
             if let speaker = filter.speaker, !speaker.isEmpty, !mentions(speaker, in: meeting) { return false }
+            if let tagID = filter.tagID, !meeting.tagIDs.contains(tagID) { return false }
             return true
         }
         result.sort { $0.createdAt > $1.createdAt }

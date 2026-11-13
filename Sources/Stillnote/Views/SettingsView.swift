@@ -303,6 +303,8 @@ struct SummarySettingsView: View {
                 Button("Check Again") { Task { await model.refreshEnvironment() } }
             }
 
+            TagSettingsSection()
+
             Section {
                 Text("Summaries and Name Meeting send meeting text to the provider and model chosen here, without asking again.")
                     .font(.caption)
@@ -335,6 +337,61 @@ struct SummarySettingsView: View {
             provider: provider, model: resolved, reasoningEffort: effort, agentPrompt: agentPrompt,
             concurrency: concurrency
         )
+        Task { await model.saveSettings(updated) }
+    }
+}
+
+/// Suggested meeting tags, through OpenAI's Responses API. The key goes to the Keychain, never
+/// to the settings record.
+struct TagSettingsSection: View {
+    @Environment(AppModel.self) private var model
+    @State private var key = ""
+    @State private var tagModel = TaggingSettings.defaultModel
+    @State private var afterSummary = false
+
+    var body: some View {
+        Section("Meeting tags") {
+            if let source = model.openAIKeySource {
+                Label(source.label, systemImage: "checkmark.circle").foregroundStyle(.green)
+            } else {
+                Label("No OpenAI API key", systemImage: "exclamationmark.circle").foregroundStyle(.orange)
+            }
+            HStack {
+                SecureField("OpenAI API key", text: $key, prompt: Text("sk-…"))
+                    .textContentType(.password)
+                Button("Save") {
+                    let entered = key
+                    key = ""
+                    Task { await model.saveOpenAIKey(entered) }
+                }
+                .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
+                if model.openAIKeySource == .keychain {
+                    Button("Remove") { Task { await model.removeOpenAIKey() } }
+                }
+            }
+            Text("Saved in your Keychain. Without one, Stillnote uses \(OpenAICredentials.variable) from your shell.")
+                .font(.caption).foregroundStyle(.secondary)
+            TextField("Model", text: $tagModel, prompt: Text(TaggingSettings.defaultModel))
+            Toggle("Suggest tags after each summary", isOn: $afterSummary)
+            Text("Suggest Tags and Auto-Tag Meetings send the meeting's title and summary, or the opening of its "
+                + "transcript, with your tag names to OpenAI. Stillnote only adds tags you created; it never removes one.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .onAppear {
+            tagModel = model.settings.tagging.model
+            afterSummary = model.settings.tagging.autoTagAfterSummary
+            Task { await model.refreshOpenAIKey() }
+        }
+        .onChange(of: tagModel) { save() }
+        .onChange(of: afterSummary) { save() }
+    }
+
+    private func save() {
+        var updated = model.settings
+        let resolved = tagModel.trimmingCharacters(in: .whitespaces).isEmpty ? TaggingSettings.defaultModel : tagModel
+        let tagging = TaggingSettings(autoTagAfterSummary: afterSummary, model: resolved)
+        guard updated.tagging != tagging else { return }
+        updated.tagging = tagging
         Task { await model.saveSettings(updated) }
     }
 }

@@ -40,7 +40,7 @@ CREATE TABLE settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL);  -- single r
 ```
 
 Later tables are additive and created on the first writable open: `speaker_profiles`,
-`categories(id, data)`, `deleted_meetings(id, data, deleted_at, voiceprints)`, the derived `meeting_library`, and for voice recognition `voiceprints(meeting_id, data)` and
+`categories(id, data)` (tags; the table keeps its original name), `deleted_meetings(id, data, deleted_at, voiceprints)`, the derived `meeting_library`, and for voice recognition `voiceprints(meeting_id, data)` and
 `voice_model(id, data)` (single row id=1). A trigger deletes a meeting's voiceprints when the
 meeting row is deleted, so a library edited by an older build cannot keep voices for a meeting
 that no longer exists.
@@ -58,8 +58,8 @@ Meeting = {id,title,created_at,updated_at,duration,status:'ready'|'transcribing'
   speakers:Record<string,string>,speaker_profiles:Record<string,string>,auto_speaker_profiles:Record<string,number>,
   segments:Segment[],summary:Summary|null,notes,context_links:ContextLink[],
   cleanup:{original_duration,head,tail,applied_at}|null,recorded_at?,source?:'recording'|'import',automatic_title,title_ownership_version,
-  starred?,category_id?}
-Category = {id,name,color:'blue'|'purple'|'pink'|'orange'|'green'|'teal'|'yellow'|'red'|'gray',position}
+  starred?,tag_ids?:string[],category_id?}
+Tag = {id,name,color:'blue'|'purple'|'pink'|'orange'|'green'|'teal'|'yellow'|'red'|'gray',position}
 Segment = {id,start,end,speaker,text}
 Summary = {overview,key_points[],decisions[],action_items:[{text,owner,due,completed?}],provider,model,generated_at}
 ContextLink = {url,title}
@@ -68,11 +68,16 @@ ContextLink = {url,title}
 `completed` is set when an action item is checked off on the Summary page; items without it are
 open. Checking one off is a plain edit, so the summary stays current.
 
-`starred` and `category_id` drive the sidebar's Starred list and categories. Documents without
-them read as unstarred and uncategorized. Deleting a category clears `category_id` from its
-meetings in the same transaction, and split parts keep both fields. `position` is the manual sidebar
-order; the Name and Meeting Count sorts are a per-user view preference, not stored in the library.
-An older build drops both meeting fields when it re-saves a meeting.
+`starred` and `tag_ids` drive the sidebar's Starred list and tags. A meeting can carry several
+tags; `tag_ids` keeps the order they were applied. Tags began as single-choice categories, so a
+`Tag` record still lives in the `categories` table, and every save also writes the first tag as
+`category_id`. A document without `tag_ids` (written before tags, or re-saved by 0.14.0 or
+earlier) reads its `category_id` as its only tag; an older build shows a meeting's first tag and
+drops the rest when it re-saves the meeting. Documents without either read as unstarred and
+untagged. Deleting a tag removes it from every meeting carrying it in the same transaction, split
+parts keep both fields, and restoring a deleted meeting drops tags deleted in the meantime.
+`position` is the manual sidebar order; the Name and Meeting Count sorts are a per-user view
+preference, not stored in the library.
 
 `created_at` is when the meeting was saved, which for a recording is after it ended.
 `recorded_at` is when a recording's kept audio began: the capture start written to the
@@ -103,6 +108,21 @@ replaces the title and sets `automatic_title`. Like a summary, it starts without
 sheet: choosing the provider in Settings is the consent.
 Settings that still hold the 0.8.0 default summary prompt, which asked for a title, move to the
 current default.
+
+**Suggest Tags** (a meeting's Tags menu), **Auto-Tag Meetings…** (the sidebar's Tags menu), and
+`stillnote tag auto` ask OpenAI which of the library's existing tags fit a meeting.
+`MeetingTagger` makes one Responses API request (`OpenAIResponses`, `store: false`, low reasoning
+effort) with a strict JSON schema whose `tag_ids` items are an `enum` of the tag ids, so the model
+cannot invent a tag; the answer is filtered against the tags again before use. It sends the title,
+the tag names and ids, and the summary (overview, key points, decisions) or, without one, the
+transcript's first 30 KB. `AppModel.tagMeeting` only adds tags, never removes one, and runs on the
+agent slots like naming. With **Suggest tags after each summary** on (`AppSettings.tagging`, off by
+default), a saved summary starts it the way it starts naming, so Stop, Transcribe & Summarize and
+`process` tag new meetings too; turning it on is the consent. The model defaults to
+`gpt-5.4-mini`. `OpenAICredentials` finds the key in the login Keychain (saved from
+Settings → Summaries), then `OPENAI_API_KEY` in the app's environment, then in the login shell,
+read the way `AgentEnvironment` reads it for the agent CLIs. The key is never written to the
+settings record.
 
 ## Concurrency
 
@@ -279,8 +299,8 @@ that the app must be open rather than opening a second writer. The CLI resolves 
 Transcript replacement, search, date ranges, and meeting references live in Core so they are
 covered by tests, which can reach neither the app nor the CLI target. The policy that a transcript
 correction invalidates the summary drawn from it is `TranscriptEdit.finish`, called by both the
-window's segment editor and the CLI, so the two cannot diverge. `summarize`, `name`, and
-`process` require `--allow-remote`. The window treats the provider chosen in Settings as consent,
+window's segment editor and the CLI, so the two cannot diverge. `summarize`, `name`, `process`,
+and `tag auto` require `--allow-remote`. The window treats the provider chosen in Settings as consent,
 but a command may come from an agent, so it must consent on each request.
 
 `process` is Stop, Transcribe & Summarize for meetings already saved. `ProcessPlan` (Core) picks
@@ -290,6 +310,12 @@ and `CommandServer` carries the plan out through `AppModel.processRecording` or
 window's own. It returns once everything is queued; the job queue then transcribes one meeting
 at a time, and each summary and title starts as soon as an agent slot is free. `name` calls `AppModel.nameMeeting`, which throws the failure `suggestTitle` would show
 in the window's alert.
+
+`tag list` and `tag show` read tags and the meetings carrying them (`TagQuery`, `TagPayload`), and
+`list --tag` filters by one; `list` and `show` report each meeting's tag names. `tag create`,
+`tag apply`, `tag remove`, and `tag auto` go through `AppModel` like other writes. `tag auto`
+calls `AppModel.tagMeeting` per meeting; `--dry-run` still sends the meetings but saves nothing,
+and `--all` takes the transcribed, idle meetings with no tag.
 
 `skills/stillnote` publishes this as an agent skill. `scripts/check-skill.sh`, run by
 `scripts/check.sh`, validates its frontmatter and proves the commands and long options it documents
@@ -310,7 +336,7 @@ months and years) and shows each one's time, length, people, and a `snippet`: th
 overview, or the first transcript line. Swiping a row right stars it and left deletes it, by
 two-finger trackpad swipe or by dragging; a short swipe reveals the action and a long one performs
 it. The open meeting swipes like any other; only meetings still being processed can't be deleted.
-The list's title is hidden while the sidebar is folded, where the window's controls sit. Deletion moves the document and voiceprints into `deleted_meetings` in one transaction; media stays in place. The five-second Undo toast restores it immediately. **Recently Deleted**, pinned above Settings, also restores meetings for five days (120 hours). Expired records and media are purged at launch and every minute while the app runs; cleanup retries file failures. Archived meetings are absent from normal lists, search, calendar, and CLI reads. Restore retains notes, summaries, and speaker assignments, but clears a category that no longer exists. **New
+The list's title is hidden while the sidebar is folded, where the window's controls sit. Deletion moves the document and voiceprints into `deleted_meetings` in one transaction; media stays in place. The five-second Undo toast restores it immediately. **Recently Deleted**, pinned above Settings, also restores meetings for five days (120 hours). Expired records and media are purged at launch and every minute while the app runs; cleanup retries file failures. Archived meetings are absent from normal lists, search, calendar, and CLI reads. Restore retains notes, summaries, and speaker assignments, but drops tags that no longer exist. **New
 Meeting** starts a recording with the saved defaults; ⌘R opens the recording options first.
 Recordings show in the window as their own page, from whichever entry point started them.
 
@@ -324,11 +350,11 @@ line's speaker chip opens it for that line alone, which moves the line to the vo
 chosen person (or a new voice) and, like any transcript correction, clears the summary. Both show
 a toast with Undo. The Summary page holds the overview, then key points, action items, decisions,
 links, and notes in a masonry layout: each section goes under the shorter of two columns
-(`MasonryPlacement`), or into one column when the page is narrow. New categories are created from
-the sidebar's Categories menu.
+(`MasonryPlacement`), or into one column when the page is narrow. New tags are created from
+the sidebar's Tags menu, and a meeting's context menu toggles each tag on or off.
 
 The calendar (`MeetingCalendarView`) has Day, Week, and Month ranges, with events tinted by
-category. Each
+the meeting's first tag in sidebar order. Each
 meeting appears at `Meeting.startDate`, which is `recorded_at` when it's set. An older recording
 is estimated as its save time minus its kept duration and any trimmed tail. An import stays at
 the time it was imported. Records older than `source` with the audio name `recording.wav` are

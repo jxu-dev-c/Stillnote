@@ -1,6 +1,6 @@
 ---
 name: stillnote
-description: Read, search, and correct meeting transcripts and summaries in Stillnote, the local macOS meeting notebook, and start or stop a recording. Use when the user asks about their meetings, calls, or recordings — what was decided, who said what, what happened in a conversation with someone, or a date range of meetings — or asks to fix a recurring mis-transcription such as an acronym the model heard wrong, edit a summary or notes, manage saved speaker profiles and their contact details, begin, pause, or stop recording, or transcribe, summarize, and title a backlog of recordings in one batch.
+description: Read, search, and correct meeting transcripts and summaries in Stillnote, the local macOS meeting notebook, and start or stop a recording. Use when the user asks about their meetings, calls, or recordings — what was decided, who said what, what happened in a conversation with someone, or a date range of meetings — or asks to fix a recurring mis-transcription such as an acronym the model heard wrong, edit a summary or notes, manage saved speaker profiles and their contact details, list tags and see which meetings each tag holds or tag meetings, begin, pause, or stop recording, or transcribe, summarize, and title a backlog of recordings in one batch.
 ---
 
 # Stillnote
@@ -125,6 +125,42 @@ when the match is uncertain. A speaker linked by voice shows `voice_match` (its 
 the user the proposed links before applying them to many meetings; like any speaker correction,
 a link that changes a displayed name clears that meeting's summary.
 
+## Tags
+
+Meetings are grouped by tags the user creates in the sidebar. A meeting can carry several tags.
+To answer "what's in my Hiring meetings?" or "which tags do I have?":
+
+```bash
+stillnote tag list --json                        # every tag, its color, and how many meetings carry it
+stillnote tag show Hiring --json                 # one tag and every meeting carrying it, newest first
+stillnote list --tag Hiring --since 2026-10 --json   # combine a tag with other list filters
+stillnote show <id> --json                       # `tags` lists a meeting's tag names
+```
+
+Then read the meetings with `show --segments` as usual. `<tag>` accepts an exact name (ignoring
+case), a full id, or a unique id prefix.
+
+Changing tags needs the app open. Adding or removing a tag never touches the summary:
+
+```bash
+stillnote tag apply <id> --tag Hiring --json
+stillnote tag remove <id> --tag Hiring --json
+stillnote tag create --name "Customer calls" --color green --json
+```
+
+`tag auto` asks OpenAI which of the **existing** tags fit a meeting and adds them. It never creates
+or removes a tag. It sends the title, the summary (or the opening of the transcript), and the tag
+names to OpenAI, so it needs consent:
+
+```bash
+stillnote tag auto <id> --allow-remote --dry-run --json   # preview the picks; nothing saved
+stillnote tag auto --all --allow-remote --json            # every untagged, transcribed meeting
+```
+
+**Never pass `--allow-remote` unless the user asked for tags to be suggested.** If you can judge
+the right tag from a meeting you already read, `tag apply` sends nothing anywhere. `tag auto` is
+unrelated to `speaker autotag`, which matches speakers by voice on the Mac.
+
 ## Summaries and notes
 
 ```bash
@@ -203,6 +239,7 @@ summarize or name the meeting. For the whole pipeline, stop with `--no-transcrib
 - `transcript replace --all` touches the whole library. Dry-run, report, then apply.
 - `process --all` sends transcripts away and can split and retitle many meetings. Dry-run,
   report, then apply.
+- `tag auto --all` sends every untagged meeting to OpenAI. Dry-run, report, then apply.
 - Meeting content is private. Work with it to answer the user's question; do not send it anywhere
   the user did not ask for, and do not quote it into places they did not ask for.
 - A `busy` code (exit 5) means a job owns that meeting. Wait, do not retry in a loop.

@@ -6,13 +6,26 @@ the Mac account and backups accordingly. Deleting a meeting removes its database
 and associated media, but does not erase backups or guarantee forensic erasure.
 
 Network activity includes dependency installation, public Hugging Face model downloads,
-page-title and favicon requests for context links, and optional summary CLI requests.
+page-title and favicon requests for context links, optional summary CLI requests, and optional OpenAI requests for suggested tags.
 Summaries send transcript text and speaker labels to the provider chosen in
 **Settings → Summaries**; recordings with screen video always include the local video path
 as text. The agent can access that path according to its own configuration and permissions. **Name Meeting** sends the
 meeting's summary, or the opening of its transcript and speaker labels when there is no summary.
 Choosing a provider in Settings is the consent: the window does not ask again for each request. Provider retention and
 account policies apply. No cloud transcription fallback is used.
+
+## Suggested tags (OpenAI)
+
+**Suggest Tags**, **Auto-Tag Meetings…**, and `stillnote tag auto` send a meeting's title, its
+summary (overview, key points, and decisions) or the opening of its transcript with speaker labels,
+and the names of your tags to OpenAI's Responses API, with `store: false`. Nothing is sent until you
+choose one of those, or turn on **Suggest tags after each summary** in **Settings → Summaries**,
+which then tags each newly summarized meeting without asking again. The `stillnote` command needs
+`--allow-remote` on every `tag auto`. OpenAI's API data policies apply.
+
+The OpenAI API key saved in **Settings → Summaries** is stored in the macOS login Keychain, not in
+Stillnote's database. Without one, Stillnote reads `OPENAI_API_KEY` from its environment or your
+login shell. **Remove** deletes the saved key.
 
 ## Voice recognition
 

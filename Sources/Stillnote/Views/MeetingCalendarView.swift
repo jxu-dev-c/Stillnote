@@ -49,7 +49,7 @@ struct MeetingCalendarView: View {
                 .padding(.top, 6)
             case .week, .day:
                 WeekGrid(layout: layout, days: days, now: now, meetingsByDay: byDay,
-                         categories: model.categories, selection: selection, open: open, onDelete: delete)
+                         tags: MeetingTag.sorted(model.tags, by: .manual), selection: selection, open: open, onDelete: delete)
                     .padding(.top, 6)
             }
         }
@@ -190,7 +190,7 @@ struct MeetingCalendarView: View {
     }
 }
 
-/// Open, star, category, and delete, as the meeting list offers.
+/// Open, star, tag, and delete, as the meeting list offers.
 private struct MeetingEventMenu: ViewModifier {
     let meeting: MeetingListItem
     let open: (String) -> Void
@@ -223,7 +223,8 @@ private struct WeekGrid: View {
     let days: [Date]
     let now: Date
     let meetingsByDay: [Date: [MeetingListItem]]
-    let categories: [MeetingCategory]
+    /// In sidebar order, so a meeting takes its first tag's color.
+    let tags: [MeetingTag]
     let selection: String?
     let open: (String) -> Void
     let onDelete: (MeetingListItem) -> Void
@@ -373,7 +374,7 @@ private struct WeekGrid: View {
                     let slice = proxy.size.width / CGFloat(placement.columns)
                     let height = CGFloat(span.1 - span.0) / 60 * Self.hourHeight - 2
                     EventBlock(
-                        meeting: meeting, tone: EventTone(categories.first { $0.id == meeting.categoryID }?.color),
+                        meeting: meeting, tone: EventTone(tags.first { meeting.tagIDs.contains($0.id) }?.color),
                         selected: meeting.id == selection, tall: height >= 40, open: open
                     )
                     .modifier(MeetingEventMenu(meeting: meeting, open: open, onDelete: onDelete))
@@ -503,7 +504,7 @@ private struct MonthGrid: View {
                             inMonth: layout.calendar.isDate(day, equalTo: month, toGranularity: .month),
                             isToday: layout.calendar.isDate(day, inSameDayAs: today),
                             meetings: (meetingsByDay[day] ?? []).sorted { $0.startDate < $1.startDate },
-                            categories: model.categories, selection: selection,
+                            tags: MeetingTag.sorted(model.tags, by: .manual), selection: selection,
                             open: open, onDelete: onDelete, showDay: showDay
                         )
                         .overlay(alignment: .leading) { if day != week.first { Hairline(vertical: true) } }
@@ -522,7 +523,8 @@ private struct MonthDayCell: View {
     let inMonth: Bool
     let isToday: Bool
     let meetings: [MeetingListItem]
-    let categories: [MeetingCategory]
+    /// In sidebar order, so a meeting takes its first tag's color.
+    let tags: [MeetingTag]
     let selection: String?
     let open: (String) -> Void
     let onDelete: (MeetingListItem) -> Void
@@ -545,7 +547,7 @@ private struct MonthDayCell: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .padding(.bottom, 2)
                 ForEach(meetings.prefix(shown)) { meeting in
-                    let tone = EventTone(categories.first { $0.id == meeting.categoryID }?.color)
+                    let tone = EventTone(tags.first { meeting.tagIDs.contains($0.id) }?.color)
                     let selected = meeting.id == selection
                     Button { open(meeting.id) } label: {
                         Text(meeting.title)
