@@ -225,7 +225,11 @@ struct SidebarView: View {
             if menuOpen, let anchor {
                 GeometryReader { proxy in
                     let button = proxy[anchor]
-                    CategoryMenu(sort: $sort) { menuOpen = false }
+                    CategoryMenu(sort: $sort, newCategory: {
+                        menuOpen = false
+                        draftName = ""
+                        naming = .new
+                    }) { menuOpen = false }
                         .offset(x: button.maxX - SidebarStyle.menuWidth, y: button.maxY + 6)
                 }
             }
@@ -289,8 +293,8 @@ struct SidebarView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(SidebarStyle.text2)
-            .help("Sort and auto-categorize")
-            .accessibilityLabel("Sort and auto-categorize")
+            .help("Category options")
+            .accessibilityLabel("Category options")
             .anchorPreference(key: MenuButtonAnchor.self, value: .bounds) { $0 }
         }
         .padding(EdgeInsets(top: 14, leading: 20, bottom: 4, trailing: 12))
@@ -319,15 +323,6 @@ struct SidebarView: View {
             }
             .buttonStyle(.plain)
             .help("Open Settings")
-            Button {
-                draftName = ""
-                naming = .new
-            } label: {
-                SidebarRowLabel(title: "New Category") {
-                    GlyphView(glyph: .newCategory).foregroundStyle(SidebarStyle.accent)
-                }
-            }
-            .buttonStyle(.plain)
         }
         .padding(10)
         .overlay(alignment: .top) {
@@ -536,10 +531,15 @@ private struct CategoryReorder: ViewModifier {
 
 private struct CategoryMenu: View {
     @Binding var sort: CategorySort
+    let newCategory: () -> Void
     let close: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            CategoryMenuItem(title: "New Category…", action: newCategory) {
+                GlyphView(glyph: .newCategory, size: 16, lineWidth: 1.8).foregroundStyle(SidebarStyle.accent)
+            }
+            separator
             Text("Sort By")
                 .font(SidebarStyle.headerFont)
                 .foregroundStyle(SidebarStyle.text2)
@@ -555,11 +555,7 @@ private struct CategoryMenu: View {
                 }
                 .accessibilityAddTraits(sort == option ? .isSelected : [])
             }
-            Rectangle()
-                .fill(SidebarStyle.separator)
-                .frame(height: 0.5)
-                .padding(.vertical, 5)
-                .padding(.horizontal, 8)
+            separator
             // Auto-Categorize arrives in a later phase; the menu shows where it will live.
             CategoryMenuItem(title: "Auto-Categorize", action: close) {
                 GlyphView(glyph: .sparkle, size: 15, lineWidth: 1.9).foregroundStyle(SidebarStyle.accentInk)
@@ -581,7 +577,15 @@ private struct CategoryMenu: View {
         }
         .shadow(color: SidebarStyle.menuShadow, radius: 25, y: 18)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Sort and auto-categorize")
+        .accessibilityLabel("Category options")
+    }
+
+    private var separator: some View {
+        Rectangle()
+            .fill(SidebarStyle.separator)
+            .frame(height: 0.5)
+            .padding(.vertical, 5)
+            .padding(.horizontal, 8)
     }
 }
 

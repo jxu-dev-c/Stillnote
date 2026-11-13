@@ -154,44 +154,46 @@ struct MeetingDetailView: View {
         .onChange(of: page) { _, _ in picker = nil }
     }
 
+    /// The title and its details, with the voices on their own row beneath so a meeting with
+    /// many speakers never crowds the title.
     private var header: some View {
-        HStack(alignment: .bottom, spacing: 16) {
-            VStack(alignment: .leading, spacing: 0) {
-                TextField("Meeting title", text: $title)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 30, weight: .bold))
-                    .letterSpacing(-0.025, size: 30)
-                    .foregroundStyle(DS.text)
-                    .frame(height: 34.5)
-                    .accessibilityLabel("Meeting title")
-                    .disabled(busy || naming)
-                    .focused($titleFocused)
-                    .onSubmit(commitTitle)
-                    .onChange(of: titleFocused) { if !titleFocused { commitTitle() } }
-                    // Name Meeting replaces the title from outside this field.
-                    .onChange(of: meeting.title) { title = meeting.title }
-                    .contextMenu { moreItems }
-                HStack(spacing: 10) {
-                    if let pill = statusPill { pill }
-                    Text(subtitle)
-                        .font(.system(size: 13.5))
-                        .foregroundStyle(DS.text2)
-                        .lineLimit(1)
-                        .help(cleanupNote ?? "")
-                }
-                .padding(.top, 6)
-                .frame(minHeight: 22)
+        VStack(alignment: .leading, spacing: 0) {
+            TextField("Meeting title", text: $title)
+                .textFieldStyle(.plain)
+                .font(.system(size: 30, weight: .bold))
+                .letterSpacing(-0.025, size: 30)
+                .foregroundStyle(DS.text)
+                .frame(height: 34.5)
+                .accessibilityLabel("Meeting title")
+                .disabled(busy || naming)
+                .focused($titleFocused)
+                .onSubmit(commitTitle)
+                .onChange(of: titleFocused) { if !titleFocused { commitTitle() } }
+                // Name Meeting replaces the title from outside this field.
+                .onChange(of: meeting.title) { title = meeting.title }
+                .contextMenu { moreItems }
+            HStack(spacing: 10) {
+                if let pill = statusPill { pill }
+                Text(subtitle)
+                    .font(.system(size: 13.5))
+                    .foregroundStyle(DS.text2)
+                    .lineLimit(1)
+                    .help(cleanupNote ?? "")
             }
-            Spacer(minLength: 0)
+            .padding(.top, 6)
+            .frame(minHeight: 22)
             if !meeting.segments.isEmpty {
                 VoicePortraits(
                     meeting: meeting, current: meeting.segments.indices.contains(lyrics.focus) ? meeting.segments[lyrics.focus].speaker : nil,
                     picker: $picker,
                     enabled: !busy
                 )
-                .padding(.bottom, 2)
+                // The portraits' 40-point hit areas start 4 points outside each circle.
+                .padding(.leading, -4)
+                .padding(.top, 6)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(EdgeInsets(top: 14, leading: 28, bottom: 4, trailing: 28))
         .zIndex(1)
     }
@@ -555,7 +557,7 @@ private struct VoicePortraits: View {
 
     var body: some View {
         let order = meeting.speakerOrder
-        HStack(spacing: 8) {
+        FlowLayout(spacing: 8, lineSpacing: 4) {
             ForEach(order, id: \.self) { id in
                 let look = meeting.look(id)
                 let open = picker == .voice(id)
@@ -588,6 +590,43 @@ private struct VoicePortraits: View {
         .transformAnchorPreference(key: PickerAnchors.self, value: .bounds) { $0[.voiceGroup] = $1 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Speakers")
+    }
+}
+
+/// Lays its children out left to right, wrapping onto a new row when the next one won't fit.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let frames = frames(for: subviews, width: proposal.width ?? .infinity)
+        let width = frames.map(\.maxX).max() ?? 0
+        let height = frames.map(\.maxY).max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (subview, frame) in zip(subviews, frames(for: subviews, width: bounds.width)) {
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                          proposal: ProposedViewSize(frame.size))
+        }
+    }
+
+    private func frames(for subviews: Subviews, width: CGFloat) -> [CGRect] {
+        var frames: [CGRect] = []
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += rowHeight + lineSpacing
+                rowHeight = 0
+            }
+            frames.append(CGRect(origin: CGPoint(x: x, y: y), size: size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return frames
     }
 }
 
