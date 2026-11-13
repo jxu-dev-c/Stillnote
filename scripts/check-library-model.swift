@@ -30,7 +30,12 @@ enum RootSheet: String, Identifiable { case record, importAudio; var id: String 
         help.dismiss()
         require(help.active == nil)
         help.show(firstHelp, immediately: false)
-        try await Task.sleep(for: .milliseconds(550))
+        // The presentation task may start late on a busy CI runner. Wait for the
+        // observable result rather than assuming both tasks resume within 50 ms.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while help.active != firstHelp && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         require(help.active == firstHelp)
         help.dismiss()
         let root = URL(fileURLWithPath: "/tmp/stillnote-model-\(UUID().uuidString.prefix(8))")

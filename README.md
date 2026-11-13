@@ -23,7 +23,7 @@ Transcription and speaker detection are powered by [OpenMOSS's MOSS-Transcribe-D
 - **Calendar view.** Choose Calendar in the sidebar for a Day, Week, or Month calendar with each
   meeting at the time it was recorded, in its first tag's color.
 - **Tags.** Give a meeting as many tags as fit, from its context menu, and browse each tag from the
-  sidebar. **Suggest Tags** and **Auto-Tag Meetings** ask OpenAI which of your tags fit, using an
+  sidebar. **Suggest Tags** and **Auto-Tag Meetings** ask OpenAI’s Decisions API which of your tags fit, using an
   API key saved in Settings or `OPENAI_API_KEY`; nothing is sent unless you ask, or turn on
   tagging after each summary.
 - **Recognize speakers by voice.** Tag speakers in a few meetings, then **Learn Voices** in

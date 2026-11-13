@@ -3,7 +3,7 @@ import Testing
 
 @testable import StillnoteCore
 
-/// One real Responses API request with synthetic content. Opt in explicitly, since it uses the
+/// One real Decisions API request with synthetic content. Opt in explicitly, since it uses the
 /// account's API credit:
 /// `set -a; . ./.env; set +a; STILLNOTE_OPENAI_INTEGRATION=1 swift test --filter OpenAIIntegrationTests`
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["STILLNOTE_OPENAI_INTEGRATION"] == "1"))
