@@ -4,7 +4,7 @@ import SwiftUI
 
 /// What the sidebar shows in the content area. Stored per window as a string.
 enum SidebarDestination: Hashable, RawRepresentable {
-    case all, today, starred, calendar
+    case all, today, starred, calendar, recentlyDeleted
     case category(String)
 
     private static let categoryPrefix = "category:"
@@ -15,6 +15,7 @@ enum SidebarDestination: Hashable, RawRepresentable {
         case "today": self = .today
         case "starred": self = .starred
         case "calendar": self = .calendar
+        case "recentlyDeleted": self = .recentlyDeleted
         default:
             guard rawValue.hasPrefix(Self.categoryPrefix) else { return nil }
             self = .category(String(rawValue.dropFirst(Self.categoryPrefix.count)))
@@ -27,6 +28,7 @@ enum SidebarDestination: Hashable, RawRepresentable {
         case .today: "today"
         case .starred: "starred"
         case .calendar: "calendar"
+        case .recentlyDeleted: "recentlyDeleted"
         case .category(let id): Self.categoryPrefix + id
         }
     }
@@ -34,6 +36,7 @@ enum SidebarDestination: Hashable, RawRepresentable {
     func includes(_ meeting: MeetingListItem) -> Bool {
         switch self {
         case .all, .calendar: true
+        case .recentlyDeleted: false
         case .today: Calendar.current.isDateInToday(meeting.startDate)
         case .starred: meeting.starred
         case .category(let id): meeting.categoryID == id
@@ -225,7 +228,11 @@ struct SidebarView: View {
             if menuOpen, let anchor {
                 GeometryReader { proxy in
                     let button = proxy[anchor]
-                    CategoryMenu(sort: $sort) { menuOpen = false }
+                    CategoryMenu(sort: $sort, newCategory: {
+                        menuOpen = false
+                        draftName = ""
+                        naming = .new
+                    }) { menuOpen = false }
                         .offset(x: button.maxX - SidebarStyle.menuWidth, y: button.maxY + 6)
                 }
             }
@@ -289,8 +296,8 @@ struct SidebarView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(SidebarStyle.text2)
-            .help("Sort and auto-categorize")
-            .accessibilityLabel("Sort and auto-categorize")
+            .help("Category options")
+            .accessibilityLabel("Category options")
             .anchorPreference(key: MenuButtonAnchor.self, value: .bounds) { $0 }
         }
         .padding(EdgeInsets(top: 14, leading: 20, bottom: 4, trailing: 12))
@@ -312,6 +319,11 @@ struct SidebarView: View {
                 SetupNotice()
                     .padding(.bottom, 6)
             }
+            SidebarRow(title: "Recently Deleted", count: model.recentlyDeleted.count,
+                       selected: destination == .recentlyDeleted,
+                       action: { choose(.recentlyDeleted) }) {
+                Icon(.trash, size: 18).foregroundStyle(SidebarStyle.text2)
+            }
             SettingsLink {
                 SidebarRowLabel(title: "Settings") {
                     GlyphView(glyph: .settings).foregroundStyle(SidebarStyle.text2)
@@ -319,15 +331,6 @@ struct SidebarView: View {
             }
             .buttonStyle(.plain)
             .help("Open Settings")
-            Button {
-                draftName = ""
-                naming = .new
-            } label: {
-                SidebarRowLabel(title: "New Category") {
-                    GlyphView(glyph: .newCategory).foregroundStyle(SidebarStyle.accent)
-                }
-            }
-            .buttonStyle(.plain)
         }
         .padding(10)
         .overlay(alignment: .top) {
@@ -536,10 +539,15 @@ private struct CategoryReorder: ViewModifier {
 
 private struct CategoryMenu: View {
     @Binding var sort: CategorySort
+    let newCategory: () -> Void
     let close: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            CategoryMenuItem(title: "New Category…", action: newCategory) {
+                GlyphView(glyph: .newCategory, size: 16, lineWidth: 1.8).foregroundStyle(SidebarStyle.accent)
+            }
+            separator
             Text("Sort By")
                 .font(SidebarStyle.headerFont)
                 .foregroundStyle(SidebarStyle.text2)
@@ -555,11 +563,7 @@ private struct CategoryMenu: View {
                 }
                 .accessibilityAddTraits(sort == option ? .isSelected : [])
             }
-            Rectangle()
-                .fill(SidebarStyle.separator)
-                .frame(height: 0.5)
-                .padding(.vertical, 5)
-                .padding(.horizontal, 8)
+            separator
             // Auto-Categorize arrives in a later phase; the menu shows where it will live.
             CategoryMenuItem(title: "Auto-Categorize", action: close) {
                 GlyphView(glyph: .sparkle, size: 15, lineWidth: 1.9).foregroundStyle(SidebarStyle.accentInk)
@@ -581,7 +585,15 @@ private struct CategoryMenu: View {
         }
         .shadow(color: SidebarStyle.menuShadow, radius: 25, y: 18)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Sort and auto-categorize")
+        .accessibilityLabel("Category options")
+    }
+
+    private var separator: some View {
+        Rectangle()
+            .fill(SidebarStyle.separator)
+            .frame(height: 0.5)
+            .padding(.vertical, 5)
+            .padding(.horizontal, 8)
     }
 }
 

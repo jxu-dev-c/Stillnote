@@ -40,7 +40,7 @@ CREATE TABLE settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL);  -- single r
 ```
 
 Later tables are additive and created on the first writable open: `speaker_profiles`,
-`categories(id, data)`, the derived `meeting_library`, and for voice recognition `voiceprints(meeting_id, data)` and
+`categories(id, data)`, `deleted_meetings(id, data, deleted_at, voiceprints)`, the derived `meeting_library`, and for voice recognition `voiceprints(meeting_id, data)` and
 `voice_model(id, data)` (single row id=1). A trigger deletes a meeting's voiceprints when the
 meeting row is deleted, so a library edited by an older build cannot keep voices for a meeting
 that no longer exists.
@@ -309,7 +309,8 @@ The meeting list groups meetings as Mail does (Today, Yesterday, Previous 7 and 
 months and years) and shows each one's time, length, people, and a `snippet`: the summary
 overview, or the first transcript line. Swiping a row right stars it and left deletes it, by
 two-finger trackpad swipe or by dragging; a short swipe reveals the action and a long one performs
-it. Deletions are held while their toast offers Undo (`Feedback`), then carried out. **New
+it. The open meeting swipes like any other; only meetings still being processed can't be deleted.
+The list's title is hidden while the sidebar is folded, where the window's controls sit. Deletion moves the document and voiceprints into `deleted_meetings` in one transaction; media stays in place. The five-second Undo toast restores it immediately. **Recently Deleted**, pinned above Settings, also restores meetings for five days (120 hours). Expired records and media are purged at launch and every minute while the app runs; cleanup retries file failures. Archived meetings are absent from normal lists, search, calendar, and CLI reads. Restore retains notes, summaries, and speaker assignments, but clears a category that no longer exists. **New
 Meeting** starts a recording with the saved defaults; ⌘R opens the recording options first.
 Recordings show in the window as their own page, from whichever entry point started them.
 
@@ -318,11 +319,13 @@ transcript reads like lyrics: the focused line is large in the middle and fills 
 with the lines around it fading. Focus follows playback; scrolling browses lines without seeking,
 and choosing a line plays from it. The dock below has 15-second skips and a timeline of the
 recording's loudness (`AudioEnvelope`, read once per meeting at 8 kHz off the main actor and
-scaled to the loud end of its speech), drawn from the transcript until that read finishes. Header portraits open **Assign Speaker** for a whole voice; the focused
+scaled to the loud end of its speech), drawn from the transcript until that read finishes. Header portraits, on their own wrapping row beneath the title, open **Assign Speaker** for a whole voice; the focused
 line's speaker chip opens it for that line alone, which moves the line to the voice linked to the
 chosen person (or a new voice) and, like any transcript correction, clears the summary. Both show
-a toast with Undo. The Summary page holds the overview, key points, decisions, action items,
-links, and notes.
+a toast with Undo. The Summary page holds the overview, then key points, action items, decisions,
+links, and notes in a masonry layout: each section goes under the shorter of two columns
+(`MasonryPlacement`), or into one column when the page is narrow. New categories are created from
+the sidebar's Categories menu.
 
 The calendar (`MeetingCalendarView`) has Day, Week, and Month ranges, with events tinted by
 category. Each

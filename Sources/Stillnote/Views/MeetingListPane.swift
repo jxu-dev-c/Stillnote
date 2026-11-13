@@ -15,6 +15,8 @@ struct MeetingListPane: View {
     let destination: SidebarDestination
     @Binding var selection: String?
     @Binding var sheet: RootSheet?
+    /// False while the sidebar is folded, when the window's own controls take the title's place.
+    var showsTitle = true
 
     @State private var filtering = false
     @State private var query = ""
@@ -29,6 +31,7 @@ struct MeetingListPane: View {
     private var title: String {
         switch destination {
         case .all, .calendar: "All Meetings"
+        case .recentlyDeleted: "Recently Deleted"
         case .today: "Today"
         case .starred: "Starred"
         case .category(let id): model.category(id)?.name ?? "All Meetings"
@@ -78,7 +81,7 @@ struct MeetingListPane: View {
             NewMeetingButton(selection: $selection, sheet: $sheet)
                 .padding(.bottom, 22)
         }
-        .background(SwipeScrollMonitor(swipe: swipe, settle: settle))
+        .background(SwipeScrollMonitor(swipe: swipe, canDelete: canDelete, settle: settle))
         .task(id: LibrarySearch.Request(query: MeetingLibrary.normalizedQuery(query), revision: model.meetingSearchRevision)) {
             await search.run(MeetingLibrary.normalizedQuery(query), revision: model.meetingSearchRevision, model: model)
         }
@@ -95,12 +98,14 @@ struct MeetingListPane: View {
 
     private var header: some View {
         HStack {
-            Text(title)
-                .font(.system(size: 20, weight: .bold))
-                .letterSpacing(-0.02, size: 20)
-                .foregroundStyle(DS.text)
-                .lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
+            if showsTitle {
+                Text(title)
+                    .font(.system(size: 20, weight: .bold))
+                    .letterSpacing(-0.02, size: 20)
+                    .foregroundStyle(DS.text)
+                    .lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+            }
             Spacer(minLength: 8)
             Button {
                 withAnimation(.snappy(duration: 0.2)) {
@@ -273,7 +278,7 @@ struct MeetingListPane: View {
     private func settle(_ id: String) {
         guard let meeting = model.libraryItem(id) else { return settleClosed() }
         let dx = swipe.id == id ? swipe.dx : 0
-        let canDelete = SwipeState.canDelete(meeting, selected: selection == id)
+        let canDelete = SwipeState.canDelete(meeting)
         if dx >= SwipeState.full { toggleStar(meeting); return }
         if dx <= -SwipeState.full && canDelete { delete(meeting); return }
         withAnimation(SwipeState.animation) {
@@ -285,6 +290,12 @@ struct MeetingListPane: View {
                 swipe.close(animated: true)
             }
         }
+    }
+
+    /// Read when a swipe starts, so it reflects the row as it is now rather than when the
+    /// pointer arrived over it.
+    private func canDelete(_ id: String) -> Bool {
+        model.libraryItem(id).map(SwipeState.canDelete) ?? false
     }
 
     private func toggleStar(_ meeting: MeetingListItem) {
@@ -476,13 +487,13 @@ final class SwipeState {
     private(set) var dx: CGFloat = 0
     /// The row under the pointer, which a two-finger swipe moves.
     var hovered: String?
-    /// Whether the open row may be swiped left, to delete.
-    var hoveredCanDelete = true
     @ObservationIgnored var dragBase: CGFloat = 0
     @ObservationIgnored var justDragged = false
 
-    static func canDelete(_ meeting: MeetingListItem, selected: Bool) -> Bool {
-        !selected && !meeting.status.isBusy
+    /// A meeting still being processed can't be deleted. The open meeting can; deleting it
+    /// closes it, as the detail's own Delete does.
+    static func canDelete(_ meeting: MeetingListItem) -> Bool {
+        !meeting.status.isBusy
     }
 
     func offset(for id: String) -> CGFloat { self.id == id ? dx : 0 }
@@ -516,7 +527,7 @@ private struct SwipeableMeetingRow: View {
 
     var body: some View {
         let dx = swipe.offset(for: meeting.id)
-        let canDelete = SwipeState.canDelete(meeting, selected: selected)
+        let canDelete = SwipeState.canDelete(meeting)
         ZStack {
             if dx != 0 { underlay(dx) }
             Button(action: tap) {
@@ -552,7 +563,6 @@ private struct SwipeableMeetingRow: View {
         .onHover { inside in
             if inside {
                 swipe.hovered = meeting.id
-                swipe.hoveredCanDelete = canDelete
             } else if swipe.hovered == meeting.id {
                 swipe.hovered = nil
             }
@@ -636,6 +646,7 @@ private struct SwipeableMeetingRow: View {
 /// to the list, and a swipe that starts vertically stays a scroll.
 private struct SwipeScrollMonitor: NSViewRepresentable {
     let swipe: SwipeState
+    let canDelete: (String) -> Bool
     let settle: (String) -> Void
 
     func makeNSView(context: Context) -> NSView {
@@ -645,6 +656,7 @@ private struct SwipeScrollMonitor: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.swipe = swipe
+        context.coordinator.canDelete = canDelete
         context.coordinator.settle = settle
     }
 
@@ -652,21 +664,23 @@ private struct SwipeScrollMonitor: NSViewRepresentable {
         coordinator.remove()
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(swipe: swipe, settle: settle) }
+    func makeCoordinator() -> Coordinator { Coordinator(swipe: swipe, canDelete: canDelete, settle: settle) }
 
     @MainActor
     final class Coordinator {
         var swipe: SwipeState
+        var canDelete: (String) -> Bool
         var settle: (String) -> Void
         private var monitor: Any?
         private var axis: Axis?
         private var target: String?
         private var base: CGFloat = 0
         private var travel: CGFloat = 0
-        private var canDelete = true
+        private var targetCanDelete = true
 
-        init(swipe: SwipeState, settle: @escaping (String) -> Void) {
+        init(swipe: SwipeState, canDelete: @escaping (String) -> Bool, settle: @escaping (String) -> Void) {
             self.swipe = swipe
+            self.canDelete = canDelete
             self.settle = settle
         }
 
@@ -689,7 +703,7 @@ private struct SwipeScrollMonitor: NSViewRepresentable {
             if event.phase.contains(.began) {
                 axis = nil
                 target = swipe.hovered
-                canDelete = swipe.hoveredCanDelete
+                targetCanDelete = target.map(canDelete) ?? false
                 travel = 0
             }
             guard let target else { return event }
@@ -706,7 +720,7 @@ private struct SwipeScrollMonitor: NSViewRepresentable {
             // Deltas describe content movement; follow the fingers either way round.
             let finger = event.isDirectionInvertedFromDevice ? event.scrollingDeltaX : -event.scrollingDeltaX
             travel += finger
-            swipe.track(target, base: base, delta: travel, canDelete: canDelete)
+            swipe.track(target, base: base, delta: travel, canDelete: targetCanDelete)
             if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
                 settle(target)
                 self.target = nil

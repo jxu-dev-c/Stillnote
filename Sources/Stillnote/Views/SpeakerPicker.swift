@@ -39,9 +39,11 @@ struct SpeakerPickerOverlay: View {
             guard let chipAnchor = anchors[.voice(id)], let groupAnchor = anchors[.voiceGroup] else { return nil }
             let group = proxy[groupAnchor]
             chip = proxy[chipAnchor]
-            // Right-aligned 6 points past the portraits, 12 points below them.
-            let right = min(proxy.size.width - 8, group.maxX + 6)
-            x = max(8, right - Self.width)
+            // Left-aligned with the portraits, 12 points below them, moved right only as far as
+            // keeps the caret inside the popover for a portrait far along the row.
+            let caretInset: CGFloat = 24
+            let preferred = max(group.minX, chip.midX + caretInset - Self.width)
+            x = max(8, min(preferred, proxy.size.width - 8 - Self.width))
             caretX = chip.midX - x
             below = group.maxY + 12
         case .line:
@@ -171,19 +173,7 @@ private struct SpeakerPicker: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Button(action: listen) {
-                HStack(spacing: 6) {
-                    Icon(.play, size: 13, filled: true)
-                    Text("Listen").font(.system(size: 12.5, weight: .semibold))
-                }
-                .foregroundStyle(DS.text)
-                .padding(.leading, 9)
-                .padding(.trailing, 12)
-                .frame(height: 30)
-                .background(DS.hover, in: .capsule)
-                .contentShape(.capsule)
-            }
-            .buttonStyle(.plain)
+            CapsuleButton(title: "Listen", icon: .play, iconFilled: true, action: listen)
             .disabled(player?.unplayableReason != nil || player == nil)
             .accessibilityLabel("Play a voice sample from this speaker")
         }

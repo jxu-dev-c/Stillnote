@@ -60,6 +60,7 @@ public actor Store {
         try Store.run(database, "CREATE TABLE IF NOT EXISTS speaker_profiles (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
         try Store.run(database, "CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL)")
         try Store.run(database, "CREATE TABLE IF NOT EXISTS categories (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+        try Store.run(database, "CREATE TABLE IF NOT EXISTS deleted_meetings (id TEXT PRIMARY KEY, data TEXT NOT NULL, deleted_at REAL NOT NULL, voiceprints TEXT)")
         try Self.prepareVoiceTables(database)
         try Self.prepareLibrary(database)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: paths.databaseURL.path)
@@ -389,6 +390,83 @@ public actor Store {
         return meeting
     }
 
+    /// Move the authoritative document out of the live library in one transaction.
+    /// Media stays in place until retention expires; readers and older builds see only live meetings.
+    public func moveToRecentlyDeleted(_ id: String, now: Date = Date()) throws {
+        guard !readOnly else { throw StoreError.readOnly }
+        let db = try database()
+        try Self.run(db, "BEGIN IMMEDIATE")
+        do {
+            let meeting = try get(id)
+            guard !meeting.status.isBusy else { throw ValidationError("This meeting is processing.") }
+            try execute("""
+                INSERT INTO deleted_meetings (id, data, deleted_at, voiceprints)
+                SELECT id, data, ?, (SELECT data FROM voiceprints WHERE meeting_id=meetings.id)
+                FROM meetings WHERE id=?
+                """, [String(now.timeIntervalSince1970), id])
+            try delete(id)
+            try Self.run(db, "COMMIT")
+        } catch {
+            try? Self.run(db, "ROLLBACK")
+            throw error
+        }
+    }
+
+    public func recentlyDeleted() throws -> [DeletedMeeting] {
+        guard try hasTable("deleted_meetings") else { return [] }
+        return try documents("""
+            SELECT json_object('id', id, 'title', json_extract(data, '$.title'),
+                               'deletedAt', deleted_at)
+            FROM deleted_meetings ORDER BY deleted_at DESC
+            """).map { try decoder.decode(DeletedMeeting.self, from: $0) }
+    }
+
+    @discardableResult
+    public func restoreDeleted(_ id: String, now: Date = Date()) throws -> Meeting {
+        guard !readOnly else { throw StoreError.readOnly }
+        let db = try database()
+        try Self.run(db, "BEGIN IMMEDIATE")
+        do {
+            guard let item = try recentlyDeleted().first(where: { $0.id == id }),
+                  item.expiresAt > now,
+                  let data = try documents("SELECT data FROM deleted_meetings WHERE id=?", [id]).first
+            else { throw StoreError.notFound }
+            var meeting = try decoder.decode(Meeting.self, from: data)
+            // A category may have been removed during retention.
+            if let categoryID = meeting.categoryID,
+               !((try categories()).contains { $0.id == categoryID }) { meeting.categoryID = nil }
+            try insert(meeting)
+            try execute("""
+                INSERT OR REPLACE INTO voiceprints (meeting_id, data)
+                SELECT id, voiceprints FROM deleted_meetings WHERE id=? AND voiceprints IS NOT NULL
+                """, [id])
+            try execute("DELETE FROM deleted_meetings WHERE id=?", [id])
+            try Self.run(db, "COMMIT")
+            return meeting
+        } catch {
+            try? Self.run(db, "ROLLBACK")
+            throw error
+        }
+    }
+
+    /// Retry on a later cleanup if a media removal fails; never forget its archive record first.
+    @discardableResult
+    public func purgeExpiredDeleted(now: Date = Date()) throws -> [String] {
+        guard !readOnly else { throw StoreError.readOnly }
+        var purged: [String] = []
+        for item in try recentlyDeleted() where item.expiresAt <= now {
+            for url in [paths.audioURL(item.id), paths.videoURL(item.id)] {
+                do { try FileManager.default.removeItem(at: url) }
+                catch let error as NSError where error.domain == NSCocoaErrorDomain
+                    && error.code == NSFileNoSuchFileError { }
+            }
+            MediaFile.forget(item.id, paths: paths)
+            try execute("DELETE FROM deleted_meetings WHERE id=?", [item.id])
+            purged.append(item.id)
+        }
+        return purged
+    }
+
     public func delete(_ id: String) throws {
         try execute("DELETE FROM meetings WHERE id=?", [id])
     }
@@ -692,6 +770,7 @@ public actor Store {
         try Self.run(db, "BEGIN IMMEDIATE")
         do {
             try execute("DELETE FROM voiceprints", [])
+            try execute("UPDATE deleted_meetings SET voiceprints=NULL", [])
             try execute("DELETE FROM voice_model", [])
             try Self.run(db, "COMMIT")
         } catch {

@@ -4,8 +4,7 @@ import SwiftUI
 
 /// The window's undo toasts, and the deletions they can still take back.
 ///
-/// Deleting a meeting removes its audio for good, so a deletion is held for as long as its
-/// toast offers Undo: the meeting leaves the list at once and is deleted when the toast ends.
+/// Deletion is persisted in Recently Deleted; the toast offers a quick restore.
 @MainActor
 @Observable
 final class Feedback {
@@ -45,24 +44,24 @@ final class Feedback {
         toast = nil
     }
 
-    /// Hides the meeting now and deletes it once Undo is no longer offered.
+    /// Hide while the archive write completes, then offer a quick restore.
     func delete(_ meeting: MeetingListItem, model: AppModel) {
         guard !meeting.status.isBusy else {
             model.alertMessage = "This meeting is processing. Wait for it to finish."
             return
         }
         let id = meeting.id
-        withAnimation(.snappy(duration: 0.25)) { _ = pendingDeletes.insert(id) }
-        show("Deleted “\(meeting.title)”") { [weak self] in
-            withAnimation(.snappy(duration: 0.25)) { _ = self?.pendingDeletes.remove(id) }
-        }
-        Task { [weak self] in
-            try? await Task.sleep(for: Self.duration + .milliseconds(200))
-            guard let self, self.pendingDeletes.contains(id) else { return }
+        guard pendingDeletes.insert(id).inserted else { return }
+        Task {
             await model.delete(id)
-            self.pendingDeletes.remove(id)
+            pendingDeletes.remove(id)
+            guard model.recentlyDeleted.contains(where: { $0.id == id }) else { return }
+            show("Moved “\(meeting.title)” to Recently Deleted") {
+                Task { await model.restoreDeleted(id) }
+            }
         }
     }
+
 }
 
 /// The design's toast: a confirmation with an optional Undo, floating at the top of the content.

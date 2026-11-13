@@ -6,6 +6,7 @@ struct RootView: View {
     @Binding var sheet: RootSheet?
     @State private var selection: String?
     @State private var feedback = Feedback()
+    @State private var columns: NavigationSplitViewVisibility = .all
     @SceneStorage("sidebarDestination") private var storedDestination: SidebarDestination = .all
 
     /// The stored destination, or All Meetings when it names a category that was deleted.
@@ -26,7 +27,7 @@ struct RootView: View {
                 // its folder-access prompt if this copy needs one.
                 starting
             } else {
-                NavigationSplitView {
+                NavigationSplitView(columnVisibility: $columns) {
                     SidebarView(destination: destination, selection: $selection)
                 } detail: {
                     library
@@ -79,9 +80,13 @@ struct RootView: View {
     private var library: some View {
         if destination.wrappedValue == .calendar {
             MeetingCalendarView(destination: destination, selection: $selection, sheet: $sheet)
+        } else if destination.wrappedValue == .recentlyDeleted {
+            RecentlyDeletedView()
         } else {
             HStack(spacing: 0) {
-                MeetingListPane(destination: destination.wrappedValue, selection: $selection, sheet: $sheet)
+                // With the sidebar folded, the window's controls sit where the list's title is.
+                MeetingListPane(destination: destination.wrappedValue, selection: $selection, sheet: $sheet,
+                                showsTitle: columns != .detailOnly)
                 Hairline(vertical: true)
                 detail
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

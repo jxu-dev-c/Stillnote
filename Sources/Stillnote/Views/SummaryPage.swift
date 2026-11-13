@@ -13,14 +13,11 @@ struct SummaryPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 overview
-                if let summary = meeting.summary {
-                    Hairline().padding(.vertical, 28)
-                    findings(summary)
-                }
                 Hairline().padding(.vertical, 28)
-                TwoColumns {
+                // Each section takes the shorter column, so a short one never leaves a gap.
+                MasonryLayout(columnSpacing: 48, rowSpacing: 32) {
+                    if let summary = meeting.summary { findings(summary) }
                     LinksSection(meeting: meeting)
-                } trailing: {
                     NotesSection(meeting: meeting)
                 }
             }
@@ -43,19 +40,9 @@ struct SummaryPage: View {
                     .help(meeting.summary.map { "Generated with \($0.provider) · \($0.model)" } ?? "")
                 Spacer(minLength: 8)
                 if let summary = meeting.summary {
-                    Button { copy(summary) } label: {
-                        HStack(spacing: 6) {
-                            Icon(copied ? .check : .copy, size: 15, lineWidth: 1.8)
-                            Text(copied ? "Copied" : "Copy").font(.system(size: 13, weight: .semibold))
-                        }
-                        .foregroundStyle(DS.text)
-                        .padding(.leading, 10)
-                        .padding(.trailing, 12)
-                        .frame(height: 30)
-                        .background(DS.hover, in: .capsule)
-                        .contentShape(.capsule)
+                    CapsuleButton(title: copied ? "Copied" : "Copy", icon: copied ? .check : .copy) {
+                        copy(summary)
                     }
-                    .buttonStyle(.plain)
                     .help("Copy summary")
                 }
             }
@@ -136,48 +123,44 @@ struct SummaryPage: View {
 
     // MARK: Decisions and actions
 
+    /// Key points, action items, then decisions, each its own masonry section.
+    @ViewBuilder
     private func findings(_ summary: MeetingSummary) -> some View {
-        TwoColumns {
-            VStack(alignment: .leading, spacing: 28) {
-                if !summary.keyPoints.isEmpty {
-                    SectionBlock(title: "Key points") {
-                        ForEach(Array(summary.keyPoints.enumerated()), id: \.offset) { _, point in
-                            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                Circle().fill(DS.text3).frame(width: 5, height: 5)
-                                    .frame(width: 18).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
-                                Text(point)
-                            }
-                        }
-                    }
-                }
-                SectionBlock(title: "Decisions") {
-                    if summary.decisions.isEmpty {
-                        Text("No decisions.").foregroundStyle(DS.text2)
-                    }
-                    ForEach(Array(summary.decisions.enumerated()), id: \.offset) { _, decision in
-                        HStack(alignment: .top, spacing: 10) {
-                            Icon(.checkCircle, size: 18, lineWidth: 1.8)
-                                .foregroundStyle(DS.Accent.green.ink)
-                                .padding(.top, 1)
-                            Text(decision)
-                        }
+        if !summary.keyPoints.isEmpty {
+            SectionBlock(title: "Key points") {
+                ForEach(Array(summary.keyPoints.enumerated()), id: \.offset) { _, point in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Circle().fill(DS.text3).frame(width: 5, height: 5)
+                            .frame(width: 18).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+                        Text(point)
                     }
                 }
             }
-        } trailing: {
-            SectionBlock(title: "Action items", spacing: 16) {
-                if summary.actionItems.isEmpty {
-                    Text("No action items.").foregroundStyle(DS.text2)
-                }
-                ForEach(Array(summary.actionItems.enumerated()), id: \.offset) { index, item in
-                    ActionItemRow(item: item) { toggle(index) }
+            .findingStyle()
+        }
+        SectionBlock(title: "Action items", spacing: 16) {
+            if summary.actionItems.isEmpty {
+                Text("No action items.").foregroundStyle(DS.text2)
+            }
+            ForEach(Array(summary.actionItems.enumerated()), id: \.offset) { index, item in
+                ActionItemRow(item: item) { toggle(index) }
+            }
+        }
+        .findingStyle()
+        SectionBlock(title: "Decisions") {
+            if summary.decisions.isEmpty {
+                Text("No decisions.").foregroundStyle(DS.text2)
+            }
+            ForEach(Array(summary.decisions.enumerated()), id: \.offset) { _, decision in
+                HStack(alignment: .top, spacing: 10) {
+                    Icon(.checkCircle, size: 18, lineWidth: 1.8)
+                        .foregroundStyle(DS.Accent.green.ink)
+                        .padding(.top, 1)
+                    Text(decision)
                 }
             }
         }
-        .font(.system(size: 15))
-        .lineSpacing(3)
-        .foregroundStyle(DS.text)
-        .textSelection(.enabled)
+        .findingStyle()
     }
 
     private func toggle(_ index: Int) {
@@ -190,16 +173,54 @@ struct SummaryPage: View {
     }
 }
 
-/// The design's two equal columns with a 48-point gutter.
-private struct TwoColumns<Leading: View, Trailing: View>: View {
-    @ViewBuilder let leading: Leading
-    @ViewBuilder let trailing: Trailing
+private extension View {
+    /// The reading style of the summary's own sections.
+    func findingStyle() -> some View {
+        font(.system(size: 15))
+            .lineSpacing(3)
+            .foregroundStyle(DS.text)
+            .textSelection(.enabled)
+    }
+}
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 48) {
-            leading.frame(maxWidth: .infinity, alignment: .topLeading)
-            trailing.frame(maxWidth: .infinity, alignment: .topLeading)
+/// Two columns with each section placed under the shorter one, or one column when narrow.
+private struct MasonryLayout: Layout {
+    var columnSpacing: CGFloat
+    var rowSpacing: CGFloat
+    /// Below this width two columns would be too narrow to read.
+    var twoColumnMinimum: CGFloat = 560
+
+    private struct Arrangement {
+        var columns: Int
+        var columnWidth: CGFloat
+        var heights: [CGFloat]
+        var slots: [MasonryPlacement.Slot]
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 720
+        let arrangement = arrange(subviews, width: width)
+        let height = MasonryPlacement.height(heights: arrangement.heights, columns: arrangement.columns,
+                                             spacing: rowSpacing)
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let arrangement = arrange(subviews, width: bounds.width)
+        for (index, subview) in subviews.enumerated() {
+            let slot = arrangement.slots[index]
+            let x = bounds.minX + CGFloat(slot.column) * (arrangement.columnWidth + columnSpacing)
+            subview.place(at: CGPoint(x: x, y: bounds.minY + slot.y),
+                          proposal: ProposedViewSize(width: arrangement.columnWidth, height: arrangement.heights[index]))
         }
+    }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> Arrangement {
+        let columns = width >= twoColumnMinimum ? 2 : 1
+        let columnWidth = max(0, (width - columnSpacing * CGFloat(columns - 1)) / CGFloat(columns))
+        let heights = subviews.map { $0.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).height }
+        let slots = MasonryPlacement.slots(heights: heights, columns: columns, spacing: rowSpacing)
+        return Arrangement(columns: columns, columnWidth: columnWidth, heights: heights, slots: slots)
     }
 }
 

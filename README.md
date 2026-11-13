@@ -19,7 +19,7 @@ Transcription and speaker detection are powered by [OpenMOSS's MOSS-Transcribe-D
   named without another click, from the recording page or the menu bar.
 - **Read meetings like lyrics.** The transcript follows playback line by line, and the summary
   keeps decisions, action items, links, and notes on one page. Swipe meetings in the list to star
-  or delete them.
+  or delete them. Recently Deleted, above Settings, keeps deleted meetings and recordings recoverable for five days.
 - **Calendar view.** Choose Calendar in the sidebar for a Day, Week, or Month calendar with each
   meeting at the time it was recorded, in its category's color.
 - **Recognize speakers by voice.** Tag speakers in a few meetings, then **Learn Voices** in
