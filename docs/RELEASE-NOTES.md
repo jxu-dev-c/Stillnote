@@ -2,6 +2,27 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
+## What's new in 0.14.0
+
+### Recently Deleted
+
+- Deleted meetings are kept for five days in **Recently Deleted**, above Settings. It shows when
+  each one will be removed for good, and **Restore** brings it back with its notes, summary, and
+  speaker assignments. Recordings stay on disk until then.
+- Meetings in Recently Deleted don't appear in lists, search, the calendar, or `stillnote`
+  commands.
+- The open meeting can be swiped to delete like any other, which closes its page. Meetings still
+  being processed can't be deleted.
+
+### Easier toolbar and meeting pages
+
+- Hover over a meeting toolbar icon, or reach it with Tab, to see its name, and why it's
+  unavailable when it is dimmed. The icons can be pressed with Space or Return.
+- The meeting list's search button now shows a search icon instead of sliders.
+- Speaker portraits sit on their own row under the title and wrap when there are many.
+- Summary sections fill two columns, or one in a narrow window.
+- **New Category** is now in the sidebar's Categories menu.
+
 ## What's new in 0.13.1
 
 - The **Summary** tab and the folded **…** actions menu respond during playback again, instead of
@@ -61,6 +82,13 @@ still asks for consent, as `stillnote summarize <id> --allow-remote`.
 
 To let a coding agent drive it, install the published skill with
 `npx skills add jxu-dev-c/Stillnote`.
+
+## Upgrading from 0.13.1
+
+Everything is preserved and capture permissions carry over; nothing new to download or set up.
+Only meetings deleted after the update go to Recently Deleted. If you go back to an earlier
+version, meetings in Recently Deleted stay hidden and aren't removed until you return to 0.14.0
+or later.
 
 ## Upgrading from 0.13.0
 

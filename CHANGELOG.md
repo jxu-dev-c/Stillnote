@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.14.0
+
+- Keep deleted meetings for five days. Deleting a meeting moves it to **Recently Deleted**, above
+  Settings, which shows when each one will be removed for good and brings it back with
+  **Restore**, with its notes, summary, and speaker assignments. Its recording stays on disk until
+  then. Meetings in Recently Deleted are left out of lists, search, the calendar, and `stillnote`
+  commands. The open meeting can now be swiped to delete like any other, which closes its page;
+  meetings still being processed can't be deleted.
+- Label the meeting toolbar's icon buttons. Hovering over one, or reaching it with Tab, shows its
+  name in a capsule, and why it's unavailable when it is dimmed. The icon buttons can be reached
+  with Tab and pressed with Space or Return.
+- Replace the meeting list's sliders icon, which opened search, with a search icon labeled
+  **Search meetings**.
+- Tidy the meeting pages. Speaker portraits sit on their own row under the title and wrap when
+  there are many; summary sections fill two columns, or one in a narrow window; and the list's
+  title hides while the sidebar is folded. **New Category** moved into the sidebar's Categories
+  menu.
+
 ## 0.13.1
 
 - Fix clicks on the **Summary** tab and the folded **…** actions menu during playback. Once a
