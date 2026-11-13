@@ -47,22 +47,30 @@ private func until(_ condition: @Sendable () async -> Bool) async throws {
     @Test func runsUpToTheLimitAtOnceAndStartsWaitersInArrivalOrder() async throws {
         let limiter = AgentJobLimiter(limit: 2)
         let tracker = Tracker()
-        let gate = Gate()
+        let gates = (0..<5).map { _ in Gate() }
         var tasks: [Task<Void, Never>] = []
         for job in 0..<5 {
             tasks.append(Task {
                 await limiter.run {
                     await tracker.begin(job)
-                    await gate.wait()
+                    await gates[job].wait()
                     await tracker.end()
                 }
             })
             // Each job reaches the limiter before the next is created, so arrival order is fixed.
             try await until { await limiter.running + limiter.waiting == job + 1 }
+            if job < 2 { try await until { await tracker.started.count == job + 1 } }
         }
         #expect(await limiter.running == 2)
         #expect(await limiter.waiting == 3)
-        await gate.release()
+        // Free one slot at a time so each admitted waiter starts before the next
+        // slot opens. Simultaneously resumed tasks may execute in either order.
+        for job in 0..<3 {
+            await gates[job].release()
+            try await until { await tracker.started.count == job + 3 }
+        }
+        await gates[3].release()
+        await gates[4].release()
         for task in tasks { await task.value }
         #expect(await tracker.peak == 2)
         #expect(await tracker.started == [0, 1, 2, 3, 4])
