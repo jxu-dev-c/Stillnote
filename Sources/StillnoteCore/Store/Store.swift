@@ -432,9 +432,11 @@ public actor Store {
                   let data = try documents("SELECT data FROM deleted_meetings WHERE id=?", [id]).first
             else { throw StoreError.notFound }
             var meeting = try decoder.decode(Meeting.self, from: data)
-            // A category may have been removed during retention.
-            if let categoryID = meeting.categoryID,
-               !((try categories()).contains { $0.id == categoryID }) { meeting.categoryID = nil }
+            // A tag may have been removed during retention.
+            let existing = Set(try tags().map(\.id))
+            if meeting.tagIDs.contains(where: { !existing.contains($0) }) {
+                meeting.tagIDs = meeting.tagIDs.filter(existing.contains)
+            }
             try insert(meeting)
             try execute("""
                 INSERT OR REPLACE INTO voiceprints (meeting_id, data)
@@ -618,42 +620,43 @@ public actor Store {
         meeting.stage = hasTranscript ? "Transcript ready" : "Ready to transcribe"
     }
 
-    // MARK: - Categories
+    // MARK: - Tags
 
-    /// Categories in manual order. A read-only open of a library from before categories
-    /// has no table, and so no categories.
-    public func categories() throws -> [MeetingCategory] {
+    /// Tags in manual order. They live in the `categories` table, from when a meeting could
+    /// hold only one. A read-only open of a library from before categories has no table, and so
+    /// no tags.
+    public func tags() throws -> [MeetingTag] {
         guard try hasTable("categories") else { return [] }
-        return MeetingCategory.sorted(
-            try documents("SELECT data FROM categories").map { try decoder.decode(MeetingCategory.self, from: $0) },
+        return MeetingTag.sorted(
+            try documents("SELECT data FROM categories").map { try decoder.decode(MeetingTag.self, from: $0) },
             by: .manual
         )
     }
 
     @discardableResult
-    public func saveCategory(_ category: MeetingCategory) throws -> MeetingCategory {
-        var category = category
-        category.name = try Validation.categoryName(category.name)
+    public func saveTag(_ tag: MeetingTag) throws -> MeetingTag {
+        var tag = tag
+        tag.name = try Validation.tagName(tag.name)
         try execute("INSERT OR REPLACE INTO categories VALUES (?, ?)", [
-            category.id, String(decoding: try encoder.encode(category), as: UTF8.self)
+            tag.id, String(decoding: try encoder.encode(tag), as: UTF8.self)
         ])
-        return category
+        return tag
     }
 
-    /// Rewrites every category's manual position to match `ids`, in one transaction.
-    /// Categories missing from `ids` keep their relative order after the listed ones.
+    /// Rewrites every tag's manual position to match `ids`, in one transaction.
+    /// Tags missing from `ids` keep their relative order after the listed ones.
     @discardableResult
-    public func reorderCategories(_ ids: [String]) throws -> [MeetingCategory] {
+    public func reorderTags(_ ids: [String]) throws -> [MeetingTag] {
         let db = try database()
         try Self.run(db, "BEGIN IMMEDIATE")
         do {
-            let current = try categories()
+            let current = try tags()
             let listed = ids.compactMap { id in current.first { $0.id == id } }
             let ordered = listed + current.filter { !ids.contains($0.id) }
-            var saved: [MeetingCategory] = []
-            for (position, var category) in ordered.enumerated() {
-                category.position = position
-                saved.append(try saveCategory(category))
+            var saved: [MeetingTag] = []
+            for (position, var tag) in ordered.enumerated() {
+                tag.position = position
+                saved.append(try saveTag(tag))
             }
             try Self.run(db, "COMMIT")
             return saved
@@ -663,19 +666,23 @@ public actor Store {
         }
     }
 
-    /// Removes the category and clears it from its meetings atomically. Returns the meetings
-    /// that changed so the caller can refresh them.
-    public func deleteCategory(_ id: String) throws -> [Meeting] {
+    /// Removes the tag and takes it off its meetings atomically. Returns the meetings that
+    /// changed so the caller can refresh them. Documents an older build saved carry the tag only
+    /// as `category_id`.
+    public func deleteTag(_ id: String) throws -> [Meeting] {
         let db = try database()
         try Self.run(db, "BEGIN IMMEDIATE")
         do {
-            let ids = try documents(
-                "SELECT id FROM meetings WHERE json_valid(data) AND json_extract(data, '$.category_id')=?", [id]
+            let ids = try documents("""
+                SELECT id FROM meetings WHERE json_valid(data) AND (
+                    json_extract(data, '$.category_id')=?1
+                    OR EXISTS (SELECT 1 FROM json_each(data, '$.tag_ids') WHERE value=?1))
+                """, [id]
             ).map { String(decoding: $0, as: UTF8.self) }
             var changed: [Meeting] = []
             for meetingID in ids {
                 var meeting = try get(meetingID)
-                meeting.categoryID = nil
+                meeting.removeTag(id)
                 try execute("UPDATE meetings SET data=? WHERE id=?", [try encoded(meeting), meeting.id])
                 changed.append(meeting)
             }

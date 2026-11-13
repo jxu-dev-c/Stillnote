@@ -2,6 +2,18 @@
 
 ## 0.14.0
 
+- Turn categories into tags. A meeting can now carry several tags, toggled from the **Tags** menu
+  in its context menu, and each tag in the sidebar lists every meeting that carries it. Existing
+  categories become tags with the same meetings, names, and colors. A meeting's first tag colors
+  it on the calendar.
+- Suggest tags with OpenAI. **Suggest Tags** in a meeting's Tags menu and **Auto-Tag Meetings…** in
+  the sidebar's Tags menu ask OpenAI's Responses API which of your existing tags fit; Stillnote only
+  adds tags, never creates or removes one. Turn on **Suggest tags after each summary** in
+  **Settings → Summaries** to tag new meetings automatically. Save an OpenAI API key there (it goes
+  to the Keychain) or export `OPENAI_API_KEY` in your shell.
+- Add tags to the `stillnote` command and agent skill: `tag list`, `tag show`, `tag create`,
+  `tag apply`, `tag remove`, `tag auto`, and `list --tag`. `list` and `show` now report each
+  meeting's tags.
 - Keep deleted meetings for five days. Deleting a meeting moves it to **Recently Deleted**, above
   Settings, which shows when each one will be removed for good and brings it back with
   **Restore**, with its notes, summary, and speaker assignments. Its recording stays on disk until
@@ -15,8 +27,7 @@
   **Search meetings**.
 - Tidy the meeting pages. Speaker portraits sit on their own row under the title and wrap when
   there are many; summary sections fill two columns, or one in a narrow window; and the list's
-  title hides while the sidebar is folded. **New Category** moved into the sidebar's Categories
-  menu.
+  title hides while the sidebar is folded. **New Tag…** is in the sidebar's Tags menu.
 
 ## 0.13.1
 

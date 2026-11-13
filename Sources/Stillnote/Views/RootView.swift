@@ -9,11 +9,11 @@ struct RootView: View {
     @State private var columns: NavigationSplitViewVisibility = .all
     @SceneStorage("sidebarDestination") private var storedDestination: SidebarDestination = .all
 
-    /// The stored destination, or All Meetings when it names a category that was deleted.
+    /// The stored destination, or All Meetings when it names a tag that was deleted.
     private var destination: Binding<SidebarDestination> {
         Binding(
             get: {
-                if case .category(let id) = storedDestination, model.category(id) == nil { return .all }
+                if case .tag(let id) = storedDestination, model.tag(id) == nil { return .all }
                 return storedDestination
             },
             set: { storedDestination = $0 }

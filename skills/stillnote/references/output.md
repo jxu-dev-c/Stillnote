@@ -26,11 +26,11 @@ the app's own compatibility; the CLI does not expose them.
     { "id": "aa11bb22cc33", "title": "Product launch planning",
       "created_at": "2026-09-08T15:04:05.100+00:00", "duration": 2412.0,
       "status": "complete", "speakers": ["Jackson", "Priya"], "segments": 148,
-      "has_summary": true, "has_notes": true } ] }
+      "has_summary": true, "has_notes": true, "tags": ["Product", "Engineering"] } ] }
 ```
 
 `status` is `ready`, `transcribing`, `transcribed`, `summarizing`, `complete`, or `error`.
-`duration` is seconds. Newest first.
+`duration` is seconds. Newest first. `tags` are tag names in the order they were applied, empty when untagged.
 
 ## `show`, `summary show`, and anything that changed one meeting
 
@@ -38,7 +38,7 @@ the app's own compatibility; the CLI does not expose them.
 { "id": "aa11bb22cc33", "title": "Product launch planning",
   "created_at": "…", "updated_at": "…", "duration": 2412.0,
   "status": "complete", "stage": "Summary ready", "error": null,
-  "language": "en", "has_video": false, "segment_count": 148,
+  "language": "en", "has_video": false, "segment_count": 148, "tags": ["Product"],
   "speakers": [ { "id": "speaker_1", "name": "Jackson", "profile": true } ],
   "summary": { "overview": "…", "key_points": ["…"], "decisions": ["…"],
                "action_items": [ { "text": "…", "owner": "Jackson", "due": "2026-09-20", "completed": true } ],
@@ -87,6 +87,41 @@ the meetings it is linked to:
 inside that meeting. After `speaker delete`, `meetings` lists the meetings it was unlinked from;
 they keep the name they showed. `speaker assign` changes a meeting, so it returns the meeting
 shape above.
+
+## `tag list`, `tag show`, and `tag create`
+
+```json
+{ "count": 2,
+  "tags": [ { "id": "6b1e…", "name": "Product", "color": "blue", "meeting_count": 4 } ] }
+```
+
+Tags are in the user's sidebar order. `tag show` and `tag create` return one tag with the
+meetings carrying it, newest first:
+
+```json
+{ "id": "6b1e…", "name": "Product", "color": "blue", "meeting_count": 1,
+  "meetings": [ { "id": "aa11bb22cc33", "title": "Product launch planning",
+                  "created_at": "…", "status": "complete", "has_summary": true,
+                  "tags": ["Product", "Engineering"] } ] }
+```
+
+`meetings[].tags` is every tag on that meeting. `tag apply` and `tag remove` change a meeting, so
+they return the meeting shape above.
+
+## `tag auto`
+
+```json
+{ "dry_run": false, "model": "gpt-5.4-mini", "count": 2,
+  "meetings": [ { "id": "aa11bb22cc33", "title": "Product launch planning",
+                  "suggested": ["Product", "Engineering"], "added": ["Engineering"],
+                  "tags": ["Product", "Engineering"] },
+                { "id": "dd44ee55ff66", "title": "Old call", "suggested": [], "added": [],
+                  "tags": [], "error": "Create a transcript before suggesting tags." } ] }
+```
+
+`suggested` is every tag OpenAI chose; `added` is the ones the meeting didn't already carry, saved
+unless `dry_run` is true; `tags` is the meeting's tags afterwards. An empty `suggested` means no
+tag fit. `error` is present only for a meeting that couldn't be tagged.
 
 ## `speaker voices` and `speaker learn`
 

@@ -13,7 +13,7 @@ These read the library directly, read-only.
 | Command | Options |
 | --- | --- |
 | `stillnote status` | — |
-| `stillnote list` | `--limit`, `--since`, `--until`, `--status`, `--speaker` |
+| `stillnote list` | `--limit`, `--since`, `--until`, `--status`, `--speaker`, `--tag` |
 | `stillnote show <meeting>` | `--segments`, `--speaker` |
 | `stillnote search <query>` | `--in`, `--speaker`, `--since`, `--until`, `--limit`, `--context` |
 | `stillnote export <meeting>` | `--format md\|txt\|srt\|json`, `--out <path>` |
@@ -22,6 +22,8 @@ These read the library directly, read-only.
 | `stillnote speaker list` | — |
 | `stillnote speaker show <profile>` | — |
 | `stillnote speaker voices` | — |
+| `stillnote tag list` | — |
+| `stillnote tag show <tag>` | — |
 | `stillnote help [command]` | — |
 
 ## Needs Stillnote running
@@ -40,6 +42,10 @@ the signed app bundle, not to whatever launched the CLI.
 | `stillnote speaker assign <meeting>` | `--speaker <id>` (required), `--profile <profile>` *or* `--none` |
 | `stillnote speaker learn` | `--wait` |
 | `stillnote speaker autotag [<meeting>]` | a meeting *or* `--all`, `--dry-run` |
+| `stillnote tag create` | `--name` (required), `--color` |
+| `stillnote tag apply <meeting>` | `--tag <tag>` (required) |
+| `stillnote tag remove <meeting>` | `--tag <tag>` (required) |
+| `stillnote tag auto [<meeting>]` | a meeting *or* `--all`; `--allow-remote` (required), `--dry-run` |
 | `stillnote summary set <meeting>` | `--overview <text>` *or* `--json-stdin` |
 | `stillnote notes set <meeting>` | `--text <notes>` *or* `--stdin` |
 | `stillnote transcribe <meeting>` | `--language`, `--speakers` |
@@ -59,6 +65,12 @@ is an error listing the candidates rather than a guess.
 
 **`<profile>`** — a speaker profile's full id, a unique id prefix, its exact name, or its exact
 email, ignoring case. Two profiles with the same name make the name ambiguous; use the id.
+
+**`<tag>`** — a tag's exact name ignoring case, its full id, or a unique id prefix. Two tags with
+the same name make the name ambiguous; use the id. `list --tag` takes the same forms.
+
+**`--color`** — `blue`, `purple`, `orange`, `green`, `pink`, `teal`, `yellow`, `red`, or `gray`.
+Without it, a new tag takes the next unused color.
 
 **Dates** — `YYYY-MM-DD` or `YYYY-MM`, nothing else. A four-digit year is required. `--since` is
 the start of its unit and `--until` the end, so `--since 2026-05 --until 2026-05` is all of May.
@@ -87,7 +99,7 @@ both sides are literal: `$1` stays `$1` and `(a)` matches those three characters
 | 1 | The command failed |
 | 2 | Bad usage: an unknown option, a missing argument, an invalid value |
 | 3 | Stillnote is not running, is still opening, or has the command interface switched off |
-| 4 | No such meeting, segment, speaker, speaker profile, or device; or an ambiguous reference |
+| 4 | No such meeting, segment, speaker, speaker profile, tag, or device; or an ambiguous reference |
 | 5 | That meeting is transcribing or summarizing |
 
 ## Defaults and limits
@@ -96,7 +108,7 @@ both sides are literal: `$1` stays `$1` and `(a)` matches those three characters
 - `search` snippets show 80 characters around a match; change it with `--context`.
 - Commands wait 60 seconds for the app, except `record stop`, which waits 900: saving mixes both
   audio sources and runs the silence detector over the whole capture; `name`, which waits 660 for
-  the agent; and `process` and `speaker learn`/`autotag`, which wait 3600.
+  the agent; and `process`, `speaker learn`/`autotag`, and `tag auto`, which wait 3600.
 - One recording at a time. Save it or discard it before starting another.
 - `record start` without `--title` names the meeting `Meeting · <date>`. `record stop` only
   transcribes, so the placeholder stays until `name` or `process` titles it, or the recording is
@@ -106,4 +118,8 @@ both sides are literal: `$1` stays `$1` and `(a)` matches those three characters
   parts, each named `<title> partN`, before transcribing it. The original meeting is replaced by
   its parts. `--no-split` keeps it whole.
 - `speaker add` refuses a name another profile already has, so names stay usable references.
+- `tag create` refuses a name another tag already has, for the same reason.
+- `tag auto --all` covers meetings that are transcribed or summarized, idle, and carry no tag. It
+  uses the OpenAI model set in **Settings → Summaries** and the key saved there or
+  `OPENAI_API_KEY` from the user's shell.
 - The user can switch the whole interface off in **Settings → Advanced**, which returns exit 3.

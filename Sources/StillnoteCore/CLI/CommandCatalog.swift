@@ -86,7 +86,7 @@ public enum CommandCatalog {
         CommandSpec(
             path: ["list"],
             summary: "List meetings, newest first.",
-            valueOptions: ["limit", "since", "until", "status", "speaker"]
+            valueOptions: ["limit", "since", "until", "status", "speaker", "tag"]
         ),
         CommandSpec(
             path: ["show"],
@@ -207,6 +207,44 @@ public enum CommandCatalog {
             summary: "Link a meeting's untagged speakers to the profiles their voices match, or every meeting's with --all.",
             positionals: ["meeting?"],
             booleanOptions: ["all", "dry-run"],
+            requiresApp: true,
+            timeout: 3600
+        ),
+        CommandSpec(
+            path: ["tag", "list"],
+            summary: "List tags in sidebar order and how many meetings carry each."
+        ),
+        CommandSpec(
+            path: ["tag", "show"],
+            summary: "Show one tag and every meeting that carries it, newest first.",
+            positionals: ["tag"]
+        ),
+        CommandSpec(
+            path: ["tag", "create"],
+            summary: "Create a tag. --color picks one of the sidebar colors.",
+            valueOptions: ["name", "color"],
+            requiresApp: true
+        ),
+        CommandSpec(
+            path: ["tag", "apply"],
+            summary: "Add a tag to one meeting. A meeting can carry several tags.",
+            positionals: ["meeting"],
+            valueOptions: ["tag"],
+            requiresApp: true
+        ),
+        CommandSpec(
+            path: ["tag", "remove"],
+            summary: "Take a tag off one meeting.",
+            positionals: ["meeting"],
+            valueOptions: ["tag"],
+            requiresApp: true
+        ),
+        CommandSpec(
+            path: ["tag", "auto"],
+            summary: "Ask OpenAI which existing tags fit a meeting, or every untagged meeting with --all, "
+                + "and add them. Needs --allow-remote.",
+            positionals: ["meeting?"],
+            booleanOptions: ["all", "allow-remote", "dry-run"],
             requiresApp: true,
             timeout: 3600
         ),

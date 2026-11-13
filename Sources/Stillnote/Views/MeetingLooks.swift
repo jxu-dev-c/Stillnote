@@ -56,13 +56,13 @@ extension Meeting {
     }
 }
 
-/// The colors a meeting is drawn in on the calendar, from its category.
+/// The colors a meeting is drawn in on the calendar, from its first tag in sidebar order.
 struct EventTone {
     let solid: Color
     let tint: Color
     let ink: Color
 
-    init(_ color: CategoryColor?) {
+    init(_ color: TagColor?) {
         switch color {
         case .purple: self.init(.purple)
         case .orange: self.init(.orange)

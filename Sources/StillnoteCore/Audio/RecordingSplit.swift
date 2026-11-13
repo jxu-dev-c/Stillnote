@@ -37,7 +37,7 @@ public enum RecordingSplit {
             part.speakerProfiles = meeting.speakerProfiles
             part.autoSpeakerProfiles = meeting.autoSpeakerProfiles
             part.starred = meeting.starred
-            part.categoryID = meeting.categoryID
+            part.tagIDs = meeting.tagIDs
             part.status = meeting.segments.isEmpty ? .ready : .transcribed
             part.stage = meeting.segments.isEmpty ? "Ready to transcribe" : "Transcript split"
             return part

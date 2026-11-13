@@ -12,7 +12,7 @@ public struct MeetingListItem: Identifiable, Hashable, Sendable {
     public let hasVideo: Bool
     public let speakers: [String: String]
     public let starred: Bool
-    public let categoryID: String?
+    public let tagIDs: [String]
     public let speakerCount: Int
     /// A line for the meeting list: the summary overview, or the first transcript line.
     public let snippet: String
@@ -32,7 +32,7 @@ public struct MeetingListItem: Identifiable, Hashable, Sendable {
         hasVideo = meeting.hasVideo
         speakers = meeting.speakers
         starred = meeting.starred
-        categoryID = meeting.categoryID
+        tagIDs = meeting.tagIDs
         speakerCount = meeting.speakers.count
         self.snippet = snippet ?? Self.snippet(meeting)
         self.revision = revision
