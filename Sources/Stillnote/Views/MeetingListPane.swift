@@ -114,14 +114,14 @@ struct MeetingListPane: View {
                 }
                 queryFocused = filtering
             } label: {
-                Icon(.sliders, size: 20)
+                Icon(.search, size: 20)
                     .foregroundStyle(filtering || !query.isEmpty ? DS.accentInk : DS.text2)
                     .frame(width: 32, height: 32)
                     .hoverFill(Circle(), active: filtering)
             }
             .buttonStyle(.plain)
-            .help("Filter meetings")
-            .accessibilityLabel("Sort and filter")
+            .help("Search meetings")
+            .accessibilityLabel("Search meetings")
         }
         .padding(.leading, 18)
         .padding(.trailing, 14)
