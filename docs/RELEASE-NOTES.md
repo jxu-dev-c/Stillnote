@@ -4,6 +4,24 @@ Local meeting recording and transcription for **Apple silicon Macs running macOS
 
 ## What's new in 0.14.0
 
+### Categories are now tags
+
+- A meeting can carry several tags. Turn them on and off from the **Tags** submenu in its context
+  menu, which also has **Suggest Tags** and **Clear Tags**. Each tag in the sidebar lists every
+  meeting that carries it, and create one with **New Tag…** in the sidebar's Tags menu.
+- Your categories become tags with the same names, colors, and meetings. On the calendar, a
+  meeting takes its first tag's color.
+- **Suggest Tags** on one meeting, or **Auto-Tag Meetings…** in the sidebar's Tags menu, asks
+  OpenAI which of your existing tags fit. It only adds tags; it never creates or removes one. Turn
+  on **Suggest tags after each summary** in **Settings → Summaries** to tag new meetings as they
+  are summarized.
+- Suggestions need an OpenAI API key: save one in **Settings → Summaries**, where it goes to your
+  Keychain, or export `OPENAI_API_KEY` in your shell. They send the meeting's title, its summary or
+  the opening of its transcript, and your tag names to OpenAI; nothing is sent unless you ask or
+  turn on the setting.
+- The `stillnote` command and agent skill gain `tag list`, `tag show`, `tag create`, `tag apply`,
+  `tag remove`, `tag auto`, and `list --tag`. `list` and `show` report each meeting's tags.
+
 ### Recently Deleted
 
 - Deleted meetings are kept for five days in **Recently Deleted**, above Settings. It shows when
@@ -21,7 +39,6 @@ Local meeting recording and transcription for **Apple silicon Macs running macOS
 - The meeting list's search button now shows a search icon instead of sliders.
 - Speaker portraits sit on their own row under the title and wrap when there are many.
 - Summary sections fill two columns, or one in a narrow window.
-- **New Category** is now in the sidebar's Categories menu.
 
 ## What's new in 0.13.1
 
@@ -86,9 +103,13 @@ To let a coding agent drive it, install the published skill with
 ## Upgrading from 0.13.1
 
 Everything is preserved and capture permissions carry over; nothing new to download or set up.
-Only meetings deleted after the update go to Recently Deleted. If you go back to an earlier
-version, meetings in Recently Deleted stay hidden and aren't removed until you return to 0.14.0
-or later.
+Categories become tags automatically, each meeting keeping its category as its only tag. Tag
+suggestions stay off until you use them or turn them on. Only meetings deleted after the update
+go to Recently Deleted.
+
+If you go back to an earlier version, it shows only each meeting's first tag, and drops the
+others from any meeting it saves. Meetings in Recently Deleted stay hidden and aren't removed
+until you return to 0.14.0 or later.
 
 ## Upgrading from 0.13.0
 
@@ -278,5 +299,7 @@ remove `stillnote-runtime`. Neither operation deletes meetings, settings, or mod
 - Optional AI summaries use your configured Codex or Claude Code CLI with its own
   permissions, and send transcript text, notes, and context links to the provider chosen in
   Settings.
+- Optional tag suggestions use your own OpenAI API key and send the meeting's title, summary or
+  transcript opening, and your tag names to OpenAI.
 - The `stillnote` command reads meetings whether or not the app is open, but changing data and
   starting or stopping a recording need Stillnote running.
