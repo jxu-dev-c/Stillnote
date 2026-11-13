@@ -107,25 +107,28 @@ struct MeetingListPane: View {
                     .accessibilityAddTraits(.isHeader)
             }
             Spacer(minLength: 8)
-            Button {
-                withAnimation(.snappy(duration: 0.2)) {
-                    filtering.toggle()
-                    if !filtering { query = "" }
-                }
-                queryFocused = filtering
-            } label: {
+            Button(action: toggleSearch) {
                 Icon(.search, size: 20)
                     .foregroundStyle(filtering || !query.isEmpty ? DS.accentInk : DS.text2)
                     .frame(width: 32, height: 32)
                     .hoverFill(Circle(), active: filtering)
             }
             .buttonStyle(.plain)
+            .background(TitlebarClickTarget(action: toggleSearch))
             .help("Search meetings")
             .accessibilityLabel("Search meetings")
         }
         .padding(.leading, 18)
         .padding(.trailing, 14)
         .frame(height: 52)
+    }
+
+    private func toggleSearch() {
+        withAnimation(.snappy(duration: 0.2)) {
+            filtering.toggle()
+            if !filtering { query = "" }
+        }
+        queryFocused = filtering
     }
 
     private var filterField: some View {

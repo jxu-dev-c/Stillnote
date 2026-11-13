@@ -475,7 +475,6 @@ private struct PageSwitcher: View {
             .contentShape(.capsule)
         }
         .buttonStyle(.plain)
-        .toolbarHelp(title, activate: { page = value })
         .accessibilityLabel(title)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
