@@ -49,7 +49,7 @@ struct MeetingDetailView: View {
                 actions: actions, actionsEnabled: !busy, deleteEnabled: !busy, page: $page, query: $query,
                 onSearch: searchTranscript(advance:)
             ) {
-                ToolbarIconButton(icon: .trash, label: "Delete Meeting", tint: DS.danger, enabled: !busy) {
+                ToolbarIconButton(icon: .trash, label: "Delete Meeting", help: busy ? "Available when processing finishes" : nil, tint: DS.danger, enabled: !busy) {
                     selection = nil
                     feedback.delete(MeetingListItem(meeting), model: model)
                 }
@@ -89,13 +89,14 @@ struct MeetingDetailView: View {
         let hasTranscript = !meeting.segments.isEmpty
         let blocker = model.autoTagBlocker(meeting)
         return [
-            ToolbarAction(icon: .nameMeeting, symbol: "wand.and.sparkles", label: "Name Meeting", busy: naming,
+            ToolbarAction(icon: .nameMeeting, symbol: "wand.and.sparkles", label: "Name Meeting",
+                          help: naming ? "Naming this meeting…" : busy ? "Available when processing finishes" : !hasTranscript ? "Transcribe this meeting first" : nil, busy: naming,
                           enabled: hasTranscript && !busy && !naming) {
                 // The provider chosen in Settings is the consent, so naming starts straight away.
                 Task { await model.suggestTitle(meeting.id, allowRemote: true) }
             },
             ToolbarAction(icon: .autoTag, symbol: "wand.and.stars", label: "Auto-Tag Speakers",
-                          help: blocker ?? "Link untagged speakers to the profiles their voices match",
+                          help: busy ? "Available when processing finishes" : blocker ?? "Link untagged speakers to the profiles their voices match",
                           busy: model.autoTaggingMeetings.contains(meeting.id),
                           enabled: hasTranscript && blocker == nil && !busy) {
                 Task {
@@ -109,6 +110,7 @@ struct MeetingDetailView: View {
             },
             ToolbarAction(icon: .transcribeAgain, symbol: "waveform.badge.magnifyingglass",
                           label: hasTranscript ? "Transcribe Again…" : "Transcribe",
+                          help: busy ? "Available when processing finishes" : !model.speech.ready ? "Set up transcription in Settings first" : nil,
                           enabled: !busy && model.speech.ready) {
                 if hasTranscript {
                     retranscribing = true
@@ -118,6 +120,7 @@ struct MeetingDetailView: View {
             },
             ToolbarAction(icon: .regenerate, symbol: "arrow.triangle.2.circlepath",
                           label: meeting.summary == nil ? "Create Summary" : "Regenerate Summary",
+                          help: busy ? "Available when processing finishes" : !hasTranscript ? "Transcribe this meeting first" : nil,
                           enabled: hasTranscript && !busy) {
                 summarize()
             },
@@ -372,6 +375,8 @@ struct DetailToolbar<Delete: View>: View {
             .animation(.snappy(duration: 0.2), value: compact)
         }
         .frame(height: 72)
+        .toolbarHelpHost()
+        .zIndex(1)
     }
 }
 
@@ -387,6 +392,7 @@ private struct ActionsMenu: View {
                           systemImage: action.symbol)
                 }
                 .disabled(!action.enabled || action.busy)
+                .accessibilityHint(action.help ?? "")
             }
         } label: {
             Group {
@@ -404,7 +410,7 @@ private struct ActionsMenu: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Meeting actions")
+        .toolbarHelp("Meeting actions")
         .accessibilityLabel("Meeting actions")
     }
 }
@@ -432,8 +438,8 @@ struct ToolbarIconButton: View {
             .hoverFill(Capsule())
         }
         .buttonStyle(.plain)
+        .toolbarHelp(label, detail: busy ? (help ?? "In progress…") : help, activate: action)
         .disabled(!enabled || busy)
-        .help(help ?? label)
         .accessibilityLabel(label)
     }
 }
@@ -469,7 +475,7 @@ private struct PageSwitcher: View {
             .contentShape(.capsule)
         }
         .buttonStyle(.plain)
-        .help(title)
+        .toolbarHelp(title, activate: { page = value })
         .accessibilityLabel(title)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }

@@ -13,6 +13,26 @@ enum RootSheet: String, Identifiable { case record, importAudio; var id: String 
         precondition(condition)
     }
     @MainActor static func main() async throws {
+        // Hover presentation must cancel stale work and keep only the latest control visible.
+        let help = ToolbarHelpState()
+        let firstHelp = UUID(), secondHelp = UUID()
+        help.show(firstHelp, immediately: false)
+        require(help.active == nil)
+        help.leave(firstHelp)
+        try await Task.sleep(for: .milliseconds(550))
+        require(help.active == nil)
+        help.show(firstHelp, immediately: false)
+        help.show(secondHelp, immediately: true)
+        help.leave(firstHelp)
+        require(help.active == secondHelp)
+        try await Task.sleep(for: .milliseconds(550))
+        require(help.active == secondHelp)
+        help.dismiss()
+        require(help.active == nil)
+        help.show(firstHelp, immediately: false)
+        try await Task.sleep(for: .milliseconds(550))
+        require(help.active == firstHelp)
+        help.dismiss()
         let root = URL(fileURLWithPath: "/tmp/stillnote-model-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: root) }
         setenv("STILLNOTE_DATA_DIR", root.path, 1)
