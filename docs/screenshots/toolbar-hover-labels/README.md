@@ -12,7 +12,8 @@ recording, transcription, naming, or summary services.
 - `light-keyboard.jpg`: light appearance; focused Regenerate Summary label.
 - `compact-keyboard.jpg`: compact icon-only page switcher; focused Transcript label.
 
-Labels use the same `Capsule` shape as the tabs, including their border. The opaque
+Labels use the same `Capsule` shape as the tabs, with a full-point border and a
+composited shadow. The top edge was checked at 5× magnification for gaps. The opaque
 surface keeps text independent of content behind it. Short labels fit their text;
 explanations wrap at a maximum width of 280 points.
 

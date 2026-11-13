@@ -120,10 +120,13 @@ private struct ToolbarHelpHost: ViewModifier {
                         .fixedSize(horizontal: false, vertical: true)
                         .background(DS.menuSolid, in: Capsule())
                         .overlay {
+                            // A full-point stroke keeps the flat edge continuous at 1× scale.
                             Capsule()
                                 .strokeBorder(contrast == .increased ? DS.text : DS.text3,
-                                              lineWidth: contrast == .increased ? 1.5 : 0.5)
+                                              lineWidth: contrast == .increased ? 1.5 : 1)
                         }
+                        // Shadow the complete surface, rather than its individual layers.
+                        .compositingGroup()
                         .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
                         .offset(x: min(max(8, rect.midX - width / 2), proxy.size.width - width - 8),
                                 y: rect.maxY + 8)
