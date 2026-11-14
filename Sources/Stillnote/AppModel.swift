@@ -455,7 +455,7 @@ final class AppModel {
 
     var isRecording: Bool { isReady && recorder.session != nil }
 
-    /// Starts a recording with the saved transcription defaults, the default microphone, system
+    /// Starts a recording with the saved transcription defaults, the default microphone, no system
     /// audio, and no screen video: the one-click path the menu bar offers.
     @discardableResult
     func startQuickRecording() async -> Bool {

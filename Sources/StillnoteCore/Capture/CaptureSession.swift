@@ -26,7 +26,7 @@ public struct CaptureOptions: Codable, Hashable, Sendable {
 
     public init(
         title: String, language: String = "auto", speakerCount: Int? = nil, microphoneID: String = "",
-        displayID: UInt32? = nil, systemAudio: Bool = true, screenVideo: Bool = false,
+        displayID: UInt32? = nil, systemAudio: Bool = false, screenVideo: Bool = false,
         automaticTitle: Bool = false
     ) {
         self.title = title
