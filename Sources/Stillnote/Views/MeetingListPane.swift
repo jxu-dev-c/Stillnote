@@ -223,6 +223,7 @@ struct MeetingListPane: View {
                             open: { open(meeting.id) }, settle: settle,
                             star: { toggleStar(meeting) }, delete: { delete(meeting) }
                         )
+                        .id(MeetingRowIdentity(group: entry.group, meetingID: meeting.id))
                         .padding(.top, rowIndex == 0 && !(showsRecording && entry.group == .today) ? 0 : 2)
                         .contextMenu { contextMenu(meeting) }
                     }
@@ -515,6 +516,12 @@ final class SwipeState {
         id = nil
         dx = 0
     }
+}
+
+// A row moving between date sections must not reuse a lazy child from its old section.
+private struct MeetingRowIdentity: Hashable {
+    let group: ListGroup
+    let meetingID: String
 }
 
 private struct SwipeableMeetingRow: View {
