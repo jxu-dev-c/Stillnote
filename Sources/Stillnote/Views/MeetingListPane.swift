@@ -219,7 +219,7 @@ struct MeetingListPane: View {
                     ForEach(Array(entry.rows.enumerated()), id: \.element.id) { rowIndex, meeting in
                         SwipeableMeetingRow(
                             meeting: meeting, group: entry.group,
-                            selected: selection == meeting.id, swipe: swipe,
+                            selection: $selection, swipe: swipe,
                             open: { open(meeting.id) }, settle: settle,
                             star: { toggleStar(meeting) }, delete: { delete(meeting) }
                         )
@@ -517,16 +517,18 @@ final class SwipeState {
     }
 }
 
-private struct SwipeableMeetingRow: View {
-    @Environment(AppModel.self) private var model
+struct SwipeableMeetingRow: View {
     let meeting: MeetingListItem
     let group: ListGroup
-    let selected: Bool
+    @Binding var selection: String?
     let swipe: SwipeState
     let open: () -> Void
     let settle: (String) -> Void
     let star: () -> Void
     let delete: () -> Void
+
+    // Read selection in the row itself so lazy ForEach reuse cannot retain a stale Boolean.
+    private var selected: Bool { selection == meeting.id }
 
     var body: some View {
         let dx = swipe.offset(for: meeting.id)
