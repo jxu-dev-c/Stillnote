@@ -222,7 +222,7 @@ extension AppModel {
     nonisolated static func taggingMessage(_ error: Error) -> String {
         (error as? SummaryError)?.message
             ?? (error as? ValidationError)?.message
-            ?? "Suggesting tags failed. Check the OpenAI key and model in Settings → Summaries."
+            ?? "Suggesting tags failed. Check the OpenAI key and model in Settings → Summarize."
     }
 }
 

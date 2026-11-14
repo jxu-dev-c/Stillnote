@@ -1,427 +1,166 @@
 import StillnoteCore
 import SwiftUI
 
+/// The Settings window's pages. The first four follow a meeting through its lifecycle.
+enum SettingsPage: String, CaseIterable, Identifiable {
+    case record, transcribe, speakers, summarize, people, commandLine
+
+    var id: String { rawValue }
+
+    static let lifecycle: [SettingsPage] = [.record, .transcribe, .speakers, .summarize]
+    static let more: [SettingsPage] = [.people, .commandLine]
+
+    var title: String {
+        switch self {
+        case .record: "Record"
+        case .transcribe: "Transcribe"
+        case .speakers: "Speakers"
+        case .summarize: "Summarize"
+        case .people: "People"
+        case .commandLine: "Command line"
+        }
+    }
+
+    var icon: DesignIcon {
+        switch self {
+        case .record: .microphone
+        case .transcribe: .waveform
+        case .speakers: .voice
+        case .summarize: .transcript
+        case .people: .people
+        case .commandLine: .terminal
+        }
+    }
+
+    /// The rail tile's gradient, top to bottom.
+    var tile: [Color] {
+        let stops: (NSColor, NSColor) = switch self {
+        case .record: (.rgba(255, 107, 97), .rgba(229, 48, 42))
+        case .transcribe: (.rgba(75, 166, 255), .rgba(10, 111, 228))
+        case .speakers: (.rgba(201, 129, 238), .rgba(154, 63, 208))
+        case .summarize: (.rgba(255, 186, 61), .rgba(240, 136, 0))
+        case .people: (.rgba(98, 220, 128), .rgba(39, 173, 74))
+        case .commandLine: (.rgba(154, 154, 160), .rgba(92, 92, 97))
+        }
+        return [Color(nsColor: stops.0), Color(nsColor: stops.1)]
+    }
+}
+
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+
+    static let width: CGFloat = 980
+    /// The window's height below its title bar inset; the rail and title draw up into that inset.
+    static let height: CGFloat = 608
+
     var body: some View {
         @Bindable var model = model
-        TabView(selection: $model.settingsTab) {
-            TranscriptionSettingsView()
-                .frame(height: 420)
-                .tabItem { Label("Transcription", systemImage: "waveform") }
-                .tag("transcription")
-            // Speakers also holds voice recognition, so it needs more room than the others.
-            SpeakerSettingsView()
-                .frame(height: 600)
-                .tabItem { Label("Speakers", systemImage: "person.2") }
-                .tag("speakers")
-            SummarySettingsView()
-                .frame(height: 420)
-                .tabItem { Label("Summaries", systemImage: "sparkles") }
-                .tag("summaries")
-            AdvancedSettingsView()
-                .frame(height: 420)
-                .tabItem { Label("Advanced", systemImage: "terminal") }
-                .tag("advanced")
+        HStack(spacing: 0) {
+            SettingsRail(page: $model.settingsPage)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(model.settingsPage.title)
+                    .font(.system(size: 22, weight: .bold))
+                    .letterSpacing(-0.02, size: 22)
+                    .foregroundStyle(DS.text)
+                    .accessibilityAddTraits(.isHeader)
+                    .padding(.horizontal, 28)
+                    .padding(.top, 22)
+                    .padding(.bottom, 14)
+                page
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .frame(width: Self.width)
+        // An ideal height sizes the window; filling the proposal lets the view reach up under the
+        // title bar once the safe area is ignored, rather than leaving that height empty below.
+        .frame(minHeight: Self.height, idealHeight: Self.height, maxHeight: .infinity)
+        .foregroundStyle(DS.text)
+        .ignoresSafeArea(.container, edges: .top)
+        .background { WindowBackdrop().ignoresSafeArea() }
+        .navigationTitle(model.settingsPage.title)
+        .toolbar(removing: .title)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
     }
-}
 
-struct TranscriptionSettingsView: View {
-    @Environment(AppModel.self) private var model
-    @State private var language = "auto"
-    @State private var speakerCount: Int?
-    @State private var mode = TranscriptionMode.quality
-    @State private var hotWordsText = ""
-    @State private var savingHotWords = false
-    @State private var trimRecording = true
-    @State private var suppressNonSpeech = true
-    @State private var sensitivity = CleanupSensitivity.balanced
-    @State private var splitThresholdText = "50"
-
-    var body: some View {
-        Form {
-            Section("Defaults") {
-                Picker("Mode", selection: $mode) {
-                    ForEach(TranscriptionMode.allCases, id: \.self) { Text($0.label).tag($0) }
-                }
-                Text(mode.detail).font(.caption).foregroundStyle(.secondary)
-                TranscriptionOptionFields(language: $language, speakerCount: $speakerCount)
-            }
-
-            Section("Recording cleanup") {
-                Toggle("Trim silence from saved recordings", isOn: $trimRecording)
-                Text("Removes leading and trailing silence when a recording is saved, for the times a recording kept running after the meeting ended. The recording file is rewritten, and only cuts longer than a minute are applied.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Toggle("Silence background noise between speech", isOn: $suppressNonSpeech)
-                Text("Mutes typing, fans, and static wherever nobody is speaking, in the copy sent to transcription only. Speech itself is never filtered, so recognition accuracy is unaffected and playback keeps the original audio.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Picker("Sensitivity", selection: $sensitivity) {
-                    ForEach(CleanupSensitivity.allCases, id: \.self) { Text($0.label).tag($0) }
-                }
-                .disabled(!trimRecording && !suppressNonSpeech)
-                Text(sensitivity.detail).font(.caption).foregroundStyle(.secondary)
-                if !model.speech.cleanupAvailable {
-                    Text("Download the speech models to enable cleanup. Until then recordings are saved and transcribed in full.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-
-            Section("Long recordings") {
-                LabeledContent("Offer splitting after") {
-                    HStack(spacing: 6) {
-                        TextField("Minutes", text: $splitThresholdText)
-                            .labelsHidden()
-                            .textFieldStyle(.roundedBorder)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 70)
-                            .accessibilityLabel("Split threshold in minutes")
-                        Text("minutes").foregroundStyle(.secondary)
+    @ViewBuilder
+    private var page: some View {
+        switch model.settingsPage {
+        case .people:
+            // People fills the pane with its own scrolling list rather than scrolling as a page.
+            PeopleSettingsPage()
+                .padding(.horizontal, 28)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
+        default:
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    switch model.settingsPage {
+                    case .record: RecordSettingsPage()
+                    case .transcribe: TranscribeSettingsPage()
+                    case .speakers: SpeakersSettingsPage()
+                    case .summarize: SummarizeSettingsPage()
+                    case .commandLine: CommandLineSettingsPage()
+                    case .people: EmptyView()
                     }
                 }
-                if splitThresholdValue == nil {
-                    Text("Enter a positive whole number of minutes. The last valid threshold remains in use.")
-                        .font(.caption).foregroundStyle(.red)
-                }
-                Text("Shows Split Recording for saved audio at this length, and Stop, Transcribe & Summarize splits such recordings automatically. Each part is 20 minutes; the last keeps the remainder. Screen recordings cannot be split.")
-                    .font(.caption).foregroundStyle(.secondary)
+                .padding(.horizontal, 28)
+                .padding(.top, 4)
+                .padding(.bottom, 28)
             }
+            .id(model.settingsPage)
+        }
+    }
+}
 
-            MeetingReminderSettingsSection()
+/// The glass rail: window controls at the top, then the pages with their colored tiles.
+private struct SettingsRail: View {
+    @Binding var page: SettingsPage
 
-            Section("Hot words") {
-                Text("Enter one word or phrase per line. Names, acronyms, and specialized terms help guide recognition; they are not guaranteed replacements.")
-                    .font(.callout).foregroundStyle(.secondary)
-                TextEditor(text: $hotWordsText)
-                    .frame(height: 90)
-                    .overlay(alignment: .topLeading) {
-                        if hotWordsText.isEmpty {
-                            Text("One entry per line. Keep phrases with spaces together.\nOpenMOSS\nAPI\nNew York")
-                                .font(.body)
-                                .foregroundStyle(.tertiary)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 6)
-                                .allowsHitTesting(false)
-                                .accessibilityHidden(true)
-                        }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            // Room for the window's close, minimize, and zoom buttons.
+            Color.clear.frame(height: 48)
+            ForEach(SettingsPage.lifecycle) { row($0) }
+            Color.clear.frame(height: 12)
+            ForEach(SettingsPage.more) { row($0) }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .frame(width: 220)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .designGlass(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(8)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Settings sections")
+    }
+
+    private func row(_ item: SettingsPage) -> some View {
+        let selected = page == item
+        return Button { page = item } label: {
+            HStack(spacing: 9) {
+                Icon(item.icon, size: 13, lineWidth: 2.2)
+                    .foregroundStyle(.white)
+                    .frame(width: 22, height: 22)
+                    .background(
+                        LinearGradient(colors: item.tile, startPoint: .top, endPoint: .bottom),
+                        in: .rect(cornerRadius: 6, style: .continuous)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(.white.opacity(0.4), lineWidth: 0.5)
                     }
-                    .accessibilityLabel("Hot words, one word or phrase per line")
-                    .accessibilityHint("Press Return between entries. Keep phrases such as New York on one line.")
-                    .disabled(savingHotWords)
-                HStack {
-                    Button("Clear") { hotWordsText = "" }
-                        .disabled(hotWordsText.isEmpty || savingHotWords)
-                    Button("Save Hot Words") {
-                        savingHotWords = true
-                        var updated = model.settings
-                        updated.transcription.hotWords = normalizedHotWords
-                        Task {
-                            await model.saveSettings(updated)
-                            if model.settings.transcription.hotWords == updated.transcription.hotWords {
-                                hotWordsText = model.settings.transcription.hotWords.joined(separator: "\n")
-                            }
-                            savingHotWords = false
-                        }
-                    }
-                    .disabled(savingHotWords || normalizedHotWords == model.settings.transcription.hotWords)
-                }
-                Text("Saved for all your transcriptions, including retranscriptions. Clear and save to stop using hot words.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .shadow(color: .black.opacity(0.2), radius: 1, y: 1)
+                Text(item.title)
+                    .font(.system(size: 13))
+                    .foregroundStyle(selected ? Color.white : DS.text)
+                Spacer(minLength: 0)
             }
-
-            Section("Speech model") {
-                LabeledContent(model.speech.modelName) {
-                    Text("\(model.speech.downloadMegabytes) MB · runs locally").foregroundStyle(.secondary)
-                }
-                if let url = model.speech.infoURL {
-                    Link("Model details", destination: url)
-                }
-                Text(model.speech.detail).font(.callout).foregroundStyle(.secondary)
-                if let error = model.speech.error {
-                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
-                }
-                if model.speech.installing {
-                    ProgressView(value: model.speech.progress, total: 100)
-                }
-                HStack {
-                    Button(buttonTitle) { Task { await model.installModel() } }
-                        .disabled(model.speech.installing)
-                    Button("Check Again") { Task { await model.refreshEnvironment() } }
-                }
-                LabeledContent("Engine", value: model.speech.engine)
-                if !model.speech.runtimeReady {
-                    Text(SpeechWorkerLocator.repairMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            .padding(.horizontal, 7)
+            .frame(height: 34)
+            .background(selected ? DS.selection : .clear, in: .rect(cornerRadius: 10, style: .continuous))
+            .hoverFill(.rect(cornerRadius: 10, style: .continuous), color: DS.settingsHover)
         }
-        .formStyle(.grouped)
-        .onAppear {
-            splitThresholdText = String(model.settings.splitThresholdMinutes)
-            mode = model.settings.transcription.mode
-            language = model.settings.transcription.language
-            speakerCount = model.settings.transcription.speakerCount
-            hotWordsText = model.settings.transcription.hotWords.joined(separator: "\n")
-            trimRecording = model.settings.cleanup.trimRecording
-            suppressNonSpeech = model.settings.cleanup.suppressNonSpeech
-            sensitivity = model.settings.cleanup.sensitivity
-        }
-        .onChange(of: splitThresholdText) {
-            guard let value = splitThresholdValue else { return }
-            Task {
-                var updated = model.settings
-                updated.splitThresholdMinutes = value
-                await model.saveSettings(updated)
-            }
-        }
-        .onChange(of: mode) { save() }
-        .onChange(of: language) { save() }
-        .onChange(of: speakerCount) { save() }
-        .onChange(of: trimRecording) { save() }
-        .onChange(of: suppressNonSpeech) { save() }
-        .onChange(of: sensitivity) { save() }
-    }
-
-    private var splitThresholdValue: Int? {
-        let text = splitThresholdText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, text.allSatisfy({ $0.isASCII && $0.isNumber }),
-              let value = Int(text), value > 0 else { return nil }
-        return value
-    }
-
-    private var normalizedHotWords: [String] {
-        TranscriptionSettings.normalizeHotWords(hotWordsText.components(separatedBy: .newlines))
-    }
-
-    private var buttonTitle: String {
-        if model.speech.installing { return "Downloading…" }
-        return model.speech.modelInstalled ? "Check / Repair" : "Download Model"
-    }
-
-    private func save() {
-        var updated = model.settings
-        guard updated.transcription.mode != mode || updated.transcription.language != language
-            || updated.transcription.speakerCount != speakerCount
-            || updated.cleanup.trimRecording != trimRecording
-            || updated.cleanup.suppressNonSpeech != suppressNonSpeech
-            || updated.cleanup.sensitivity != sensitivity
-        else { return }
-        updated.transcription.mode = mode
-        updated.transcription.language = language
-        updated.transcription.speakerCount = speakerCount
-        updated.cleanup.trimRecording = trimRecording
-        updated.cleanup.suppressNonSpeech = suppressNonSpeech
-        updated.cleanup.sensitivity = sensitivity
-        Task { await model.saveSettings(updated) }
-    }
-}
-
-/// Opt-in reminders to record when a meeting app or browser starts using the microphone.
-struct MeetingReminderSettingsSection: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        Section("Meeting reminders") {
-            Toggle("Offer to record when a meeting starts", isOn: Binding(
-                get: { model.settings.meetingReminders.enabled },
-                set: { value in
-                    guard value != model.settings.meetingReminders.enabled else { return }
-                    var updated = model.settings
-                    updated.meetingReminders.enabled = value
-                    Task { await model.saveSettings(updated) }
-                }
-            ))
-            Text("Off by default. When on, Stillnote notices when Teams, Zoom, Webex, Slack, FaceTime, Discord, or a web browser starts using the microphone and offers to start recording. It sees only which app is using the microphone, never its audio, and nothing leaves your Mac.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-}
-
-struct SummarySettingsView: View {
-    @Environment(AppModel.self) private var model
-    @State private var provider = SummaryProvider.codex
-    @State private var summaryModel = ""
-    @State private var effort = ReasoningEffort.high
-    @State private var agentPrompt = Summarizer.defaultAgentPrompt
-    @State private var concurrency = AgentJobLimiter.defaultLimit
-
-    private var availability: AgentAvailability? {
-        model.agents.first { $0.provider == provider }
-    }
-
-    var body: some View {
-        Form {
-            Section("Agent") {
-                Picker("Provider", selection: Binding(
-                    get: { provider },
-                    set: { newValue in
-                        guard newValue != provider else { return }
-                        provider = newValue
-                        summaryModel = newValue.defaultModel
-                        effort = effort.supported(by: newValue)
-                        save()
-                    }
-                )) {
-                    ForEach(SummaryProvider.allCases, id: \.self) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.radioGroup)
-                TextField("Model", text: $summaryModel, prompt: Text(provider.defaultModel))
-                Picker("Thinking effort", selection: $effort) {
-                    ForEach(provider.reasoningEfforts, id: \.self) { Text($0.label).tag($0) }
-                }
-                Stepper(value: $concurrency, in: AgentJobLimiter.limits) {
-                    LabeledContent("Jobs at once", value: "\(concurrency)")
-                }
-                Text("How many summaries and Name Meeting requests run at the same time. They don't wait for transcription.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-
-            Section("Agent prompt") {
-                TextEditor(text: $agentPrompt)
-                    .font(.body.monospaced())
-                    .frame(height: 180)
-                    .accessibilityLabel("Agent prompt")
-                Text("Keep the required JSON fields: overview, key_points, decisions, and action_items. A blank prompt uses the default.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Button("Reset to Default") { agentPrompt = Summarizer.defaultAgentPrompt }
-                    .disabled(agentPrompt == Summarizer.defaultAgentPrompt)
-            }
-
-            Section("Status") {
-                if availability?.installed == true {
-                    Label("\(provider.label) installed", systemImage: "checkmark.circle")
-                        .foregroundStyle(.green)
-                    Text("Uses your CLI sign-in. Stillnote stores no API key.")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Label("Set up \(provider.label)", systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.orange)
-                    Text("Install the \(provider.command) CLI, sign in, then check again.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Button("Check Again") { Task { await model.refreshEnvironment() } }
-            }
-
-            TagSettingsSection()
-
-            Section {
-                Text("Summaries and Name Meeting send meeting text to the provider and model chosen here, without asking again.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .onAppear {
-            provider = model.settings.summary.provider
-            summaryModel = model.settings.summary.model
-            effort = model.settings.summary.resolvedReasoningEffort
-            agentPrompt = model.settings.summary.agentPrompt
-            concurrency = model.settings.summary.concurrency
-        }
-        .onChange(of: summaryModel) { save() }
-        .onChange(of: effort) { save() }
-        .onChange(of: agentPrompt) { save() }
-        .onChange(of: concurrency) { save() }
-    }
-
-    private func save() {
-        var updated = model.settings
-        let resolved = summaryModel.trimmingCharacters(in: .whitespaces).isEmpty
-            ? provider.defaultModel : summaryModel
-        guard updated.summary.provider != provider || updated.summary.model != resolved
-            || updated.summary.reasoningEffort != effort || updated.summary.agentPrompt != agentPrompt
-            || updated.summary.concurrency != concurrency
-        else { return }
-        updated.summary = SummarySettings(
-            provider: provider, model: resolved, reasoningEffort: effort, agentPrompt: agentPrompt,
-            concurrency: concurrency
-        )
-        Task { await model.saveSettings(updated) }
-    }
-}
-
-/// Suggested meeting tags, through OpenAI's Decisions API. The key goes to the Keychain, never
-/// to the settings record.
-struct TagSettingsSection: View {
-    @Environment(AppModel.self) private var model
-    @State private var key = ""
-    @State private var tagModel = TaggingSettings.defaultModel
-    @State private var afterSummary = false
-
-    var body: some View {
-        Section("Meeting tags") {
-            if let source = model.openAIKeySource {
-                Label(source.label, systemImage: "checkmark.circle").foregroundStyle(.green)
-            } else {
-                Label("No OpenAI API key", systemImage: "exclamationmark.circle").foregroundStyle(.orange)
-            }
-            HStack {
-                SecureField("OpenAI API key", text: $key, prompt: Text("sk-…"))
-                    .textContentType(.password)
-                Button("Save") {
-                    let entered = key
-                    key = ""
-                    Task { await model.saveOpenAIKey(entered) }
-                }
-                .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
-                if model.openAIKeySource == .keychain {
-                    Button("Remove") { Task { await model.removeOpenAIKey() } }
-                }
-            }
-            Text("Saved in your Keychain. Without one, Stillnote uses \(OpenAICredentials.variable) from your shell.")
-                .font(.caption).foregroundStyle(.secondary)
-            TextField("Model", text: $tagModel, prompt: Text(TaggingSettings.defaultModel))
-            Text("Tag decisions use gpt-6-luna.").font(.caption).foregroundStyle(.secondary)
-            Toggle("Suggest tags after each summary", isOn: $afterSummary)
-            Text("Suggest Tags and Auto-Tag Meetings send the meeting's title and summary, or the opening of its "
-                + "transcript, with your tag names to OpenAI. Stillnote only adds tags you created; it never removes one.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .onAppear {
-            tagModel = model.settings.tagging.model
-            afterSummary = model.settings.tagging.autoTagAfterSummary
-            Task { await model.refreshOpenAIKey() }
-        }
-        .onChange(of: tagModel) { save() }
-        .onChange(of: afterSummary) { save() }
-    }
-
-    private func save() {
-        var updated = model.settings
-        let resolved = tagModel.trimmingCharacters(in: .whitespaces).isEmpty ? TaggingSettings.defaultModel : tagModel
-        let tagging = TaggingSettings(autoTagAfterSummary: afterSummary, model: resolved)
-        guard updated.tagging != tagging else { return }
-        updated.tagging = tagging
-        Task { await model.saveSettings(updated) }
-    }
-}
-
-/// The command interface: a local socket the bundled `stillnote` CLI talks to.
-struct AdvancedSettingsView: View {
-    @Environment(AppModel.self) private var model
-    @State private var enabled = true
-
-    var body: some View {
-        Form {
-            Section("Command line") {
-                Toggle("Allow the stillnote command to control this app", isOn: $enabled)
-                Text("Stillnote listens on a socket inside your library folder so the bundled stillnote command, and any agent you point at it, can read and correct meetings and start or stop a recording. It is a file only your macOS account can open; nothing is sent anywhere and no network port is used.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Text("Turn this off to refuse every command, including starting a recording. Summaries still need --allow-remote on each command.")
-                    .font(.caption).foregroundStyle(.secondary)
-                LabeledContent("Socket", value: model.paths.commandSocketURL.path)
-                    .font(.caption)
-                    .textSelection(.enabled)
-            }
-        }
-        .formStyle(.grouped)
-        .onAppear { enabled = model.settings.cli.enabled }
-        .onChange(of: enabled) { _, value in
-            guard value != model.settings.cli.enabled else { return }
-            var updated = model.settings
-            updated.cli.enabled = value
-            Task { await model.saveSettings(updated) }
-        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

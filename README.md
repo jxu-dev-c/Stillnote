@@ -31,7 +31,7 @@ Transcription and speaker detection are powered by [OpenMOSS's MOSS-Transcribe-D
   accurate it is, then **Auto-Tag Speakers** links the speakers of new meetings whose voices
   match a profile confidently, per meeting, for the whole library, or after every transcription
   if you turn that on. Voices never leave your Mac.
-- **Meeting reminders (opt-in).** When Teams, Zoom, Google Meet, or another meeting app starts using the microphone, Stillnote can offer to start recording. Turn it on in **Settings → Transcription**.
+- **Meeting reminders (opt-in).** When Teams, Zoom, Google Meet, or another meeting app starts using the microphone, Stillnote can offer to start recording. Turn it on in **Settings → Record**.
 
 ## Installation
 
@@ -165,7 +165,7 @@ stillnote help
 Reading works whether or not the app is open. Changing data and recording need Stillnote running:
 it is the only writer, so a correction made here shows up in the open window, and capture
 permissions belong to the app rather than to your terminal. Add `--json` to any command for
-structured output. Turn the whole interface off in **Settings → Advanced**.
+structured output. Turn the whole interface off in **Settings → Command line**.
 
 Generating a summary sends the transcript to your configured agent CLI. The window uses the
 provider chosen in Settings without asking again, but a command may come from an agent, so it
@@ -196,7 +196,7 @@ instead of private meeting content.
 
 ### Transcription modes
 
-Choose a mode in **Settings → Transcription → Mode**. **Quality** is the default and
+Choose a mode in **Settings → Transcribe → Mode**. **Quality** is the default and
 preserves the model's original context precision. **Balanced** compresses context
 memory moderately. **Low Memory** compresses it further; recognition and speaker
 labels can differ. Every mode uses the same installed model and keeps the whole
@@ -210,20 +210,19 @@ transcription. See [performance verification](docs/TRANSCRIPTION-PERFORMANCE.md)
 
 ### Transcription hot words
 
-In **Settings → Transcription → Hot words**, enter one word or phrase per line,
-then select **Save Hot Words**. Names, acronyms, and specialized terms guide MOSS
-recognition; they are hints, not guaranteed replacements. One list is saved locally
-for your macOS user and applies to all transcriptions and retranscriptions queued
-after saving. Existing transcripts are unchanged. To disable hints, clear the list
-and save. Blank lines and duplicate entries are removed.
+In **Settings → Transcribe → Hot words**, type a word or phrase and press Return to
+add it. Names, acronyms, and specialized terms guide MOSS recognition; they are hints,
+not guaranteed replacements. One list is saved locally for your macOS user as you edit
+it, and applies to all transcriptions and retranscriptions queued afterwards. Existing
+transcripts are unchanged. To disable hints, clear the list. Duplicate entries are removed.
 
 Hot words are supported by the bundled native speech engine.
 
 ### Split a long recording
 
 Saved audio-only meetings of 50 minutes or longer show **Split Recording** in the
-meeting header. Change the threshold (any positive whole number of minutes) in **Settings → Transcription →
-Long recordings**. Screen recordings cannot be split. **Stop, Transcribe & Summarize** splits
+meeting header. Change the threshold (in steps of 5 minutes) in **Settings → Record →
+After recording**. Screen recordings cannot be split. **Stop, Transcribe & Summarize** splits
 a recording at or above the threshold right away, without the confirmation sheet, then
 transcribes, summarizes, and names each part; named parts keep their `partN` suffix.
 

@@ -20,7 +20,7 @@ final class AppModel {
     private(set) var speakerProfiles: [SpeakerProfile] = []
     /// Sidebar tags in manual order. The workflow lives in AppModel+Tags.swift.
     var tags: [MeetingTag] = []
-    var settingsTab = "transcription"
+    var settingsPage = SettingsPage.record
     var requestedSpeakerProfileID: String?
     var settings = AppSettings()
     private(set) var speech = SpeechStatus.unknown
@@ -826,15 +826,31 @@ final class AppModel {
 
     // MARK: - Settings and models
 
-    func saveSettings(_ updated: AppSettings) async {
+    @discardableResult
+    func saveSettings(_ updated: AppSettings) async -> Bool {
         do {
             settings = try await store.saveSettings(updated)
             await agentJobs.setLimit(settings.summary.concurrency)
             syncCommandServer()
             meetingReminder.sync(model: self)
             await refreshEnvironment()
+            return true
         } catch {
             report(error)
+            return false
+        }
+    }
+
+    /// Shows a settings change at once, then saves it. A failed save puts the earlier value back.
+    func changeSettings(_ change: (inout AppSettings) -> Void) {
+        let previous = settings
+        var updated = settings
+        change(&updated)
+        guard updated != previous else { return }
+        settings = updated
+        Task {
+            let saved = await saveSettings(updated)
+            if !saved, settings == updated { settings = previous }
         }
     }
 
@@ -898,7 +914,7 @@ final class AppModel {
         await workspace?.recorder.shutdown()
     }
 
-    /// Settings → Advanced can switch the command interface on and off without a relaunch.
+    /// Settings → Command line can switch the command interface on and off without a relaunch.
     private func syncCommandServer() {
         guard isReady else { return }
         if settings.cli.enabled {

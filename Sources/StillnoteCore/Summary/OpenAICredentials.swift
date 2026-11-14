@@ -39,7 +39,7 @@ public enum OpenAICredentials {
     /// The key, or a message saying how to provide one.
     public static func require() throws -> String {
         guard let key = resolve()?.key else {
-            throw SummaryError("Add an OpenAI API key in Settings → Summaries, or export \(variable) in your shell.")
+            throw SummaryError("Add an OpenAI API key in Settings → Summarize, or export \(variable) in your shell.")
         }
         return key
     }

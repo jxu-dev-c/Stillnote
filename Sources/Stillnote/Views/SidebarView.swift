@@ -405,7 +405,7 @@ struct SidebarView: View {
 
     private var autoTagState: AutoTagMenuState {
         if model.tags.isEmpty { return AutoTagMenuState(reason: "Create a tag first") }
-        if model.openAIKeySource == nil { return AutoTagMenuState(reason: "Add an OpenAI API key in Settings → Summaries") }
+        if model.openAIKeySource == nil { return AutoTagMenuState(reason: "Add an OpenAI API key in Settings → Summarize") }
         if !model.taggingMeetings.isEmpty { return AutoTagMenuState(reason: "Suggesting tags…") }
         if model.untaggedMeetingIDs.isEmpty { return AutoTagMenuState(reason: "Every transcribed meeting has a tag") }
         return AutoTagMenuState(reason: nil)

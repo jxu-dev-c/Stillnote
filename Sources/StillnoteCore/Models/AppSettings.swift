@@ -278,7 +278,7 @@ public struct TaggingSettings: Codable, Hashable, Sendable {
     public func resolvedModel() throws -> String {
         let model = model.trimmingCharacters(in: .whitespaces)
         guard model.isEmpty || model == Self.defaultModel else {
-            throw SummaryError("The Decisions API requires the model name gpt-6-luna in Settings → Summaries.")
+            throw SummaryError("The Decisions API requires the model name gpt-6-luna in Settings → Summarize.")
         }
         return Self.defaultModel
     }

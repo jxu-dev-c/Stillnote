@@ -599,9 +599,11 @@ private struct VoicePortraits: View {
 }
 
 /// Lays its children out left to right, wrapping onto a new row when the next one won't fit.
-private struct FlowLayout: Layout {
+/// With `fillsLastLine`, the last child (an input field) stretches across the rest of its row.
+struct FlowLayout: Layout {
     var spacing: CGFloat
     var lineSpacing: CGFloat
+    var fillsLastLine = false
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let frames = frames(for: subviews, width: proposal.width ?? .infinity)
@@ -620,12 +622,15 @@ private struct FlowLayout: Layout {
     private func frames(for subviews: Subviews, width: CGFloat) -> [CGRect] {
         var frames: [CGRect] = []
         var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+        for (index, subview) in subviews.enumerated() {
+            var size = subview.sizeThatFits(.unspecified)
             if x > 0, x + size.width > width {
                 x = 0
                 y += rowHeight + lineSpacing
                 rowHeight = 0
+            }
+            if fillsLastLine, index == subviews.count - 1, width.isFinite {
+                size.width = max(size.width, width - x)
             }
             frames.append(CGRect(origin: CGPoint(x: x, y: y), size: size))
             x += size.width + spacing

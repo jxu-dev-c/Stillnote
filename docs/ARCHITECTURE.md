@@ -123,7 +123,7 @@ default), a saved summary starts it the way it starts naming, so Stop, Transcrib
 `process` tag new meetings too; turning it on is the consent. The model defaults to
 `gpt-6-luna`, the supported Decisions model; the previous `gpt-5.4-mini` default migrates
 automatically. Other unsupported model settings produce an actionable error. `OpenAICredentials` finds the key in the login Keychain (saved from
-Settings → Summaries), then `OPENAI_API_KEY` in the app's environment, then in the login shell,
+Settings → Summarize), then `OPENAI_API_KEY` in the app's environment, then in the login shell,
 read the way `AgentEnvironment` reads it for the agent CLIs. The key is never written to the
 settings record.
 
@@ -136,7 +136,7 @@ serializes local heavy work — transcription, voice recognition, and model down
 never competes for memory or the GPU; a job cancelled while still queued observes cancellation
 and returns. Agent jobs (summaries and Name Meeting) only wait on the provider's CLI, so they
 run on `AgentJobLimiter` instead: up to `summary.concurrency` at once (default 3, 1–8, set under
-Settings → Summary), in arrival order, and never behind a transcription. A meeting still shows
+Settings → Summarize), in arrival order, and never behind a transcription. A meeting still shows
 `summarizing` while its summary waits for a slot. Jobs left running when the app quits are
 marked retryable on the next launch.
 
@@ -288,7 +288,7 @@ invariant — so a CLI launched from a terminal inherits the terminal's permissi
 dispatches through `AppModel`, so a correction typed in a terminal appears in the open window.
 Requests are one newline-delimited JSON object each way. A socket is a filesystem object, not a
 network port: the directory is already `0700` and the socket is `0600`, so only this macOS user can
-reach it. `AppSettings.cli.enabled` (Settings → Advanced) refuses every command when off, because
+reach it. `AppSettings.cli.enabled` (Settings → Command line) refuses every command when off, because
 the surface can switch on a microphone. Binding is exclusive, so a second instance finds the
 library already served and leaves it alone; a socket file left by a crash or a quit is reclaimed
 only after a connection proves nothing is listening.
@@ -420,7 +420,7 @@ Meeting `speakers` values remain name snapshots used by transcripts, summaries, 
 
 The `stillnote speaker` commands cover the same ground from a terminal: `list`, `show`, and `voices` read the library directly (so they work with the app closed), while `add`, `update`, `delete`, `assign`, `learn`, and `autotag` go through `AppModel` like every other change. `speaker add` refuses a duplicate name so a name stays a usable `<profile>` reference.
 
-The transcript’s speaker sheet provides a profile dropdown and assignment/unlink actions. Edit Profile opens Settings → Speakers with the selected profile. Settings uses a macOS list with plus/minus controls and inline detail fields; there is no separate profile-editing sheet. A transactional, one-time migration converts existing custom speaker names into distinct profiles without merging matching names or changing meeting snapshots or summaries. Generic diarization labels are excluded. Contact fields are trimmed; nonempty emails receive basic format validation, while phone formatting is preserved. Failed saves remain visible in the editor.
+The transcript’s speaker sheet provides a profile dropdown and assignment/unlink actions. Manage Profiles opens Settings → People with the selected profile. People shows a searchable list with an add button beside the selected person's fields, with Remove Person, Revert, and Save; there is no separate profile-editing sheet. A transactional, one-time migration converts existing custom speaker names into distinct profiles without merging matching names or changing meeting snapshots or summaries. Generic diarization labels are excluded. Contact fields are trimmed; nonempty emails receive basic format validation, while phone formatting is preserved. Failed saves remain visible in the editor.
 
 ### Voice recognition
 

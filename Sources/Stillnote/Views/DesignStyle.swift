@@ -223,6 +223,7 @@ enum DesignIcon {
     case nameMeeting, autoTag, transcribeAgain, regenerate, trash, transcript, sparkle
     case search, sliders, star, play, pause, back15, forward15, chevronDown, check, close, plus
     case waveform, copy, checkCircle, circle, link, back, previous, next, export, more
+    case microphone, voice, people, terminal, lock, arrowOut, minus
 
     fileprivate enum Part {
         case path(String)
@@ -295,6 +296,21 @@ enum DesignIcon {
             [.path("M12 14.5V4M8 7.5l4-3.5 4 3.5"), .path("M8 10.5H7a2.5 2.5 0 0 0-2.5 2.5v4.5A2.5 2.5 0 0 0 7 20h10a2.5 2.5 0 0 0 2.5-2.5V13a2.5 2.5 0 0 0-2.5-2.5h-1")]
         case .more:
             [.circle(5.5, 12, 1.7), .circle(12, 12, 1.7), .circle(18.5, 12, 1.7)]
+        case .microphone:
+            [.rect(9, 3, 6, 11, 3), .path("M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21")]
+        case .voice:
+            [.circle(10, 8.5, 3.3), .path("M4 19.5c.6-3.3 3-5.2 6-5.2"), .path("M15 13.5v5M18 11.5v9M21 14.5v3")]
+        case .people:
+            [.circle(9, 8.5, 3.2), .path("M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"),
+             .circle(16.5, 9, 2.6), .path("M16 14.1c2.4.1 4 1.7 4.5 4.4")]
+        case .terminal:
+            [.rect(3.5, 5, 17, 14, 3), .path("M7.5 10l2.5 2-2.5 2M12 15h4")]
+        case .lock:
+            [.rect(5, 10.5, 14, 9.5, 2.5), .path("M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5")]
+        case .arrowOut:
+            [.path("M7 17L17 7M9 7h8v8")]
+        case .minus:
+            [.path("M5 12h14")]
         }
     }
 
