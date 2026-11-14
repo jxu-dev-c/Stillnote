@@ -50,8 +50,9 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var model
 
     static let width: CGFloat = 980
-    /// The window's height below its title bar inset; the rail and title draw up into that inset.
-    static let height: CGFloat = 608
+    /// The height below the unified toolbar's inset, making the window 640 points tall in all.
+    /// The rail and title draw up into that inset.
+    static let height: CGFloat = 574
 
     var body: some View {
         @Bindable var model = model
@@ -77,6 +78,7 @@ struct SettingsView: View {
         .foregroundStyle(DS.text)
         .ignoresSafeArea(.container, edges: .top)
         .background { WindowBackdrop().ignoresSafeArea() }
+        .background { SettingsWindowChrome() }
         .navigationTitle(model.settingsPage.title)
         .toolbar(removing: .title)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
@@ -108,6 +110,25 @@ struct SettingsView: View {
                 .padding(.bottom, 28)
             }
             .id(model.settingsPage)
+        }
+    }
+}
+
+/// Gives the Settings window an empty unified toolbar. Without one the window controls sit 8 points
+/// from the corner, on the rail's rounded edge; the toolbar's taller title bar insets them 18 points,
+/// inside the rail, matching the main window, whose SwiftUI toolbar does the same.
+private struct SettingsWindowChrome: NSViewRepresentable {
+    func makeNSView(context: Context) -> WindowView { WindowView() }
+    func updateNSView(_ view: WindowView, context: Context) {}
+
+    final class WindowView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window, window.toolbar == nil else { return }
+            let toolbar = NSToolbar(identifier: "settings")
+            toolbar.showsBaselineSeparator = false
+            window.toolbar = toolbar
+            window.toolbarStyle = .unified
         }
     }
 }
