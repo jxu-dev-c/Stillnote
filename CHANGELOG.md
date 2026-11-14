@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.15.0
+
+- Redesign Settings as a rail of pipeline pages: **Record**, **Transcribe**, **Speakers**,
+  **Summarize**, **People**, and **Command line**, each with rounded cards in light and dark.
+  Hot words are chips that save as they change; speaker profiles move to **People**; and
+  Record shows what trim and split would do to an example recording. Settings changes apply at
+  once, and a change that fails to save is undone. The window controls sit inside the rail.
+- Start new recordings without system audio. **Include system audio** in the New Recording sheet
+  now starts off, and the menu bar's quick recording captures only the microphone.
+- Scroll the meeting list to a meeting opened elsewhere, such as from the calendar, so it is no
+  longer off screen or under the **New Meeting** button.
+- Fix a meeting that moved to another date section, which could stay unhighlighted or keep its old
+  date label after it was selected.
+
 ## 0.14.1
 
 - Use OpenAI's Decisions API with `gpt-6-luna` for tag suggestions. Evaluate each existing tag
