@@ -59,7 +59,12 @@ public enum OpenAICredentials {
          kSecAttrAccount as String: account]
     }
 
+    /// Set by check harnesses that run freshly built, unsigned binaries. macOS ties Keychain access
+    /// to the binary's code signature, so each rebuild would otherwise ask for the login password.
+    static let disableKeychainVariable = "STILLNOTE_DISABLE_KEYCHAIN"
+
     public static func keychainKey() -> String? {
+        guard ProcessInfo.processInfo.environment[disableKeychainVariable] == nil else { return nil }
         var request = query
         request[kSecReturnData as String] = true
         request[kSecMatchLimit as String] = kSecMatchLimitOne
