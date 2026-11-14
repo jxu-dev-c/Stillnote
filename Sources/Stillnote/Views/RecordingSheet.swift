@@ -8,7 +8,7 @@ struct RecordingSheet: View {
 
     @State private var microphoneID = ""
     @State private var displayID: UInt32?
-    @State private var systemAudio = true
+    @State private var systemAudio = false
     @State private var screenVideo = false
     @State private var language = "auto"
     @State private var speakerCount: Int?

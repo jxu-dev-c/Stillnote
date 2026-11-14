@@ -42,6 +42,8 @@ enum RootSheet: String, Identifiable { case record, importAudio; var id: String 
         defer { try? FileManager.default.removeItem(at: root) }
         setenv("STILLNOTE_DATA_DIR", root.path, 1)
         setenv("STILLNOTE_MODEL_DIR", root.appendingPathComponent("models").path, 1)
+        // Keep this unsigned, rebuilt-every-run binary away from the login Keychain.
+        setenv("STILLNOTE_DISABLE_KEYCHAIN", "1", 1)
         let paths = Paths(dataDirectory: root, modelDirectory: root.appendingPathComponent("models"))
         let store = try Store(paths: paths)
         for id in ["a", "b"] {
