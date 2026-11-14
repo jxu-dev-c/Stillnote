@@ -2,6 +2,18 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
+## What's new in 0.15.0
+
+- Settings is redesigned as a rail of pages that follow a meeting through Stillnote: **Record**,
+  **Transcribe**, **Speakers**, **Summarize**, **People**, and **Command line**. Speaker profiles
+  now live in **People**, hot words appear as chips that save as you type, and changes take effect
+  at once.
+- New recordings no longer include system audio by default. Turn on **Include system audio** in
+  the New Recording sheet when you need it; the menu bar's quick recording captures only the
+  microphone.
+- Opening a meeting from the calendar scrolls the meeting list to it.
+- A meeting that moved to another date section now highlights correctly when selected.
+
 ## What's new in 0.14.1
 
 - Tag suggestions now use OpenAI's Decisions API with `gpt-6-luna`. Each existing tag is checked
