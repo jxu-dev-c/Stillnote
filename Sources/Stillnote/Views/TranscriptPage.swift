@@ -79,7 +79,10 @@ struct TranscriptPage: View {
             StatusPage(
                 label: "Not transcribed", dot: DS.text3, big: nil,
                 message: model.speech.detail,
-                action: StatusAction("Set Up Transcription") { openSettings() }
+                action: StatusAction("Set Up Transcription") {
+                    model.settingsPage = .transcribe
+                    openSettings()
+                }
             )
         }
     }

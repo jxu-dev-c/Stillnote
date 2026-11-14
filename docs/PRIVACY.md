@@ -8,7 +8,7 @@ and associated media, but does not erase backups or guarantee forensic erasure.
 Network activity includes dependency installation, public Hugging Face model downloads,
 page-title and favicon requests for context links, optional summary CLI requests, and optional OpenAI requests for suggested tags.
 Summaries send transcript text and speaker labels to the provider chosen in
-**Settings → Summaries**; recordings with screen video always include the local video path
+**Settings → Summarize**; recordings with screen video always include the local video path
 as text. The agent can access that path according to its own configuration and permissions. **Name Meeting** sends the
 meeting's summary, or the opening of its transcript and speaker labels when there is no summary.
 Choosing a provider in Settings is the consent: the window does not ask again for each request. Provider retention and
@@ -19,11 +19,11 @@ account policies apply. No cloud transcription fallback is used.
 **Suggest Tags**, **Auto-Tag Meetings…**, and `stillnote tag auto` send a meeting's title, its
 summary (overview, key points, and decisions) or the opening of its transcript with speaker labels,
 and the names of your tags to OpenAI's Decisions API. Nothing is sent until you
-choose one of those, or turn on **Suggest tags after each summary** in **Settings → Summaries**,
+choose one of those, or turn on **Suggest tags after each summary** in **Settings → Summarize**,
 which then tags each newly summarized meeting without asking again. The `stillnote` command needs
 `--allow-remote` on every `tag auto`. OpenAI's API data policies apply.
 
-The OpenAI API key saved in **Settings → Summaries** is stored in the macOS login Keychain, not in
+The OpenAI API key saved in **Settings → Summarize** is stored in the macOS login Keychain, not in
 Stillnote's database. Without one, Stillnote reads `OPENAI_API_KEY` from its environment or your
 login shell. **Remove** deletes the saved key.
 
@@ -39,7 +39,7 @@ links made by voice are ordinary speaker tags and stay until changed.
 
 ## Meeting reminders
 
-Meeting reminders are off until turned on in **Settings → Transcription**. While they are on,
+Meeting reminders are off until turned on in **Settings → Record**. While they are on,
 Stillnote asks Core Audio which processes are capturing from an input device. It reads only their
 bundle identifiers and never their audio, needs no macOS permission, and saves nothing about what
 it sees. Turning reminders off stops the observation entirely.
@@ -54,7 +54,7 @@ listening once the app quits. Nothing sent over it leaves the machine.
 Anything running as this user — including an AI agent you point at the command — can therefore
 read every meeting, correct transcripts and summaries, and start, stop, or discard a recording,
 which means it can switch on the microphone. Turn the whole interface off in
-**Settings → Advanced** to refuse every command. Generating a summary is excluded from that trust:
+**Settings → Command line** to refuse every command. Generating a summary is excluded from that trust:
 `stillnote summarize` requires an explicit `--allow-remote`, so an agent cannot send a transcript
 to a provider CLI without consent on that command.
 

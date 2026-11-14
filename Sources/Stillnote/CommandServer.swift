@@ -75,7 +75,7 @@ final class CommandServer {
         guard model.settings.cli.enabled else {
             return CLIResponse(
                 code: .unavailable,
-                message: "Stillnote's command interface is switched off in Settings → Advanced."
+                message: "Stillnote's command interface is switched off in Settings → Command line."
             )
         }
         guard model.isReady else {

@@ -120,6 +120,6 @@ both sides are literal: `$1` stays `$1` and `(a)` matches those three characters
 - `speaker add` refuses a name another profile already has, so names stay usable references.
 - `tag create` refuses a name another tag already has, for the same reason.
 - `tag auto --all` covers meetings that are transcribed or summarized, idle, and carry no tag. It
-  uses the OpenAI model set in **Settings → Summaries** and the key saved there or
+  uses the OpenAI model set in **Settings → Summarize** and the key saved there or
   `OPENAI_API_KEY` from the user's shell.
-- The user can switch the whole interface off in **Settings → Advanced**, which returns exit 3.
+- The user can switch the whole interface off in **Settings → Command line**, which returns exit 3.

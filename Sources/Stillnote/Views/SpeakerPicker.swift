@@ -108,7 +108,7 @@ private struct SpeakerPicker: View {
                 Spacer()
                 Button {
                     model.requestedSpeakerProfileID = currentProfile
-                    model.settingsTab = "speakers"
+                    model.settingsPage = .people
                     close()
                     openSettings()
                 } label: {

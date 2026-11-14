@@ -178,6 +178,7 @@ struct SetupNotice: View {
 
     var body: some View {
         Button {
+            model.settingsPage = .transcribe
             openSettings()
         } label: {
             HStack(alignment: .top, spacing: 10) {

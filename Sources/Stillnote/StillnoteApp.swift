@@ -58,11 +58,14 @@ struct StillnoteApp: App {
                 } else {
                     Text("Your library is still opening. Return to the main window for status.")
                         .padding()
+                        .frame(width: 420)
                 }
             }
                 .environment(model)
-                .frame(width: 640)
         }
+        // The settings rail draws under the window controls, as the main window's sidebar does.
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
     }
 }
 
