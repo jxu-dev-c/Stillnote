@@ -25,6 +25,8 @@ struct MeetingListPane: View {
     @State private var swipe = SwipeState()
     @State private var exporting: ExportDocument?
     @State private var exportName = ""
+    /// The row last picked in this list, which is already in view and must not jump.
+    @State private var pickedHere: String?
 
     static let width: CGFloat = 300
 
@@ -205,38 +207,77 @@ struct MeetingListPane: View {
     private var rows: some View {
         let groups = self.groups
         let todayFirst = groups.first?.group == .today
-        return ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                if showsRecording && !todayFirst {
-                    GroupLabel(label: "Today", first: true)
-                    RecordingListRow(selected: selection == RecordingSelection.id) { selection = RecordingSelection.id }
-                }
-                ForEach(Array(groups.enumerated()), id: \.element.group) { index, entry in
-                    GroupLabel(label: entry.group.label, first: index == 0 && !(showsRecording && !todayFirst))
-                    if showsRecording && entry.group == .today {
-                        RecordingListRow(selected: selection == RecordingSelection.id) { selection = RecordingSelection.id }
+        return ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if showsRecording && !todayFirst {
+                        GroupLabel(label: "Today", first: true)
+                        RecordingListRow(selected: selection == RecordingSelection.id) { pick(RecordingSelection.id) }
+                            .id(RecordingSelection.id)
                     }
-                    ForEach(Array(entry.rows.enumerated()), id: \.element.id) { rowIndex, meeting in
-                        SwipeableMeetingRow(
-                            meeting: meeting, group: entry.group,
-                            selected: selection == meeting.id, swipe: swipe,
-                            open: { open(meeting.id) }, settle: settle,
-                            star: { toggleStar(meeting) }, delete: { delete(meeting) }
-                        )
-                        .id(MeetingRowIdentity(group: entry.group, meetingID: meeting.id))
-                        .padding(.top, rowIndex == 0 && !(showsRecording && entry.group == .today) ? 0 : 2)
-                        .contextMenu { contextMenu(meeting) }
+                    ForEach(Array(groups.enumerated()), id: \.element.group) { index, entry in
+                        GroupLabel(label: entry.group.label, first: index == 0 && !(showsRecording && !todayFirst))
+                        if showsRecording && entry.group == .today {
+                            RecordingListRow(selected: selection == RecordingSelection.id) { pick(RecordingSelection.id) }
+                                .id(RecordingSelection.id)
+                        }
+                        ForEach(Array(entry.rows.enumerated()), id: \.element.id) { rowIndex, meeting in
+                            SwipeableMeetingRow(
+                                meeting: meeting, group: entry.group,
+                                selected: selection == meeting.id, swipe: swipe,
+                                open: { open(meeting.id) }, settle: settle,
+                                star: { toggleStar(meeting) }, delete: { delete(meeting) }
+                            )
+                            .id(MeetingRowIdentity(group: entry.group, meetingID: meeting.id))
+                            .padding(.top, rowIndex == 0 && !(showsRecording && entry.group == .today) ? 0 : 2)
+                            .contextMenu { contextMenu(meeting) }
+                        }
                     }
                 }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 90)
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 90)
+            .scrollIndicators(.never)
+            .mask {
+                LinearGradient(stops: [.init(color: .black, location: 0.82), .init(color: .clear, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+            }
+            // A meeting chosen elsewhere, such as the calendar, may sit off screen or under the
+            // New Meeting button, so bring it to the middle of the list.
+            .onAppear { reveal(selection, in: groups, proxy: proxy, animated: false) }
+            .onChange(of: selection) { _, id in
+                defer { pickedHere = nil }
+                guard id != pickedHere else { return }
+                reveal(id, in: groups, proxy: proxy, animated: true)
+            }
         }
-        .scrollIndicators(.never)
-        .mask {
-            LinearGradient(stops: [.init(color: .black, location: 0.82), .init(color: .clear, location: 1)],
-                           startPoint: .top, endPoint: .bottom)
+    }
+
+    private func reveal(_ id: String?, in groups: [(group: ListGroup, rows: [MeetingListItem])],
+                        proxy: ScrollViewProxy, animated: Bool) {
+        guard let id else { return }
+        let target: AnyHashable
+        if id == RecordingSelection.id {
+            guard showsRecording else { return }
+            target = id
+        } else if let group = groups.first(where: { $0.rows.contains { $0.id == id } })?.group {
+            target = MeetingRowIdentity(group: group, meetingID: id)
+        } else {
+            return
         }
+        // Wait a turn so the lazy stack has laid out its rows before scrolling.
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.smooth(duration: 0.3)) { proxy.scrollTo(target, anchor: .center) }
+            } else {
+                proxy.scrollTo(target, anchor: .center)
+            }
+        }
+    }
+
+    private func pick(_ id: String) {
+        pickedHere = id
+        selection = id
     }
 
     @ViewBuilder
@@ -271,7 +312,7 @@ struct MeetingListPane: View {
             settleClosed()
             return
         }
-        selection = id
+        pick(id)
     }
 
     private func settleClosed() {
