@@ -219,10 +219,11 @@ struct MeetingListPane: View {
                     ForEach(Array(entry.rows.enumerated()), id: \.element.id) { rowIndex, meeting in
                         SwipeableMeetingRow(
                             meeting: meeting, group: entry.group,
-                            selection: $selection, swipe: swipe,
+                            selected: selection == meeting.id, swipe: swipe,
                             open: { open(meeting.id) }, settle: settle,
                             star: { toggleStar(meeting) }, delete: { delete(meeting) }
                         )
+                        .id(MeetingRowIdentity(group: entry.group, meetingID: meeting.id))
                         .padding(.top, rowIndex == 0 && !(showsRecording && entry.group == .today) ? 0 : 2)
                         .contextMenu { contextMenu(meeting) }
                     }
@@ -517,18 +518,22 @@ final class SwipeState {
     }
 }
 
-struct SwipeableMeetingRow: View {
+// A row moving between date sections must not reuse a lazy child from its old section.
+private struct MeetingRowIdentity: Hashable {
+    let group: ListGroup
+    let meetingID: String
+}
+
+private struct SwipeableMeetingRow: View {
+    @Environment(AppModel.self) private var model
     let meeting: MeetingListItem
     let group: ListGroup
-    @Binding var selection: String?
+    let selected: Bool
     let swipe: SwipeState
     let open: () -> Void
     let settle: (String) -> Void
     let star: () -> Void
     let delete: () -> Void
-
-    // Read selection in the row itself so lazy ForEach reuse cannot retain a stale Boolean.
-    private var selected: Bool { selection == meeting.id }
 
     var body: some View {
         let dx = swipe.offset(for: meeting.id)

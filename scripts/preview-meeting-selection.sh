@@ -6,8 +6,18 @@ swift build "$@" --product Stillnote
 bin="$(swift build "$@" --show-bin-path)"
 app="build/meeting-selection/StillnoteSelectionPreview.app"
 mkdir -p "$app/Contents/MacOS"
+# Inject metadata into a test-only AppModel copy. Do not initialize the database,
+# recorder, provider discovery, or any other service just to exercise the list.
+fixture_model="build/meeting-selection/AppModel.swift"
+cp Sources/Stillnote/AppModel.swift "$fixture_model"
+cat >> "$fixture_model" <<'SWIFT'
+
+extension AppModel {
+    func seedSelectionPreview(_ items: [MeetingListItem]) { meetings = items }
+}
+SWIFT
 swiftc -g -parse-as-library -module-name StillnoteSelectionPreview -I "$bin/Modules" \
-  scripts/preview-meeting-selection.swift Sources/Stillnote/AppModel*.swift \
+  scripts/preview-meeting-selection.swift "$fixture_model" Sources/Stillnote/AppModel+*.swift \
   Sources/Stillnote/CommandServer.swift Sources/Stillnote/MeetingReminder.swift \
   Sources/Stillnote/Views/*.swift "$bin"/StillnoteCore.build/*.o \
   -Xlinker -framework -Xlinker AVKit -o "$app/Contents/MacOS/StillnoteSelectionPreview"
