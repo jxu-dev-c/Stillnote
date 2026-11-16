@@ -532,6 +532,13 @@ final class AppModel {
         return recentlyDeleted.contains { $0.id == meeting.id } ? meeting : nil
     }
 
+    /// Discards the recording `id` for good. A confirmation can outlive the recording it asked
+    /// about, so a recording that has since replaced it is left alone.
+    func discardRecording(_ id: String) async {
+        guard recorder.session?.id == id else { return }
+        await recorder.discard()
+    }
+
     func finishRecording() async -> Meeting? {
         do {
             let meeting = try await recorder.finish(

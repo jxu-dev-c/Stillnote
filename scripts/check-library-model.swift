@@ -113,7 +113,10 @@ enum RootSheet: String, Identifiable { case record, importAudio; var id: String 
         require(FileManager.default.fileExists(atPath: paths.audioURL("deleted").path))
         try writeSession("discarded", paths: paths)
         await model.recorder.recover()
-        await model.recorder.discard()
+        // A confirmation left open for an earlier recording must not discard this one.
+        await model.discardRecording("deleted")
+        require(model.recorder.session?.id == "discarded")
+        await model.discardRecording("discarded")
         require(model.recorder.session == nil && !model.canDeleteRecording)
         require(model.libraryItem("discarded") == nil)
         require(!model.recentlyDeleted.contains { $0.id == "discarded" })

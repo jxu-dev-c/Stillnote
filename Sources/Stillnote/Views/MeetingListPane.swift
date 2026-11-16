@@ -25,7 +25,7 @@ struct MeetingListPane: View {
     @State private var swipe = SwipeState()
     @State private var exporting: ExportDocument?
     @State private var exportName = ""
-    @State private var confirmingDiscard = false
+    @State private var confirmingDiscard: String?
     /// The row last picked in this list, which is already in view and must not jump.
     @State private var pickedHere: String?
 
@@ -265,7 +265,7 @@ struct MeetingListPane: View {
             Divider()
             Button("Delete", role: .destructive, action: deleteRecording)
                 .disabled(!model.canDeleteRecording)
-            Button("Discard Recording…", role: .destructive) { confirmingDiscard = true }
+            Button("Discard Recording…", role: .destructive) { confirmingDiscard = model.recorder.session?.id }
                 .disabled(!model.canDeleteRecording)
         }
     }

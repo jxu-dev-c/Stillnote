@@ -12,7 +12,7 @@ struct RecordingPage: View {
     @State private var query = ""
     @State private var levels = LevelHistory()
     @State private var finishing: FinishAction?
-    @State private var confirmingDiscard = false
+    @State private var confirmingDiscard: String?
 
     private enum FinishAction { case stop, summarize }
 
@@ -194,11 +194,11 @@ struct RecordingPage: View {
                     Divider()
                     Button("Delete Recording", role: .destructive) { feedback.deleteRecording(model: model) }
                         .disabled(locked)
-                    Button("Discard Recording…", role: .destructive) { confirmingDiscard = true }
+                    Button("Discard Recording…", role: .destructive) { confirmingDiscard = session.id }
                         .disabled(locked)
                 }
 
-                Button { confirmingDiscard = true } label: {
+                Button { confirmingDiscard = session.id } label: {
                     Icon(.close, size: 20)
                         .foregroundStyle(DS.text)
                         .frame(width: 44, height: 44)
@@ -248,13 +248,21 @@ struct RecordingPage: View {
 }
 
 extension View {
-    /// Confirms discarding the recording in progress, which cannot be undone.
-    func discardRecordingConfirmation(_ isPresented: Binding<Bool>, model: AppModel) -> some View {
-        confirmationDialog("Discard this recording?", isPresented: isPresented, titleVisibility: .visible) {
+    /// Confirms discarding the recording with the bound session id, which cannot be undone.
+    /// The question closes if that recording ends first, and never applies to its successor.
+    func discardRecordingConfirmation(_ session: Binding<String?>, model: AppModel) -> some View {
+        let isPresented = Binding(
+            get: { session.wrappedValue != nil && session.wrappedValue == model.recorder.session?.id },
+            set: { if !$0 { session.wrappedValue = nil } }
+        )
+        return confirmationDialog(
+            "Discard this recording?", isPresented: isPresented, titleVisibility: .visible,
+            presenting: session.wrappedValue
+        ) { id in
             Button("Discard Recording", role: .destructive) {
-                Task { await model.recorder.discard() }
+                Task { await model.discardRecording(id) }
             }
-        } message: {
+        } message: { _ in
             Text("Stops recording and permanently deletes the unsaved audio and video. To keep it in Recently Deleted instead, delete the recording.")
         }
     }
