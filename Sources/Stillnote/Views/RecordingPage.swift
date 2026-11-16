@@ -34,9 +34,13 @@ struct RecordingPage: View {
 
     private func content(_ session: RecordingSessionState) -> some View {
         VStack(spacing: 0) {
-            DetailToolbar(actions: Self.idleActions, actionsEnabled: false, deleteEnabled: false,
+            DetailToolbar(actions: Self.idleActions, actionsEnabled: false, deleteEnabled: !locked,
                           page: $page, query: $query, onSearch: { _ in }) {
-                ToolbarIconButton(icon: .trash, label: "Delete Meeting", help: "Available after the recording is saved", tint: DS.danger, enabled: false) {}
+                ToolbarIconButton(
+                    icon: .trash, label: "Delete Meeting",
+                    help: locked ? "Available when the recording is ready" : "Stops recording and moves it to Recently Deleted",
+                    tint: DS.danger, enabled: !locked
+                ) { feedback.deleteRecording(model: model) }
             }
             VStack(spacing: 0) {
                 header(session)
@@ -52,17 +56,11 @@ struct RecordingPage: View {
             levels.append(max(level?.rms ?? 0, model.recorder.systemLevel?.rms ?? 0),
                           paused: model.recorder.session?.status != .recording)
         }
-        .confirmationDialog("Discard this recording?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
-            Button("Discard Recording", role: .destructive) {
-                Task {
-                    await model.recorder.discard()
-                    selection = nil
-                }
-            }
-        } message: {
-            Text("Stops recording and deletes the unsaved audio and video.")
-        }
+        .discardRecordingConfirmation($confirmingDiscard, model: model)
     }
+
+    /// Stopping, deleting, and discarding wait while the recording starts, stops, or saves.
+    private var locked: Bool { finishing != nil || !model.canDeleteRecording }
 
     private func header(_ session: RecordingSessionState) -> some View {
         let started = session.startedAt.flatMap(Meeting.parseTimestamp) ?? .now
@@ -159,7 +157,6 @@ struct RecordingPage: View {
     }
 
     private func dock(_ session: RecordingSessionState) -> some View {
-        let locked = finishing != nil || model.recorder.isSaving || session.status == .starting || session.status == .stopping
         let paused = session.status == .paused
         return HStack(spacing: 22) {
             HStack(spacing: 4) {
@@ -195,9 +192,22 @@ struct RecordingPage: View {
                     Button("Stop Recording") { Task { await finish(.stop) } }
                         .disabled(locked)
                     Divider()
+                    Button("Delete Recording", role: .destructive) { feedback.deleteRecording(model: model) }
+                        .disabled(locked)
                     Button("Discard Recording…", role: .destructive) { confirmingDiscard = true }
                         .disabled(locked)
                 }
+
+                Button { confirmingDiscard = true } label: {
+                    Icon(.close, size: 20)
+                        .foregroundStyle(DS.text)
+                        .frame(width: 44, height: 44)
+                        .hoverFill(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(locked)
+                .help("Discard the recording without saving it")
+                .accessibilityLabel("Discard recording")
             }
             .padding(.horizontal, 6)
             .frame(height: 60)
@@ -233,6 +243,19 @@ struct RecordingPage: View {
             if selection == meeting.id, let first = processed.first, first.id != meeting.id {
                 selection = first.id
             }
+        }
+    }
+}
+
+extension View {
+    /// Confirms discarding the recording in progress, which cannot be undone.
+    func discardRecordingConfirmation(_ isPresented: Binding<Bool>, model: AppModel) -> some View {
+        confirmationDialog("Discard this recording?", isPresented: isPresented, titleVisibility: .visible) {
+            Button("Discard Recording", role: .destructive) {
+                Task { await model.recorder.discard() }
+            }
+        } message: {
+            Text("Stops recording and permanently deletes the unsaved audio and video. To keep it in Recently Deleted instead, delete the recording.")
         }
     }
 }

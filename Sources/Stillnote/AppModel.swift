@@ -515,6 +515,23 @@ final class AppModel {
         }
     }
 
+    /// Whether the recording in progress can be deleted or discarded now: not while it is
+    /// starting, stopping, or being saved.
+    var canDeleteRecording: Bool {
+        guard isRecording, !recorder.isSaving, let status = recorder.session?.status else { return false }
+        return status != .starting && status != .stopping
+    }
+
+    /// Deletes the recording in progress as a saved meeting is deleted: it is stopped and saved,
+    /// then moved to Recently Deleted, where it can be restored. Returns the deleted meeting, or
+    /// nil when it could not be saved or deleted; a failure is reported.
+    @discardableResult
+    func deleteRecording() async -> Meeting? {
+        guard canDeleteRecording, let meeting = await finishRecording() else { return nil }
+        await delete(meeting.id)
+        return recentlyDeleted.contains { $0.id == meeting.id } ? meeting : nil
+    }
+
     func finishRecording() async -> Meeting? {
         do {
             let meeting = try await recorder.finish(

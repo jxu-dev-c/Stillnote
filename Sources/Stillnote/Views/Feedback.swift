@@ -62,6 +62,21 @@ final class Feedback {
         }
     }
 
+    /// Deletes the recording in progress as a meeting is deleted. It is saved under its session's
+    /// id, which stays hidden so the meeting never appears in the list on its way out.
+    func deleteRecording(model: AppModel) {
+        guard model.canDeleteRecording, let id = model.recorder.session?.id,
+              pendingDeletes.insert(id).inserted else { return }
+        Task {
+            let meeting = await model.deleteRecording()
+            pendingDeletes.remove(id)
+            guard let meeting else { return }
+            show("Moved “\(meeting.title)” to Recently Deleted") {
+                Task { await model.restoreDeleted(id) }
+            }
+        }
+    }
+
 }
 
 /// The design's toast: a confirmation with an optional Undo, floating at the top of the content.

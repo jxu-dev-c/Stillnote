@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Delete or discard a recording in progress. The trash button, the list's **Delete**, and a swipe
+  left now work on the recording as on any meeting: it is stopped, saved, and moved to **Recently
+  Deleted** with an **Undo**. A new **Discard** button beside Stop, also in the recording's
+  context menu, asks first and then removes the audio and video for good.
+
 ## 0.15.0
 
 - Redesign Settings as a rail of pipeline pages: **Record**, **Transcribe**, **Speakers**,

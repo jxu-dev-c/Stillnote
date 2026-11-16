@@ -1,4 +1,5 @@
 // Exercises AppModel without opening an application window or using private meeting data.
+import AVFoundation
 import Foundation
 import SwiftUI
 import StillnoteCore
@@ -96,7 +97,52 @@ enum RootSheet: String, Identifiable { case record, importAudio; var id: String 
         require(model.selectedMeeting?.id == "a")
         await model.loadDetail("missing")
         require(model.detailError != nil && model.selectedMeeting == nil)
+        // A recording in progress is deleted as a meeting is: saved, then moved to Recently
+        // Deleted, from where it can be restored. Discarding leaves nothing behind.
+        require(!model.canDeleteRecording)
+        require(await model.deleteRecording() == nil)
+        try writeSession("deleted", paths: paths)
+        await model.recorder.recover()
+        require(model.canDeleteRecording)
+        let deleted = await model.deleteRecording()
+        require(deleted?.id == "deleted" && model.recorder.session == nil)
+        require(model.libraryItem("deleted") == nil)
+        require(model.recentlyDeleted.contains { $0.id == "deleted" })
+        await model.restoreDeleted("deleted")
+        require(model.libraryItem("deleted")?.duration == 1)
+        require(FileManager.default.fileExists(atPath: paths.audioURL("deleted").path))
+        try writeSession("discarded", paths: paths)
+        await model.recorder.recover()
+        await model.recorder.discard()
+        require(model.recorder.session == nil && !model.canDeleteRecording)
+        require(model.libraryItem("discarded") == nil)
+        require(!model.recentlyDeleted.contains { $0.id == "discarded" })
+        require(!FileManager.default.fileExists(
+            atPath: paths.recordingsDirectory.appendingPathComponent("discarded").path))
         await model.shutdown()
-        print("PASS: metadata-only load, on-demand detail, background search, CLI edits to unopened meetings, revisions, rapid selection, edit refresh, eviction, deletion and missing detail")
+        print("PASS: metadata-only load, on-demand detail, background search, CLI edits to unopened meetings, revisions, rapid selection, edit refresh, eviction, deletion, missing detail, and deleting or discarding a recording")
+    }
+
+    /// One second of synthetic microphone audio, as an interrupted capture leaves it.
+    static func writeSession(_ id: String, paths: Paths) throws {
+        let directory = paths.recordingsDirectory.appendingPathComponent(id)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // The session state has no public initializer; write the descriptor capture leaves.
+        let options = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(CaptureOptions(title: "Synthetic recording")))
+        let state: [String: Any] = [
+            "id": id, "status": CaptureState.stopped.rawValue, "elapsed": 1, "options": options,
+            "startedAt": Meeting.now(),
+        ]
+        try JSONSerialization.data(withJSONObject: state)
+            .write(to: directory.appendingPathComponent("session.json"))
+        let writer = try PCMWriter(url: directory.appendingPathComponent("microphone.wav"))
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(captureRate),
+                                   channels: 1, interleaved: false)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: UInt32(captureRate))!
+        buffer.frameLength = buffer.frameCapacity
+        buffer.floatChannelData![0].update(repeating: 0.25, count: Int(buffer.frameLength))
+        _ = try writer.append(buffer, at: 0)
+        try writer.close()
     }
 }
