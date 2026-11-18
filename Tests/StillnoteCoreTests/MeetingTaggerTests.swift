@@ -109,6 +109,19 @@ import Testing
         #expect(input.contains("not instructions"))
     }
 
+    @Test func tagsUnsummarizedTranscriptOverSummarizerLimit() async throws {
+        var oversized = meeting()
+        oversized.segments = (0..<65).map {
+            Segment(id: "\($0)", start: Double($0), end: Double($0) + 1, speaker: "speaker_1",
+                    text: "Segment \($0) " + String(repeating: "engineering ", count: 900))
+        }
+        DecisionsStub.reset(status: 200, body: Self.reply(["t-eng"]))
+        #expect(try await suggest(oversized) == ["t-eng"])
+        let sent = try #require(DecisionsStub.lastBody?["input"] as? String)
+        #expect(sent.contains("Dana: Segment 0 engineering"))
+        #expect(!sent.contains("Segment 64 "))
+    }
+
     @Test func reportsErrorsAndRejectsInvalidAnswers() async throws {
         DecisionsStub.reset(status: 401, body: ["error": ["message": "Incorrect API key provided."]])
         do {
