@@ -316,6 +316,7 @@ struct SettingsTextField: View {
     @Binding var text: String
     var width: CGFloat = 220
     var secure = false
+    var onCommit: (() -> Void)? = nil
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -332,6 +333,8 @@ struct SettingsTextField: View {
         .labelsHidden()
         .font(.system(size: 13))
         .focused($focused)
+        .onSubmit { onCommit?() }
+        .onChange(of: focused) { if !focused { onCommit?() } }
         .focusEffectDisabled()
         .padding(.horizontal, 10)
         .frame(width: width, height: 28)

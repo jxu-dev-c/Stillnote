@@ -859,17 +859,31 @@ final class AppModel {
 
     // MARK: - Settings and models
 
+    @ObservationIgnored private var settingsRevision = 0
+
     @discardableResult
     func saveSettings(_ updated: AppSettings) async -> Bool {
+        let previousModel = settings.transcription.model
+        settingsRevision += 1
+        return await saveSettings(updated, revision: settingsRevision, previousModel: previousModel)
+    }
+
+    private func saveSettings(_ updated: AppSettings, revision: Int, previousModel: String) async -> Bool {
+        guard settingsRevision == revision else { return true }
         do {
-            settings = try await store.saveSettings(updated)
-            await agentJobs.setLimit(settings.summary.concurrency)
+            let saved = try await store.saveSettings(updated)
+            guard settingsRevision == revision else { return true }
+            settings = saved
+            await agentJobs.setLimit(saved.summary.concurrency)
+            guard settingsRevision == revision else { return true }
             syncCommandServer()
             meetingReminder.sync(model: self)
-            await refreshEnvironment()
+            if saved.transcription.model != previousModel {
+                await refreshEnvironment()
+            }
             return true
         } catch {
-            report(error)
+            if settingsRevision == revision { report(error) }
             return false
         }
     }
@@ -881,9 +895,11 @@ final class AppModel {
         change(&updated)
         guard updated != previous else { return }
         settings = updated
+        settingsRevision += 1
+        let revision = settingsRevision
         Task {
-            let saved = await saveSettings(updated)
-            if !saved, settings == updated { settings = previous }
+            let saved = await saveSettings(updated, revision: revision, previousModel: previous.transcription.model)
+            if !saved, settingsRevision == revision { settings = previous }
         }
     }
 
