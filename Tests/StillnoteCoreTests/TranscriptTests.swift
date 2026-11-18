@@ -107,3 +107,68 @@ import Testing
         #expect(Formatting.timestamp(1.25, srt: true) == "00:00:01,250")
     }
 }
+
+@Suite struct TranscriptReaderTests {
+    @Test func groupsConsecutiveSegmentsBySpeakerAndPreservesIndices() {
+        let segments = [
+            Segment(id: "s1", start: 0, end: 4, speaker: "speaker_1", text: "Welcome everyone."),
+            Segment(id: "s2", start: 4, end: 9, speaker: "speaker_1", text: "Let's review the roadmap."),
+            Segment(id: "s3", start: 9, end: 15, speaker: "speaker_2", text: "Sounds good."),
+            Segment(id: "s4", start: 15, end: 22, speaker: "speaker_1", text: "First item is search."),
+        ]
+
+        let groups = TranscriptReader.groups(for: segments)
+        #expect(groups.count == 3)
+
+        #expect(groups[0].id == "s1")
+        #expect(groups[0].speaker == "speaker_1")
+        #expect(groups[0].startIndex == 0)
+        #expect(groups[0].start == 0)
+        #expect(groups[0].end == 9)
+        #expect(groups[0].segments.map(\.id) == ["s1", "s2"])
+        #expect(groups[0].segmentIndex(at: 0) == 0)
+        #expect(groups[0].segmentIndex(at: 1) == 1)
+
+        #expect(groups[1].id == "s3")
+        #expect(groups[1].speaker == "speaker_2")
+        #expect(groups[1].startIndex == 2)
+        #expect(groups[1].segments.map(\.id) == ["s3"])
+        #expect(groups[1].segmentIndex(at: 0) == 2)
+
+        #expect(groups[2].id == "s4")
+        #expect(groups[2].speaker == "speaker_1")
+        #expect(groups[2].startIndex == 3)
+        #expect(groups[2].segments.map(\.id) == ["s4"])
+        #expect(groups[2].segmentIndex(at: 0) == 3)
+    }
+
+    @Test func activeSearchMatchSegmentIDAndMatchingSetResolveCleanly() {
+        let segments = [
+            Segment(id: "s1", start: 0, end: 2, speaker: "speaker_1", text: "Alpha"),
+            Segment(id: "s2", start: 2, end: 4, speaker: "speaker_2", text: "Beta"),
+            Segment(id: "s3", start: 4, end: 6, speaker: "speaker_1", text: "Alpha again"),
+        ]
+
+        #expect(TranscriptReader.activeSearchMatchSegmentID(in: segments, matches: [], focus: 0) == nil)
+        #expect(TranscriptReader.activeSearchMatchSegmentID(in: segments, matches: [0, 2], focus: 2) == "s3")
+        // When focus is not on a match, falls back to the first valid match.
+        #expect(TranscriptReader.activeSearchMatchSegmentID(in: segments, matches: [0, 2], focus: 1) == "s1")
+        #expect(TranscriptReader.matchingSegmentIDs(in: segments, matches: [0, 2, 99]) == ["s1", "s3"])
+    }
+
+    @Test func displayModeLabelsAndFormattedTranscriptText() {
+        #expect(TranscriptDisplayMode.lyrics.label == "Lyrics")
+        #expect(TranscriptDisplayMode.reader.label == "Reader")
+
+        var meeting = Meeting(id: "m1", title: "Sync", audioName: "a.wav", language: "en", speakerCount: 2, duration: 10)
+        meeting.speakers = ["speaker_1": "Alice", "speaker_2": "Bob"]
+        meeting.segments = [
+            Segment(id: "s1", start: 5, end: 8, speaker: "speaker_1", text: "First line"),
+            Segment(id: "s2", start: 65, end: 70, speaker: "speaker_2", text: "Second line"),
+        ]
+        #expect(
+            TranscriptReader.formattedText(for: meeting)
+                == "[00:00:05] Alice: First line\n\n[00:01:05] Bob: Second line"
+        )
+    }
+}
