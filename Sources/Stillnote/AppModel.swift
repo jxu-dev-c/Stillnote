@@ -517,6 +517,14 @@ final class AppModel {
 
     func finishRecording() async -> Meeting? {
         do {
+            if let current = recorder.session {
+                let flushed = await NotesDraft.flush(meetingID: current.id, savedText: current.notes) { pending in
+                    (try? self.recorder.updateNotes(pending)) != nil
+                }
+                guard flushed else {
+                    throw ValidationError("Save your latest notes before stopping this recording.")
+                }
+            }
             let meeting = try await recorder.finish(
                 cleanup: RecordingCleanup(
                     settings: settings.cleanup,
@@ -531,6 +539,31 @@ final class AppModel {
             report(error)
             return nil
         }
+    }
+
+    @discardableResult
+    func updateRecordingNotes(_ notes: String) -> Bool {
+        do {
+            _ = try recorder.updateNotes(notes)
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    @discardableResult
+    func saveRecordingContextLink(_ link: ContextLink, replacing existingURL: String? = nil) throws -> RecordingSessionState {
+        try recorder.saveContextLink(link, replacing: existingURL)
+    }
+
+    @discardableResult
+    func addRecordingContextLink(_ link: ContextLink) throws -> RecordingSessionState {
+        try recorder.addContextLink(link)
+    }
+
+    func removeRecordingContextLink(_ url: String) {
+        _ = recorder.removeContextLink(url)
     }
 
     // MARK: - Transcription

@@ -52,6 +52,22 @@ import Testing
         #expect(parts.allSatisfy { $0.starred && $0.tagIDs == ["product", "design"] })
     }
 
+    @Test func untriagedRecordingSplitPreservesLiveNotesAndContextLinks() throws {
+        var original = meeting(50)
+        original.notes = "Live call notes captured during recording"
+        original.contextLinks = [
+            ContextLink(url: "https://example.com/spec", title: "Design Spec"),
+            ContextLink(url: "https://example.com/issue/130", title: "Issue 130"),
+        ]
+        let parts = try RecordingSplit.parts(original)
+        #expect(parts.count == 3)
+        for part in parts {
+            #expect(part.status == .ready)
+            #expect(part.notes == original.notes)
+            #expect(part.contextLinks == original.contextLinks)
+        }
+    }
+
     @Test func importedAudioBeyondSpeechLimitCanBeSplit() throws {
         var original = meeting(120)
         original.source = .import
