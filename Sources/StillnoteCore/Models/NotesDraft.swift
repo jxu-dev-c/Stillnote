@@ -8,7 +8,11 @@ public final class NotesDraft {
     public var text = ""
     public private(set) var savedText = ""
     public private(set) var error: String?
-    public var isDirty: Bool { text != savedText }
+    public var isDirty: Bool {
+        guard text != savedText else { return false }
+        guard let key else { return true }
+        return defaults.string(forKey: key) != nil
+    }
 
     private let defaults: UserDefaults
     private var key: String?
@@ -47,19 +51,27 @@ public final class NotesDraft {
     }
 
     public func save(using persist: (String) async -> Bool) async {
-        guard isDirty else { return }
+        guard isDirty else {
+            if text != savedText {
+                text = savedText
+                error = nil
+            }
+            return
+        }
         guard text.count <= Validation.maxNotesLength else {
             error = "Notes must be at most \(Validation.maxNotesLength.formatted()) characters. Your draft is kept."
             retainUnsavedText()
             return
         }
+        let previousSaved = savedText
         let pending = text
+        savedText = pending
         guard await persist(pending) else {
+            savedText = previousSaved
             error = "Notes could not be saved. Your draft is kept; retry saving."
             retainUnsavedText()
             return
         }
-        savedText = pending
         error = nil
         // Text may have changed while the write was in flight. Keep that newer draft.
         retainUnsavedText()
@@ -67,7 +79,7 @@ public final class NotesDraft {
 
     private func retainUnsavedText() {
         guard let key else { return }
-        if isDirty {
+        if text != savedText {
             defaults.set(text, forKey: key)
         } else {
             defaults.removeObject(forKey: key)

@@ -430,6 +430,15 @@ private struct NotesSection: View {
             }
         }
         .onAppear { draft.load(meetingID: meeting.id, savedText: meeting.notes) }
+        .onChange(of: meeting.id) {
+            saveTask?.cancel()
+            draft.load(meetingID: meeting.id, savedText: meeting.notes)
+        }
+        .onChange(of: meeting.notes) {
+            guard meeting.notes != draft.savedText else { return }
+            saveTask?.cancel()
+            draft.load(meetingID: meeting.id, savedText: meeting.notes)
+        }
         .onDisappear {
             saveTask?.cancel()
             Task { await save() }
