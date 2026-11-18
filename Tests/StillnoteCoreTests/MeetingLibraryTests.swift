@@ -26,4 +26,33 @@ import Testing
         MeetingLibrary.apply(item("b", date: "2026-03-01", revision: 2), to: &meetings)
         #expect(meetings.map(\.id) == ["b", "new", "a", "c", "old"])
     }
+
+    @Test func searchTextIncludesTitleTranscriptSummaryAndNotes() {
+        var meeting = Meeting(id: "m1", title: "Q3 Planning", audioName: "test.wav", language: "en", speakerCount: nil, duration: 60)
+        meeting.segments = [Segment(id: "s1", start: 0, end: 1, speaker: "spk_1", text: "Hello team")]
+        meeting.summary = MeetingSummary(
+            overview: "Synthesized overview phrase",
+            keyPoints: ["Latency target under 50ms"],
+            decisions: ["Adopt SQLite WAL mode"],
+            actionItems: [ActionItem(text: "Draft RFC", owner: "Alice", due: "Friday")],
+            provider: "openai",
+            model: "gpt-5",
+            generatedAt: "2026-04-01T00:00:00+00:00"
+        )
+        meeting.notes = "Check Café budget"
+
+        let text = MeetingLibrary.searchText(meeting)
+        for term in [
+            "q3 planning",
+            "hello team",
+            "synthesized overview phrase",
+            "latency target under 50ms",
+            "adopt sqlite wal mode",
+            "draft rfc",
+            "alice",
+            "check café budget",
+        ] {
+            #expect(text.contains(MeetingLibrary.normalizedQuery(term)))
+        }
+    }
 }

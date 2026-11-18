@@ -33,21 +33,61 @@ import Testing
         #expect(first.startDate == original.startDate)
         #expect(try await store.snapshot("a").meeting == original)
         let reader = try Store(paths: paths, readOnly: true)
-        for query in ["  design  ", "产品 计划", "cafe\u{301}", "café launch"] {
+        for query in ["  design  ", "产品 计划", "cafe\u{301}", "café launch", "private notes"] {
             #expect(try await reader.searchLibrary(query) == ["a"])
         }
-        try await store.update("a") { $0.progress = 42; $0.notes = "Edited notes" }
+        try await store.update("a") { $0.progress = 42 }
         let progress = try await store.libraryItem("a")
         #expect(progress.revision > first.revision)
         #expect(progress.searchRevision == first.searchRevision)
-        #expect(try await reader.searchLibrary("edited notes").isEmpty)
+        try await store.update("a") { $0.notes = "Edited notes" }
+        let noted = try await store.libraryItem("a")
+        #expect(noted.searchRevision > progress.searchRevision)
+        #expect(try await reader.searchLibrary("private notes").isEmpty)
+        #expect(try await reader.searchLibrary("edited notes") == ["a"])
         try await store.update("a") { $0.segments[0].text = "Corrected transcript" }
-        #expect(try await store.libraryItem("a").searchRevision > progress.searchRevision)
+        #expect(try await store.libraryItem("a").searchRevision > noted.searchRevision)
         #expect(try await reader.searchLibrary("产品").isEmpty)
         #expect(try await reader.searchLibrary("corrected transcript") == ["a"])
         try await store.delete("a")
         #expect(try await store.libraryItems().isEmpty)
         #expect(try await reader.searchLibrary("corrected").isEmpty)
+    }
+
+    @Test func summaryAndNotesAreSearchableAndTrackRevisions() async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        var untranscribed = Meeting(id: "u", title: "Standup", audioName: "test.wav", language: "en", speakerCount: nil, duration: 300)
+        untranscribed.notes = "Follow up on Postgres migration"
+        try await store.insert(untranscribed)
+
+        let reader = try Store(paths: paths, readOnly: true)
+        #expect(try await reader.searchLibrary("postgres migration") == ["u"])
+
+        let beforeSummary = try await store.libraryItem("u")
+        try await store.update("u") {
+            $0.summary = MeetingSummary(
+                overview: "Reviewed database cutover timeline",
+                keyPoints: ["Read replica lag is zero"],
+                decisions: ["Freeze schema changes on Thursday"],
+                actionItems: [ActionItem(text: "Run load test", owner: "Elena", due: "Wednesday")],
+                provider: "openai",
+                model: "gpt-5",
+                generatedAt: "now"
+            )
+        }
+        let afterSummary = try await store.libraryItem("u")
+        #expect(afterSummary.searchRevision > beforeSummary.searchRevision)
+        for query in ["cutover timeline", "replica lag", "freeze schema", "run load test", "elena"] {
+            #expect(try await reader.searchLibrary(query) == ["u"])
+        }
+
+        // Checking off an action item does not change searchable text.
+        try await store.update("u") {
+            $0.summary?.actionItems[0].completed = true
+        }
+        #expect(try await store.libraryItem("u").searchRevision == afterSummary.searchRevision)
     }
 
     @Test func legacyMigrationAndLegacyWritesRemainSearchable() async throws {
@@ -121,6 +161,40 @@ import Testing
         #expect(try await store.libraryItem("a").revision == 2)
     }
 
+    @Test func snippetIndexesUpgradeToSearchSummaryAndNotes() async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        var original = meeting()
+        original.summary = MeetingSummary(
+            overview: "Legacy overview phrase",
+            keyPoints: ["Legacy key point"],
+            decisions: ["Legacy decision"],
+            actionItems: [ActionItem(text: "Legacy action", owner: "Maya")],
+            provider: "codex",
+            model: "m",
+            generatedAt: "now"
+        )
+        let json = String(decoding: try JSONEncoder().encode(original), as: UTF8.self).replacingOccurrences(of: "'", with: "''")
+        try sql(paths, """
+            CREATE TABLE meetings(id TEXT PRIMARY KEY,data TEXT NOT NULL);
+            CREATE TABLE meeting_library (id TEXT PRIMARY KEY, data TEXT NOT NULL,
+                revision INTEGER NOT NULL, search_revision INTEGER NOT NULL, search_text TEXT);
+            CREATE TRIGGER meeting_library_insert AFTER INSERT ON meetings BEGIN
+                INSERT OR REPLACE INTO meeting_library VALUES (NEW.id, json_set(json_remove(NEW.data, '$.segments', '$.summary', '$.notes', '$.context_links'), '$.snippet', 'Legacy'), 1, 1, 'design café launch 产品 计划 tomorrow');
+            END;
+            CREATE TRIGGER meeting_library_update AFTER UPDATE ON meetings BEGIN
+                UPDATE meeting_library SET data = json_set(json_remove(NEW.data, '$.segments', '$.summary', '$.notes', '$.context_links'), '$.snippet', 'Legacy'), revision = revision + 1 WHERE id = OLD.id;
+            END;
+            INSERT INTO meetings VALUES ('a','\(json)');
+            """)
+        let store = try Store(paths: paths)
+        try await store.prepareLibrarySearch()
+        let reader = try Store(paths: paths, readOnly: true)
+        for query in ["private notes", "legacy overview phrase", "legacy key point", "legacy decision", "legacy action", "maya"] {
+            #expect(try await reader.searchLibrary(query) == ["a"])
+        }
+    }
+
     @Test func actionItemCompletionIsOptional() throws {
         let decoded = try JSONDecoder().decode(ActionItem.self, from: Data(#"{"text":"Ship","owner":null,"due":null}"#.utf8))
         #expect(decoded.completed == nil)
@@ -167,7 +241,7 @@ import Testing
         let texts = ["Café", "cafe\u{301}", "a\u{301}\u{0327}b", "a\u{0327}\u{301}b",
                      "\u{037E}", "Kelvin", "ﬃ", "가나다", "가나다", "👩🏽‍💻 hello", "🇨🇦", "İstanbul", "产品计划", "before\u{0}after"]
         for (i, text) in texts.enumerated() {
-            var m = meeting(String(i)); m.title = text; m.segments = []
+            var m = meeting(String(i)); m.title = text; m.segments = []; m.notes = ""
             try await store.insert(m)
         }
         var queries: Set<String> = [";", "cafe", "café", "kelvin", "ffi", "i", " ", "不存在"]
