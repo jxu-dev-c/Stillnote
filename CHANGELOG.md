@@ -1,11 +1,34 @@
 # Changelog
 
-## Unreleased
+## 0.16.0
 
 - Delete or discard a recording in progress. The trash button, the list's **Delete**, and a swipe
   left now work on the recording as on any meeting: it is stopped, saved, and moved to **Recently
   Deleted** with an **Undo**. A new **Discard** button beside Stop, also in the recording's
   context menu, asks first and then removes the audio and video for good.
+- Add a **Reader** view on the **Transcript** tab alongside **Lyrics**. It groups consecutive lines
+  by speaker with clickable timestamps to seek without starting playback, native multi-line text
+  selection, a **Copy Transcript** button, search match highlighting, and inline actions to play,
+  edit, reassign the speaker, or copy a line.
+- Take live notes and attach context links while a recording is in progress. The **Summary** tab on
+  an active recording now includes editable **Links** and **Notes** sections that save to the
+  recording session and carry into the finished meeting (and across split parts).
+- Search summaries, key points, decisions, action items (including owners), and user notes from the
+  meeting list search bar. Existing libraries rebuild their search index automatically on open.
+- Read only the opening of a transcript when naming or auto-tagging an unsummarized meeting so
+  transcripts larger than the single-pass summary limit still receive titles and tag suggestions.
+- Guard concurrent settings saves with a revision counter, debounce text fields in
+  **Settings → Summarize**, and refresh the shell environment only when the transcription model
+  changes.
+- Sync the **Notes** editor on the **Summary** page when notes are updated externally via
+  `stillnote notes set`, and ignore discarded drafts so stale window state cannot overwrite CLI
+  updates.
+- Prune speaker profiles deleted during retention when restoring a meeting from **Recently
+  Deleted**.
+- Wait for in-progress audio and screen-video file finalization to complete when `CaptureSession.stop()`
+  is called after an internal stop has already begun.
+- Disable `SIGPIPE` on command sockets so early CLI client disconnects return `EPIPE` instead of
+  terminating the app.
 
 ## 0.15.0
 
