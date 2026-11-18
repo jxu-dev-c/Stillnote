@@ -26,6 +26,15 @@ public enum MeetingLibrary {
     }
 
     public static func searchText(_ meeting: Meeting) -> String {
-        ([meeting.title] + meeting.segments.map(\.text)).joined(separator: " ").lowercased().precomposedStringWithCanonicalMapping
+        var parts = [meeting.title] + meeting.segments.map(\.text)
+        if let summary = meeting.summary {
+            parts += ([summary.overview] + summary.keyPoints + summary.decisions
+                + summary.actionItems.flatMap { [$0.text, $0.owner ?? ""] })
+                .filter { !$0.isEmpty }
+        }
+        if !meeting.notes.isEmpty {
+            parts.append(meeting.notes)
+        }
+        return parts.joined(separator: " ").lowercased().precomposedStringWithCanonicalMapping
     }
 }
