@@ -75,7 +75,12 @@ public enum MeetingNamer {
     /// Whole `speaker: text` lines from the start of the transcript, up to `maxBytes`.
     static func transcriptOpening(_ meeting: Meeting, maxBytes: Int = maxTranscriptBytes) throws -> String {
         var transcript = ""
-        for (speaker, text) in try Summarizer.utterances(meeting) {
+        for segment in meeting.segments {
+            let text = segment.text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            if text.isEmpty { continue }
+            var speaker = meeting.speakers[segment.speaker] ?? segment.speaker
+            speaker = speaker.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            speaker = String(speaker.prefix(120))
             let line = "\(speaker): \(text)"
             let next = transcript.isEmpty ? line : transcript + "\n" + line
             if next.utf8.count > maxBytes {
@@ -86,6 +91,9 @@ public enum MeetingNamer {
                 break
             }
             transcript = next
+        }
+        guard !transcript.isEmpty else {
+            throw SummaryError("Create a transcript before naming or tagging this meeting.")
         }
         return transcript
     }
