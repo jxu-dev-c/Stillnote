@@ -2,6 +2,28 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
+## What's new in 0.16.0
+
+- **Delete or discard an active recording:** The toolbar trash button, **Delete** in the meeting
+  list, and swiping left on the recording row now stop and save the recording and move it to
+  **Recently Deleted** with **Undo**. A **Discard** button beside Stop (and **Discard Recording…**
+  in the context menu) asks for confirmation before permanently removing unsaved audio and video.
+- **Transcript Reader mode:** Switch between **Lyrics** and **Reader** on the **Transcript** tab.
+  Reader mode displays the full conversation grouped by speaker with clickable timestamps that seek
+  without auto-playing, native text selection across lines, **Copy Transcript**, search
+  highlighting, and per-line actions.
+- **Live notes and links during recording:** Open the **Summary** tab while recording to jot down
+  notes or attach reference links before the call ends. Notes and links persist with the active
+  recording session and carry over when the meeting is saved or split.
+- **Richer library search:** Searching in the meeting list now matches summary overviews, key
+  points, decisions, action items and their owners, and your meeting notes in addition to titles
+  and transcripts.
+- **Reliability fixes:** Naming and auto-tagging work on very long unsummarized transcripts;
+  external `stillnote notes set` updates sync immediately into open windows; restoring a meeting
+  from **Recently Deleted** cleans up removed speaker profiles; settings text fields debounce saves
+  without spawning extra shell checks; recording stop waits for in-progress video/audio
+  finalization; and early CLI disconnects no longer raise `SIGPIPE`.
+
 ## What's new in 0.15.0
 
 - Settings is redesigned as a rail of pages that follow a meeting through Stillnote: **Record**,
