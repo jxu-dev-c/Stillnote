@@ -25,6 +25,7 @@ struct MeetingListPane: View {
     @State private var swipe = SwipeState()
     @State private var exporting: ExportDocument?
     @State private var exportName = ""
+    @State private var confirmingDiscard: String?
     /// The row last picked in this list, which is already in view and must not jump.
     @State private var pickedHere: String?
 
@@ -88,6 +89,7 @@ struct MeetingListPane: View {
             await search.run(MeetingLibrary.normalizedQuery(query), revision: model.meetingSearchRevision, model: model)
         }
         .onChange(of: destination) { _, _ in swipe.close(animated: false) }
+        .discardRecordingConfirmation($confirmingDiscard, model: model)
         .fileExporter(
             isPresented: Binding(get: { exporting != nil }, set: { if !$0 { exporting = nil } }),
             document: exporting,
@@ -212,13 +214,13 @@ struct MeetingListPane: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if showsRecording && !todayFirst {
                         GroupLabel(label: "Today", first: true)
-                        RecordingListRow(selected: selection == RecordingSelection.id) { pick(RecordingSelection.id) }
+                        recordingRow
                             .id(RecordingSelection.id)
                     }
                     ForEach(Array(groups.enumerated()), id: \.element.group) { index, entry in
                         GroupLabel(label: entry.group.label, first: index == 0 && !(showsRecording && !todayFirst))
                         if showsRecording && entry.group == .today {
-                            RecordingListRow(selected: selection == RecordingSelection.id) { pick(RecordingSelection.id) }
+                            recordingRow
                                 .id(RecordingSelection.id)
                         }
                         ForEach(Array(entry.rows.enumerated()), id: \.element.id) { rowIndex, meeting in
@@ -250,6 +252,21 @@ struct MeetingListPane: View {
                 guard id != pickedHere else { return }
                 reveal(id, in: groups, proxy: proxy, animated: true)
             }
+        }
+    }
+
+    private var recordingRow: some View {
+        RecordingListRow(
+            selected: selection == RecordingSelection.id, swipe: swipe,
+            open: { open(RecordingSelection.id) }, settle: settle, delete: deleteRecording
+        )
+        .contextMenu {
+            Button("Open") { open(RecordingSelection.id) }
+            Divider()
+            Button("Delete", role: .destructive, action: deleteRecording)
+                .disabled(!model.canDeleteRecording)
+            Button("Discard Recording…", role: .destructive) { confirmingDiscard = model.recorder.session?.id }
+                .disabled(!model.canDeleteRecording)
         }
     }
 
@@ -321,11 +338,16 @@ struct MeetingListPane: View {
 
     /// Where a swipe comes to rest: past `full` it acts, past 40 points it stays open.
     private func settle(_ id: String) {
-        guard let meeting = model.libraryItem(id) else { return settleClosed() }
+        let recording = id == RecordingSelection.id
+        let meeting = model.libraryItem(id)
+        guard recording || meeting != nil else { return settleClosed() }
         let dx = swipe.id == id ? swipe.dx : 0
-        let canDelete = SwipeState.canDelete(meeting)
-        if dx >= SwipeState.full { toggleStar(meeting); return }
-        if dx <= -SwipeState.full && canDelete { delete(meeting); return }
+        let canDelete = canDelete(id)
+        if dx >= SwipeState.full, let meeting { toggleStar(meeting); return }
+        if dx <= -SwipeState.full && canDelete {
+            if let meeting { delete(meeting) } else { deleteRecording() }
+            return
+        }
         withAnimation(SwipeState.animation) {
             if dx >= 40 {
                 swipe.open(id, dx: SwipeState.openWidth)
@@ -340,7 +362,8 @@ struct MeetingListPane: View {
     /// Read when a swipe starts, so it reflects the row as it is now rather than when the
     /// pointer arrived over it.
     private func canDelete(_ id: String) -> Bool {
-        model.libraryItem(id).map(SwipeState.canDelete) ?? false
+        if id == RecordingSelection.id { return model.canDeleteRecording }
+        return model.libraryItem(id).map(SwipeState.canDelete) ?? false
     }
 
     private func toggleStar(_ meeting: MeetingListItem) {
@@ -352,6 +375,12 @@ struct MeetingListPane: View {
         withAnimation(SwipeState.animation) { swipe.close(animated: true) }
         if selection == meeting.id { selection = nil }
         feedback.delete(meeting, model: model)
+    }
+
+    /// The recording is deleted as a meeting is: saved, then moved to Recently Deleted.
+    private func deleteRecording() {
+        withAnimation(SwipeState.animation) { swipe.close(animated: true) }
+        feedback.deleteRecording(model: model)
     }
 
     private func export(_ id: String, _ format: ExportFormat) async {
@@ -493,27 +522,52 @@ private struct RowText: View {
     }
 }
 
+/// The recording in progress. It swipes left to delete like a meeting, but has no star.
 private struct RecordingListRow: View {
     @Environment(AppModel.self) private var model
     let selected: Bool
+    let swipe: SwipeState
     let open: () -> Void
+    let settle: (String) -> Void
+    let delete: () -> Void
 
     var body: some View {
         let session = model.recorder.session
         let started = session?.startedAt.flatMap(Meeting.parseTimestamp) ?? .now
         let paused = session?.status == .paused
-        Button(action: open) {
-            RowText(
-                title: "New Meeting",
-                meta: "\(MeetingText.time(started)) · \(paused ? "Paused" : "Recording")",
-                snippet: paused ? "Recording paused" : "Recording audio…",
-                selected: selected,
-                trailing: AnyView(Circle().fill(Color(nsColor: .rgba(255, 69, 58))).frame(width: 10, height: 10))
-            )
+        let dx = swipe.offset(for: RecordingSelection.id)
+        ZStack {
+            if dx < 0 {
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    SwipeDeleteButton(dx: dx, action: delete)
+                }
+            }
+            Button(action: tap) {
+                RowText(
+                    title: "New Meeting",
+                    meta: "\(MeetingText.time(started)) · \(paused ? "Paused" : "Recording")",
+                    snippet: paused ? "Recording paused" : "Recording audio…",
+                    selected: selected,
+                    trailing: AnyView(Circle().fill(Color(nsColor: .rgba(255, 69, 58))).frame(width: 10, height: 10))
+                )
+            }
+            .buttonStyle(.plain)
+            .offset(x: dx)
+            .swipeDrag(RecordingSelection.id, swipe: swipe, canStar: false,
+                       canDelete: model.canDeleteRecording, settle: settle)
         }
-        .buttonStyle(.plain)
+        .clipShape(.rect(cornerRadius: 14))
+        .swipeHover(RecordingSelection.id, swipe: swipe)
+        .accessibilityElement(children: .combine)
         .accessibilityLabel("New Meeting, recording")
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction(named: "Delete") { if model.canDeleteRecording { delete() } }
+    }
+
+    private func tap() {
+        guard !swipe.justDragged else { return }
+        open()
     }
 }
 
@@ -548,9 +602,9 @@ final class SwipeState {
         self.dx = dx
     }
 
-    func track(_ id: String, base: CGFloat, delta: CGFloat, canDelete: Bool) {
+    func track(_ id: String, base: CGFloat, delta: CGFloat, canStar: Bool = true, canDelete: Bool) {
         self.id = id
-        dx = max(canDelete ? -Self.maximum : 0, min(Self.maximum, base + delta))
+        dx = max(canDelete ? -Self.maximum : 0, min(canStar ? Self.maximum : 0, base + delta))
     }
 
     func close(animated: Bool) {
@@ -592,32 +646,10 @@ private struct SwipeableMeetingRow: View {
             }
             .buttonStyle(.plain)
             .offset(x: dx)
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 8)
-                    .onChanged { value in
-                        guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                        if !swipe.justDragged {
-                            swipe.dragBase = swipe.offset(for: meeting.id)
-                            swipe.justDragged = true
-                        }
-                        swipe.track(meeting.id, base: swipe.dragBase, delta: value.translation.width, canDelete: canDelete)
-                    }
-                    .onEnded { _ in
-                        guard swipe.justDragged else { return }
-                        settle(meeting.id)
-                        // The button's own click follows the drag; let it pass first.
-                        DispatchQueue.main.async { swipe.justDragged = false }
-                    }
-            )
+            .swipeDrag(meeting.id, swipe: swipe, canDelete: canDelete, settle: settle)
         }
         .clipShape(.rect(cornerRadius: 14))
-        .onHover { inside in
-            if inside {
-                swipe.hovered = meeting.id
-            } else if swipe.hovered == meeting.id {
-                swipe.hovered = nil
-            }
-        }
+        .swipeHover(meeting.id, swipe: swipe)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(meeting.title + (meeting.starred ? ", starred" : ""))
         .accessibilityValue(MeetingText.listMeta(meeting, group: group))
@@ -655,7 +687,6 @@ private struct SwipeableMeetingRow: View {
     private func underlay(_ dx: CGFloat) -> some View {
         let open = SwipeState.openWidth
         let leftScale = max(0, min(1, (dx - 12) / (open - 24)))
-        let rightScale = max(0, min(1, (-dx - 12) / (open - 24)))
         HStack(spacing: 0) {
             Button(action: star) {
                 Icon(.star, size: 20, lineWidth: 1.9, filled: !meeting.starred)
@@ -675,20 +706,67 @@ private struct SwipeableMeetingRow: View {
             .buttonStyle(.plain)
             .help(meeting.starred ? "Unstar" : "Star")
             Spacer(minLength: 0)
-            Button(action: delete) {
-                Icon(.trash, size: 20, lineWidth: 1.9)
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(DS.swipeDelete, in: .circle)
-                    .scaleEffect(rightScale)
-                    .opacity(rightScale)
-                    .frame(width: max(0, -dx))
-                    .frame(maxHeight: .infinity)
-                    .clipped()
-                    .contentShape(.rect)
+            SwipeDeleteButton(dx: dx, action: delete)
+        }
+    }
+}
+
+/// The red trash a row uncovers as it is swiped left by `-dx` points.
+private struct SwipeDeleteButton: View {
+    let dx: CGFloat
+    let action: () -> Void
+
+    var body: some View {
+        let scale = max(0, min(1, (-dx - 12) / (SwipeState.openWidth - 24)))
+        Button(action: action) {
+            Icon(.trash, size: 20, lineWidth: 1.9)
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(DS.swipeDelete, in: .circle)
+                .scaleEffect(scale)
+                .opacity(scale)
+                .frame(width: max(0, -dx))
+                .frame(maxHeight: .infinity)
+                .clipped()
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help("Delete")
+    }
+}
+
+private extension View {
+    /// Dragging a row sideways swipes it, as a two-finger swipe over it does.
+    func swipeDrag(_ id: String, swipe: SwipeState, canStar: Bool = true, canDelete: Bool,
+                   settle: @escaping (String) -> Void) -> some View {
+        simultaneousGesture(
+            DragGesture(minimumDistance: 8)
+                .onChanged { value in
+                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                    if !swipe.justDragged {
+                        swipe.dragBase = swipe.offset(for: id)
+                        swipe.justDragged = true
+                    }
+                    swipe.track(id, base: swipe.dragBase, delta: value.translation.width,
+                                canStar: canStar, canDelete: canDelete)
+                }
+                .onEnded { _ in
+                    guard swipe.justDragged else { return }
+                    settle(id)
+                    // The button's own click follows the drag; let it pass first.
+                    DispatchQueue.main.async { swipe.justDragged = false }
+                }
+        )
+    }
+
+    /// Marks the row under the pointer, which a two-finger swipe moves.
+    func swipeHover(_ id: String, swipe: SwipeState) -> some View {
+        onHover { inside in
+            if inside {
+                swipe.hovered = id
+            } else if swipe.hovered == id {
+                swipe.hovered = nil
             }
-            .buttonStyle(.plain)
-            .help("Delete")
         }
     }
 }
@@ -771,7 +849,8 @@ private struct SwipeScrollMonitor: NSViewRepresentable {
             // Deltas describe content movement; follow the fingers either way round.
             let finger = event.isDirectionInvertedFromDevice ? event.scrollingDeltaX : -event.scrollingDeltaX
             travel += finger
-            swipe.track(target, base: base, delta: travel, canDelete: targetCanDelete)
+            swipe.track(target, base: base, delta: travel,
+                        canStar: target != RecordingSelection.id, canDelete: targetCanDelete)
             if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
                 settle(target)
                 self.target = nil
