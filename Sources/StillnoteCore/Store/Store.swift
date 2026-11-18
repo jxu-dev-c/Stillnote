@@ -440,10 +440,18 @@ public actor Store {
                   let data = try documents("SELECT data FROM deleted_meetings WHERE id=?", [id]).first
             else { throw StoreError.notFound }
             var meeting = try decoder.decode(Meeting.self, from: data)
-            // A tag may have been removed during retention.
+            // A tag or speaker profile may have been removed during retention.
             let existing = Set(try tags().map(\.id))
             if meeting.tagIDs.contains(where: { !existing.contains($0) }) {
                 meeting.tagIDs = meeting.tagIDs.filter(existing.contains)
+            }
+            let existingProfiles = Set(try profiles().map(\.id))
+            if meeting.speakerProfiles.values.contains(where: { !existingProfiles.contains($0) })
+                || meeting.autoSpeakerProfiles.keys.contains(where: { meeting.speakerProfiles[$0] == nil })
+            {
+                meeting.speakerProfiles = meeting.speakerProfiles.filter { existingProfiles.contains($0.value) }
+                let linked = meeting.speakerProfiles
+                meeting.autoSpeakerProfiles = meeting.autoSpeakerProfiles.filter { linked[$0.key] != nil }
             }
             try insert(meeting)
             try execute("""
