@@ -219,6 +219,25 @@ func temporaryPaths() throws -> Paths {
         let stored = Data(#"{"provider":"claude-code","model":"m","reasoning_effort":"xhigh"}"#.utf8)
         #expect(try JSONDecoder().decode(SummarySettings.self, from: stored).reasoningEffort == .xhigh)
     }
+
+    @Test func sequentialSettingsSavesPreserveAllCumulativeEdits() async throws {
+        let paths = try temporaryPaths()
+        let store = try Store(paths: paths)
+        var s1 = try await store.settings()
+        s1.cleanup.trimRecording = false
+        var s2 = s1
+        s2.cleanup.suppressNonSpeech = false
+        var s3 = s2
+        s3.cleanup.sensitivity = .aggressive
+
+        _ = try await store.saveSettings(s1)
+        _ = try await store.saveSettings(s2)
+        let saved = try await store.saveSettings(s3)
+        #expect(!saved.cleanup.trimRecording)
+        #expect(!saved.cleanup.suppressNonSpeech)
+        #expect(saved.cleanup.sensitivity == .aggressive)
+        #expect(try await store.settings().cleanup == saved.cleanup)
+    }
 }
 
 private func escaped(_ json: String) -> String { json.replacingOccurrences(of: "'", with: "''") }

@@ -10,6 +10,7 @@ struct SummarizeSettingsPage: View {
     @State private var agentPrompt = Summarizer.defaultAgentPrompt
     @State private var concurrency = AgentJobLimiter.defaultLimit
     @State private var loaded = false
+    @State private var saveTask: Task<Void, Never>?
 
     private var availability: AgentAvailability? {
         model.agents.first { $0.provider == provider }
@@ -27,7 +28,7 @@ struct SummarizeSettingsPage: View {
                                       caption: "Install the \(provider.command) CLI, sign in, then check again.") { checkAgain }
                 }
                 SettingsRow("Model") {
-                    SettingsTextField(label: "Model", prompt: provider.defaultModel, text: $summaryModel)
+                    SettingsTextField(label: "Model", prompt: provider.defaultModel, text: $summaryModel, onCommit: commitNow)
                 }
                 SettingsRow("Thinking effort") {
                     Picker("Thinking effort", selection: $effort) {
@@ -70,7 +71,10 @@ struct SummarizeSettingsPage: View {
                         .accessibilityLabel("Agent prompt")
                     HStack(alignment: .center, spacing: 12) {
                         SettingsCaption("Keep the required JSON fields: overview, key_points, decisions, and action_items. A blank prompt uses the default.")
-                        Button("Reset to Default") { agentPrompt = Summarizer.defaultAgentPrompt }
+                        Button("Reset to Default") {
+                            agentPrompt = Summarizer.defaultAgentPrompt
+                            commitNow()
+                        }
                             .buttonStyle(.settings)
                             .disabled(agentPrompt == Summarizer.defaultAgentPrompt)
                     }
@@ -86,10 +90,11 @@ struct SummarizeSettingsPage: View {
 
         SettingsCaption("Summaries and Name Meeting send meeting text to the provider and model chosen here, without asking again.")
             .onAppear(perform: load)
-            .onChange(of: summaryModel) { save() }
-            .onChange(of: effort) { save() }
-            .onChange(of: agentPrompt) { save() }
-            .onChange(of: concurrency) { save() }
+            .onChange(of: summaryModel) { scheduleSave() }
+            .onChange(of: effort) { commitNow() }
+            .onChange(of: agentPrompt) { scheduleSave() }
+            .onChange(of: concurrency) { commitNow() }
+            .onDisappear(perform: commitNow)
     }
 
     private var providerPicker: some View {
@@ -132,7 +137,7 @@ struct SummarizeSettingsPage: View {
         provider = newValue
         summaryModel = newValue.defaultModel
         effort = effort.supported(by: newValue)
-        save()
+        commitNow()
     }
 
     private func load() {
@@ -142,6 +147,21 @@ struct SummarizeSettingsPage: View {
         agentPrompt = model.settings.summary.agentPrompt
         concurrency = model.settings.summary.concurrency
         loaded = true
+    }
+
+    private func scheduleSave() {
+        guard loaded else { return }
+        saveTask?.cancel()
+        saveTask = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            save()
+        }
+    }
+
+    private func commitNow() {
+        saveTask?.cancel()
+        save()
     }
 
     private func save() {
@@ -173,6 +193,7 @@ private struct MeetingTagsCard: View {
     @State private var key = ""
     @State private var tagModel = TaggingSettings.defaultModel
     @State private var loaded = false
+    @State private var saveTask: Task<Void, Never>?
 
     var body: some View {
         SettingsCard {
@@ -201,7 +222,7 @@ private struct MeetingTagsCard: View {
                 }
             }
             SettingsRow("Model", caption: "Tag decisions use \(TaggingSettings.defaultModel).") {
-                SettingsTextField(label: "Tag model", prompt: TaggingSettings.defaultModel, text: $tagModel)
+                SettingsTextField(label: "Tag model", prompt: TaggingSettings.defaultModel, text: $tagModel, onCommit: commitTagModel)
             }
             SettingsRow(
                 "Suggest tags after each summary",
@@ -216,10 +237,28 @@ private struct MeetingTagsCard: View {
             loaded = true
             Task { await model.refreshOpenAIKey() }
         }
-        .onChange(of: tagModel) {
-            guard loaded else { return }
-            let resolved = tagModel.trimmingCharacters(in: .whitespaces).isEmpty ? TaggingSettings.defaultModel : tagModel
-            model.changeSettings { $0.tagging.model = resolved }
+        .onChange(of: tagModel) { scheduleSaveTagModel() }
+        .onDisappear(perform: commitTagModel)
+    }
+
+    private func scheduleSaveTagModel() {
+        guard loaded else { return }
+        saveTask?.cancel()
+        saveTask = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            saveTagModel()
         }
+    }
+
+    private func commitTagModel() {
+        saveTask?.cancel()
+        saveTagModel()
+    }
+
+    private func saveTagModel() {
+        guard loaded else { return }
+        let resolved = tagModel.trimmingCharacters(in: .whitespaces).isEmpty ? TaggingSettings.defaultModel : tagModel
+        model.changeSettings { $0.tagging.model = resolved }
     }
 }
