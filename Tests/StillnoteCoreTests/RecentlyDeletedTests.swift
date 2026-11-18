@@ -72,6 +72,46 @@ import Testing
         #expect(try await store.voiceprints(meeting.id) == nil)
     }
 
+    @Test func restorePrunesSpeakerProfilesDeletedDuringRetention() async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        let deletedProfile = try await store.saveProfile(SpeakerProfile(id: "prof-deleted", name: "Alice"))
+        let keptProfile = try await store.saveProfile(SpeakerProfile(id: "prof-kept", name: "Bob"))
+
+        var meeting = Meeting(id: "m1", title: "Speakers", audioName: "a.wav", language: "en", speakerCount: nil, duration: 60)
+        meeting.speakers = ["s1": "Alice", "s2": "Alice", "s3": "Bob"]
+        meeting.speakerProfiles = ["s1": deletedProfile.id, "s2": deletedProfile.id, "s3": keptProfile.id]
+        meeting.autoSpeakerProfiles = ["s2": 0.92]
+        meeting.segments = [
+            Segment(id: "1", start: 0, end: 25, speaker: "s1", text: "Alice speaking"),
+            Segment(id: "2", start: 25, end: 40, speaker: "s2", text: "Alice auto-tagged"),
+            Segment(id: "3", start: 40, end: 60, speaker: "s3", text: "Bob speaking"),
+        ]
+        try await store.insert(meeting)
+        let prints = MeetingVoiceprints(
+            meetingID: meeting.id,
+            fingerprint: VoiceRecognition.fingerprint(of: meeting, modelRevision: "rev1"),
+            modelRevision: "rev1",
+            voiceprints: [
+                Voiceprint(speaker: "s1", vector: [1, 0], speechSeconds: 25, windows: 2),
+                Voiceprint(speaker: "s3", vector: [0, 1], speechSeconds: 25, windows: 2),
+            ],
+            tooShort: []
+        )
+        try await store.saveVoiceprints(prints)
+
+        try await store.moveToRecentlyDeleted(meeting.id, now: now)
+        _ = try await store.deleteProfile(deletedProfile.id)
+
+        let restored = try await store.restoreDeleted(meeting.id, now: now)
+        #expect(restored.speakerProfiles == ["s3": keptProfile.id])
+        #expect(restored.autoSpeakerProfiles.isEmpty)
+        #expect(restored.speakers == ["s1": "Alice", "s2": "Alice", "s3": "Bob"])
+        #expect(try await store.get(meeting.id).speakerProfiles == ["s3": keptProfile.id])
+        #expect(try await store.voiceSamples(modelRevision: "rev1").samples.map(\.profileID) == [keptProfile.id])
+    }
+
     @Test func processingAndReadOnlyDeletionAreRejected() async throws {
         let paths = try temporaryPaths()
         defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }

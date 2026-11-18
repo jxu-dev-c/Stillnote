@@ -87,4 +87,28 @@ import Testing
             #expect(defaults.string(forKey: "stillnote:notes:test") == draft.text)
         }
     }
+
+    /// When `stillnote notes set` updates the store and discards the UserDefaults draft key,
+    /// an open window's stale in-memory draft must not report dirty or overwrite the CLI update.
+    @Test func discardedExternalDraftDoesNotOverwriteSavedNotes() async throws {
+        try await withDraft { draft, defaults in
+            draft.text = "Stale unsaved window draft"
+            draft.recordEdit()
+            #expect(draft.isDirty)
+
+            // Simulate `stillnote notes set` discarding the stored draft and updating the meeting.
+            defaults.removeObject(forKey: NotesDraft.key("test"))
+            #expect(!draft.isDirty)
+
+            await draft.save { _ in
+                Issue.record("A discarded draft must not overwrite externally updated notes")
+                return true
+            }
+
+            draft.load(meetingID: "test", savedText: "Updated via CLI")
+            #expect(draft.text == "Updated via CLI")
+            #expect(draft.savedText == "Updated via CLI")
+            #expect(!draft.isDirty)
+        }
+    }
 }

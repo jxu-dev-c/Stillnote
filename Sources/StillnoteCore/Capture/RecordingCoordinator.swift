@@ -10,6 +10,39 @@ public struct RecordingSessionState: Codable, Hashable, Sendable {
     public var options: CaptureOptions
     /// When capture began. Sessions written before this field existed decode as nil.
     public var startedAt: String? = nil
+    public var notes: String = ""
+    public var contextLinks: [ContextLink] = []
+
+    enum CodingKeys: String, CodingKey {
+        case id, status, elapsed, error, options, startedAt, notes, contextLinks
+    }
+
+    public init(
+        id: String, status: CaptureState, elapsed: Double, error: String? = nil,
+        options: CaptureOptions, startedAt: String? = nil,
+        notes: String = "", contextLinks: [ContextLink] = []
+    ) {
+        self.id = id
+        self.status = status
+        self.elapsed = elapsed
+        self.error = error
+        self.options = options
+        self.startedAt = startedAt
+        self.notes = notes
+        self.contextLinks = contextLinks
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        status = try values.decode(CaptureState.self, forKey: .status)
+        elapsed = try values.decode(Double.self, forKey: .elapsed)
+        error = try values.decodeIfPresent(String.self, forKey: .error)
+        options = try values.decode(CaptureOptions.self, forKey: .options)
+        startedAt = try values.decodeIfPresent(String.self, forKey: .startedAt)
+        notes = try values.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        contextLinks = try values.decodeIfPresent([ContextLink].self, forKey: .contextLinks) ?? []
+    }
 }
 
 /// What a coordinator needs to trim silence from a saved recording. Passing `nil` to
@@ -162,9 +195,67 @@ public final class RecordingCoordinator {
                     + "Screen & System Audio Recording and Microphone, then retry. \(error.localizedDescription)"
             )
         }
-        state.status = .recording
+        if var current = session, current.id == id {
+            current.status = .recording
+            session = current
+            persist(current)
+        }
+    }
+
+    /// Updates the active or recovered recording's live notes and persists them to `session.json`.
+    @discardableResult
+    public func updateNotes(_ notes: String) throws -> RecordingSessionState {
+        guard var state = session else {
+            throw RecordingError.message("This recording session was not found.")
+        }
+        guard notes.count <= Validation.maxNotesLength else {
+            throw ValidationError("Notes must be at most \(Validation.maxNotesLength.formatted()) characters.")
+        }
+        state.notes = notes
         session = state
         persist(state)
+        return state
+    }
+
+    /// Adds or updates a context link on the active or recovered recording and persists it to `session.json`.
+    @discardableResult
+    public func saveContextLink(_ link: ContextLink, replacing existingURL: String? = nil) throws -> RecordingSessionState {
+        guard var state = session else {
+            throw RecordingError.message("This recording session was not found.")
+        }
+        let others = state.contextLinks.filter { $0.url != existingURL }
+        let url = try Validation.contextLinkURL(link.url, existing: others)
+        let normalized = ContextLink(
+            url: url,
+            title: String(link.title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Validation.maxLinkTitleLength))
+        )
+        if let existingURL, let index = state.contextLinks.firstIndex(where: { $0.url == existingURL }) {
+            state.contextLinks[index] = normalized
+        } else {
+            guard state.contextLinks.count < Validation.maxContextLinks else {
+                throw ValidationError("You can attach at most \(Validation.maxContextLinks) links to a meeting.")
+            }
+            state.contextLinks.append(normalized)
+        }
+        session = state
+        persist(state)
+        return state
+    }
+
+    /// Convenience for adding a new context link to the recording session.
+    @discardableResult
+    public func addContextLink(_ link: ContextLink) throws -> RecordingSessionState {
+        try saveContextLink(link, replacing: nil)
+    }
+
+    /// Removes a context link by URL from the active or recovered recording and persists `session.json`.
+    @discardableResult
+    public func removeContextLink(_ url: String) -> RecordingSessionState? {
+        guard var state = session else { return nil }
+        state.contextLinks.removeAll { $0.url == url }
+        session = state
+        persist(state)
+        return state
     }
 
     public func pause() {
@@ -249,14 +340,17 @@ public final class RecordingCoordinator {
         try? FileManager.default.removeItem(at: audio)
         try FileManager.default.moveItem(at: mixed, to: audio)
 
-        let meeting = Meeting(
-            id: state.id, title: state.options.title, audioName: "recording.wav",
-            language: state.options.language, speakerCount: state.options.speakerCount,
+        let current = session?.id == state.id ? session! : state
+        var meeting = Meeting(
+            id: state.id, title: current.options.title, audioName: "recording.wav",
+            language: current.options.language, speakerCount: current.options.speakerCount,
             duration: duration, videoName: videoName, error: warning, cleanup: record,
-            automaticTitle: state.options.automaticTitle,
-            recordedAt: Self.keptAudioStart(startedAt: state.startedAt, head: record?.head ?? 0),
+            automaticTitle: current.options.automaticTitle,
+            recordedAt: Self.keptAudioStart(startedAt: current.startedAt, head: record?.head ?? 0),
             source: .recording
         )
+        meeting.notes = current.notes
+        meeting.contextLinks = current.contextLinks
         do {
             _ = try await store.insert(meeting)
         } catch {
@@ -265,6 +359,7 @@ public final class RecordingCoordinator {
             try? FileManager.default.removeItem(at: paths.videoURL(state.id))
             throw error
         }
+        UserDefaults.standard.removeObject(forKey: NotesDraft.key(state.id))
         session = nil
         microphoneLevel = nil
         systemLevel = nil
@@ -287,6 +382,7 @@ public final class RecordingCoordinator {
         try? FileManager.default.removeItem(
             at: paths.recordingsDirectory.appendingPathComponent(state.id, isDirectory: true)
         )
+        UserDefaults.standard.removeObject(forKey: NotesDraft.key(state.id))
         session = nil
         microphoneLevel = nil
         systemLevel = nil

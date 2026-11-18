@@ -60,6 +60,32 @@ private func scratchDirectory() throws -> URL {
         clock.resume(at: 112)
         #expect(clock.seconds(at: 115) == 8)
     }
+
+    /// If an internal stop (such as a mic timeout or recording limit) has already set
+    /// `stopping = true`, calling `stop()` must still wait until file finalization finishes.
+    @Test func stopAwaitsInProgressInternalFinalization() async throws {
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let session = CaptureSession(
+            options: CaptureOptions(title: "Test", screenVideo: true), directory: directory
+        )
+        try session.simulateInternalStopForTesting()
+
+        async let firstStop: Void = session.stop()
+        async let secondStop: Void = session.stop()
+        await firstStop
+        await secondStop
+
+        var states: [CaptureState] = []
+        for await event in session.events {
+            if case .state(let state, _, _) = event { states.append(state) }
+        }
+        #expect(states == [.stopping, .stopped])
+        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("microphone.wav").path))
+
+        // Calling stop() again after finalization has completed returns immediately.
+        await session.stop()
+    }
 }
 
 @Suite struct AudioBufferTests {

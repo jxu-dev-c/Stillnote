@@ -44,6 +44,18 @@ import Testing
         let single = try MeetingNamer.prompt(meeting(String(repeating: "é", count: MeetingNamer.maxTranscriptBytes)))
         #expect(single.contains("Dana: éé"))
         #expect(single.utf8.count < MeetingNamer.maxTranscriptBytes + 1_000)
+
+        // An unsummarized transcript exceeding Summarizer.maxTranscriptBytes (600 KB) still
+        // takes its opening slice rather than failing with "too long to summarize".
+        var oversized = meeting()
+        oversized.segments = (0..<65).map {
+            Segment(id: "\($0)", start: Double($0), end: Double($0) + 1, speaker: "speaker_1",
+                    text: "Segment \($0) " + String(repeating: "topic ", count: 1_700))
+        }
+        let oversizedPrompt = try MeetingNamer.prompt(oversized)
+        #expect(oversizedPrompt.contains("Dana: Segment 0 topic"))
+        #expect(!oversizedPrompt.contains("Segment 64 "))
+        #expect(oversizedPrompt.utf8.count < MeetingNamer.maxTranscriptBytes * 11 / 10)
     }
 
     @Test func requiresConsentAndATranscript() {
@@ -53,6 +65,8 @@ import Testing
         var empty = meeting()
         empty.segments = []
         #expect(throws: SummaryError.self) { try MeetingNamer.prompt(empty) }
+        let whitespaceOnly = meeting("   \n\t  ")
+        #expect(throws: SummaryError.self) { try MeetingNamer.prompt(whitespaceOnly) }
     }
 
     @Test func cleansSuggestedTitles() {

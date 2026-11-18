@@ -541,6 +541,14 @@ final class AppModel {
 
     func finishRecording() async -> Meeting? {
         do {
+            if let current = recorder.session {
+                let flushed = await NotesDraft.flush(meetingID: current.id, savedText: current.notes) { pending in
+                    (try? self.recorder.updateNotes(pending)) != nil
+                }
+                guard flushed else {
+                    throw ValidationError("Save your latest notes before stopping this recording.")
+                }
+            }
             let meeting = try await recorder.finish(
                 cleanup: RecordingCleanup(
                     settings: settings.cleanup,
@@ -555,6 +563,31 @@ final class AppModel {
             report(error)
             return nil
         }
+    }
+
+    @discardableResult
+    func updateRecordingNotes(_ notes: String) -> Bool {
+        do {
+            _ = try recorder.updateNotes(notes)
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    @discardableResult
+    func saveRecordingContextLink(_ link: ContextLink, replacing existingURL: String? = nil) throws -> RecordingSessionState {
+        try recorder.saveContextLink(link, replacing: existingURL)
+    }
+
+    @discardableResult
+    func addRecordingContextLink(_ link: ContextLink) throws -> RecordingSessionState {
+        try recorder.addContextLink(link)
+    }
+
+    func removeRecordingContextLink(_ url: String) {
+        _ = recorder.removeContextLink(url)
     }
 
     // MARK: - Transcription
@@ -850,17 +883,31 @@ final class AppModel {
 
     // MARK: - Settings and models
 
+    @ObservationIgnored private var settingsRevision = 0
+
     @discardableResult
     func saveSettings(_ updated: AppSettings) async -> Bool {
+        let previousModel = settings.transcription.model
+        settingsRevision += 1
+        return await saveSettings(updated, revision: settingsRevision, previousModel: previousModel)
+    }
+
+    private func saveSettings(_ updated: AppSettings, revision: Int, previousModel: String) async -> Bool {
+        guard settingsRevision == revision else { return true }
         do {
-            settings = try await store.saveSettings(updated)
-            await agentJobs.setLimit(settings.summary.concurrency)
+            let saved = try await store.saveSettings(updated)
+            guard settingsRevision == revision else { return true }
+            settings = saved
+            await agentJobs.setLimit(saved.summary.concurrency)
+            guard settingsRevision == revision else { return true }
             syncCommandServer()
             meetingReminder.sync(model: self)
-            await refreshEnvironment()
+            if saved.transcription.model != previousModel {
+                await refreshEnvironment()
+            }
             return true
         } catch {
-            report(error)
+            if settingsRevision == revision { report(error) }
             return false
         }
     }
@@ -872,9 +919,11 @@ final class AppModel {
         change(&updated)
         guard updated != previous else { return }
         settings = updated
+        settingsRevision += 1
+        let revision = settingsRevision
         Task {
-            let saved = await saveSettings(updated)
-            if !saved, settings == updated { settings = previous }
+            let saved = await saveSettings(updated, revision: revision, previousModel: previous.transcription.model)
+            if !saved, settingsRevision == revision { settings = previous }
         }
     }
 

@@ -152,6 +152,20 @@ public actor Store {
         """
     }
 
+    private static let searchUnchanged = """
+        CASE WHEN json_valid(OLD.data) AND json_valid(NEW.data)
+        THEN json_extract(OLD.data, '$.title') = json_extract(NEW.data, '$.title')
+            AND coalesce(json_extract(OLD.data, '$.notes'), '') = coalesce(json_extract(NEW.data, '$.notes'), '')
+            AND coalesce(json_extract(OLD.data, '$.summary.overview'), '') = coalesce(json_extract(NEW.data, '$.summary.overview'), '')
+            AND coalesce(json_extract(OLD.data, '$.summary.key_points'), '[]') = coalesce(json_extract(NEW.data, '$.summary.key_points'), '[]')
+            AND coalesce(json_extract(OLD.data, '$.summary.decisions'), '[]') = coalesce(json_extract(NEW.data, '$.summary.decisions'), '[]')
+            AND (SELECT json_group_array(json_array(json_extract(value, '$.text'), json_extract(value, '$.owner'))) FROM json_each(OLD.data, '$.summary.action_items'))
+                = (SELECT json_group_array(json_array(json_extract(value, '$.text'), json_extract(value, '$.owner'))) FROM json_each(NEW.data, '$.summary.action_items'))
+            AND (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(OLD.data, '$.segments'))
+                = (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(NEW.data, '$.segments'))
+        ELSE 0 END
+        """
+
     private static let libraryTriggers = """
         CREATE TRIGGER meeting_library_insert AFTER INSERT ON meetings BEGIN
             INSERT OR REPLACE INTO meeting_library VALUES (NEW.id, \(libraryData("NEW")), 1, 1, NULL);
@@ -161,18 +175,10 @@ public actor Store {
                 data = \(libraryData("NEW")),
                 revision = revision + 1,
                 search_revision = search_revision + CASE WHEN
-                    CASE WHEN json_valid(OLD.data) AND json_valid(NEW.data)
-                    THEN json_extract(OLD.data, '$.title') = json_extract(NEW.data, '$.title')
-                        AND (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(OLD.data, '$.segments'))
-                            = (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(NEW.data, '$.segments'))
-                    ELSE 0 END
+                    \(searchUnchanged)
                     THEN 0 ELSE 1 END,
                 search_text = CASE WHEN
-                    CASE WHEN json_valid(OLD.data) AND json_valid(NEW.data)
-                    THEN json_extract(OLD.data, '$.title') = json_extract(NEW.data, '$.title')
-                        AND (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(OLD.data, '$.segments'))
-                            = (SELECT json_group_array(json_extract(value, '$.text')) FROM json_each(NEW.data, '$.segments'))
-                    ELSE 0 END
+                    \(searchUnchanged)
                     THEN search_text ELSE NULL END
             WHERE id = OLD.id;
         END;
@@ -192,9 +198,9 @@ public actor Store {
         }
         sqlite3_finalize(statement)
         let exists = !definitions.isEmpty
-        // Libraries indexed before the meeting list showed snippets get the current triggers,
-        // and every row its snippet, once. Revisions are left alone: nothing visible changed.
-        if exists, definitions.contains(where: { $0.contains("'$.snippet'") }) { return }
+        // Libraries indexed before the meeting list showed snippets or searched notes and
+        // summaries get the current triggers and rebuild their search documents once.
+        if exists, definitions.contains(where: { $0.contains("'$.summary.action_items'") }) { return }
         try run(db, "BEGIN IMMEDIATE")
         do {
             if exists {
@@ -203,7 +209,9 @@ public actor Store {
                     DROP TRIGGER IF EXISTS meeting_library_update;
                     DROP TRIGGER IF EXISTS meeting_library_delete;
                     \(libraryTriggers)
-                    UPDATE meeting_library SET data = (SELECT \(libraryData("m")) FROM meetings m WHERE m.id = meeting_library.id);
+                    UPDATE meeting_library SET
+                        data = (SELECT \(libraryData("m")) FROM meetings m WHERE m.id = meeting_library.id),
+                        search_text = NULL;
                     COMMIT;
                     """)
             } else {
@@ -432,10 +440,18 @@ public actor Store {
                   let data = try documents("SELECT data FROM deleted_meetings WHERE id=?", [id]).first
             else { throw StoreError.notFound }
             var meeting = try decoder.decode(Meeting.self, from: data)
-            // A tag may have been removed during retention.
+            // A tag or speaker profile may have been removed during retention.
             let existing = Set(try tags().map(\.id))
             if meeting.tagIDs.contains(where: { !existing.contains($0) }) {
                 meeting.tagIDs = meeting.tagIDs.filter(existing.contains)
+            }
+            let existingProfiles = Set(try profiles().map(\.id))
+            if meeting.speakerProfiles.values.contains(where: { !existingProfiles.contains($0) })
+                || meeting.autoSpeakerProfiles.keys.contains(where: { meeting.speakerProfiles[$0] == nil })
+            {
+                meeting.speakerProfiles = meeting.speakerProfiles.filter { existingProfiles.contains($0.value) }
+                let linked = meeting.speakerProfiles
+                meeting.autoSpeakerProfiles = meeting.autoSpeakerProfiles.filter { linked[$0.key] != nil }
             }
             try insert(meeting)
             try execute("""

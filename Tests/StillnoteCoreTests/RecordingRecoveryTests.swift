@@ -161,6 +161,66 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: directory.path))
     }
 
+    @Test func legacySessionJSONWithoutNotesOrLinksDecodesWithDefaults() async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        let directory = paths.recordingsDirectory.appendingPathComponent("legacy-json")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let options = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(CaptureOptions(title: "Legacy session"))
+        )
+        let raw: [String: Any] = [
+            "id": "legacy-json",
+            "status": CaptureState.stopped.rawValue,
+            "elapsed": 12,
+            "options": options,
+        ]
+        try JSONSerialization.data(withJSONObject: raw)
+            .write(to: directory.appendingPathComponent("session.json"))
+
+        let recorder = RecordingCoordinator(store: store, paths: paths)
+        await recorder.recover()
+        #expect(recorder.session?.id == "legacy-json")
+        #expect(recorder.session?.notes == "")
+        #expect(recorder.session?.contextLinks == [])
+    }
+
+    @Test func liveNotesAndContextLinksPersistAcrossRecoveryAndSaveIntoMeeting() async throws {
+        let paths = try temporaryPaths()
+        defer { try? FileManager.default.removeItem(at: paths.dataDirectory.deletingLastPathComponent()) }
+        let store = try Store(paths: paths)
+        try writeSession(id: "live-context", paths: paths)
+        let recorder = RecordingCoordinator(store: store, paths: paths)
+        await recorder.recover()
+
+        try recorder.updateNotes("Action: review latency benchmarks")
+        try recorder.addContextLink(ContextLink(url: "https://example.com/pr/130", title: "PR #130"))
+        try recorder.addContextLink(ContextLink(url: "https://example.com/temp", title: "Temp"))
+        try recorder.saveContextLink(
+            ContextLink(url: "https://example.com/pr/130", title: "Updated PR #130"),
+            replacing: "https://example.com/pr/130"
+        )
+        _ = recorder.removeContextLink("https://example.com/temp")
+
+        #expect(recorder.session?.notes == "Action: review latency benchmarks")
+        #expect(recorder.session?.contextLinks == [ContextLink(url: "https://example.com/pr/130", title: "Updated PR #130")])
+
+        // Simulate app restart before saving the recording.
+        let reopened = RecordingCoordinator(store: store, paths: paths)
+        await reopened.recover()
+        #expect(reopened.session?.notes == "Action: review latency benchmarks")
+        #expect(reopened.session?.contextLinks == [ContextLink(url: "https://example.com/pr/130", title: "Updated PR #130")])
+
+        let meeting = try await reopened.finish()
+        #expect(meeting.notes == "Action: review latency benchmarks")
+        #expect(meeting.contextLinks == [ContextLink(url: "https://example.com/pr/130", title: "Updated PR #130")])
+
+        let stored = try await store.get("live-context")
+        #expect(stored.notes == "Action: review latency benchmarks")
+        #expect(stored.contextLinks == [ContextLink(url: "https://example.com/pr/130", title: "Updated PR #130")])
+    }
+
     private func writeSession(
         id: String, paths: Paths, options: CaptureOptions = CaptureOptions(title: "Synthetic meeting"),
         startedAt: String? = nil

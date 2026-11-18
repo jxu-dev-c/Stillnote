@@ -122,6 +122,25 @@ enum RootSheet: String, Identifiable { case record, importAudio; var id: String 
         require(!model.recentlyDeleted.contains { $0.id == "discarded" })
         require(!FileManager.default.fileExists(
             atPath: paths.recordingsDirectory.appendingPathComponent("discarded").path))
+        // Concurrent changeSettings calls must not let an earlier in-flight save clobber
+        // a newer edit on MainActor or in SQLite.
+        model.changeSettings { $0.cleanup.trimRecording = false }
+        await Task.yield()
+        model.changeSettings { $0.cleanup.suppressNonSpeech = false }
+        require(model.settings.cleanup.trimRecording == false)
+        require(model.settings.cleanup.suppressNonSpeech == false)
+        model.changeSettings { $0.cleanup.sensitivity = .aggressive }
+        let settingsDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while (try await store.settings().cleanup.sensitivity) != .aggressive
+            && ContinuousClock.now < settingsDeadline
+        {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let persistedCleanup = try await store.settings().cleanup
+        require(model.settings.cleanup == persistedCleanup)
+        require(persistedCleanup.trimRecording == false)
+        require(persistedCleanup.suppressNonSpeech == false)
+        require(persistedCleanup.sensitivity == .aggressive)
         await model.shutdown()
         print("PASS: metadata-only load, on-demand detail, background search, CLI edits to unopened meetings, revisions, rapid selection, edit refresh, eviction, deletion, missing detail, and deleting or discarding a recording")
     }

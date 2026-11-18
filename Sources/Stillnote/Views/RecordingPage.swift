@@ -1,3 +1,4 @@
+import AppKit
 import StillnoteCore
 import SwiftUI
 
@@ -44,9 +45,16 @@ struct RecordingPage: View {
             }
             VStack(spacing: 0) {
                 header(session)
-                switch page {
-                case .transcript: live(session)
-                case .summary: summaryPlaceholder
+                ZStack(alignment: .bottom) {
+                    switch page {
+                    case .transcript: live(session)
+                    case .summary: summary(session)
+                    }
+                    BottomFade()
+                    dock(session)
+                        .padding(.leading, 28)
+                        .padding(.trailing, 32)
+                        .padding(.bottom, 22)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -90,14 +98,39 @@ struct RecordingPage: View {
         .padding(EdgeInsets(top: 14, leading: 28, bottom: 4, trailing: 28))
     }
 
-    private var summaryPlaceholder: some View {
-        Text("No summary yet. A summary is created after the meeting ends.")
-            .font(.system(size: 20, weight: .medium))
-            .letterSpacing(-0.015, size: 20)
-            .foregroundStyle(DS.text2)
-            .frame(maxWidth: 780, alignment: .leading)
-            .padding(EdgeInsets(top: 20, leading: 28, bottom: 0, trailing: 28))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    private func summary(_ session: RecordingSessionState) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 8) {
+                        Icon(.sparkle, size: 16, lineWidth: 1.8).foregroundStyle(DS.accentInk)
+                        Text("Summary")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(DS.text)
+                        Spacer(minLength: 8)
+                    }
+                    .frame(minHeight: 28)
+                    .padding(.bottom, 12)
+
+                    Text("No summary yet. A summary is created after the meeting ends.")
+                        .font(.system(size: 20, weight: .medium))
+                        .letterSpacing(-0.015, size: 20)
+                        .lineSpacing(4)
+                        .foregroundStyle(DS.text2)
+                        .frame(maxWidth: 780, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Hairline().padding(.vertical, 28)
+                RecordingMasonryLayout(columnSpacing: 48, rowSpacing: 32) {
+                    RecordingLinksSection(session: session)
+                    RecordingNotesSection(session: session)
+                }
+            }
+            .padding(EdgeInsets(top: 20, leading: 28, bottom: 112, trailing: 28))
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.automatic)
+        .accessibilityLabel("Recording summary and context")
     }
 
     // MARK: Live
@@ -107,19 +140,12 @@ struct RecordingPage: View {
         if session.status == .stopped && !model.recorder.isSaving {
             save = StatusAction("Save Recording") { Task { await finish(.stop) } }
         }
-        return ZStack(alignment: .bottom) {
-            StatusPage(
-                labelView: { label(session) },
-                bigView: { if session.status != .starting { RecordingTimer() } },
-                message: message(session),
-                action: save
-            )
-            BottomFade()
-            dock(session)
-                .padding(.leading, 28)
-                .padding(.trailing, 32)
-                .padding(.bottom, 22)
-        }
+        return StatusPage(
+            labelView: { label(session) },
+            bigView: { if session.status != .starting { RecordingTimer() } },
+            message: message(session),
+            action: save
+        )
     }
 
     @ViewBuilder
@@ -330,5 +356,286 @@ private struct LiveStrip: View {
                            startPoint: .leading, endPoint: .trailing)
         }
         .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Live Context & Notes
+
+private struct RecordingMasonryLayout: Layout {
+    var columnSpacing: CGFloat
+    var rowSpacing: CGFloat
+    var twoColumnMinimum: CGFloat = 560
+
+    private struct Arrangement {
+        var columns: Int
+        var columnWidth: CGFloat
+        var heights: [CGFloat]
+        var slots: [MasonryPlacement.Slot]
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 720
+        let arrangement = arrange(subviews, width: width)
+        let height = MasonryPlacement.height(
+            heights: arrangement.heights, columns: arrangement.columns, spacing: rowSpacing
+        )
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let arrangement = arrange(subviews, width: bounds.width)
+        for (index, subview) in subviews.enumerated() {
+            let slot = arrangement.slots[index]
+            let x = bounds.minX + CGFloat(slot.column) * (arrangement.columnWidth + columnSpacing)
+            subview.place(
+                at: CGPoint(x: x, y: bounds.minY + slot.y),
+                proposal: ProposedViewSize(width: arrangement.columnWidth, height: arrangement.heights[index])
+            )
+        }
+    }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> Arrangement {
+        let columns = width >= twoColumnMinimum ? 2 : 1
+        let columnWidth = max(0, (width - columnSpacing * CGFloat(columns - 1)) / CGFloat(columns))
+        let heights = subviews.map { $0.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).height }
+        let slots = MasonryPlacement.slots(heights: heights, columns: columns, spacing: rowSpacing)
+        return Arrangement(columns: columns, columnWidth: columnWidth, heights: heights, slots: slots)
+    }
+}
+
+private struct RecordingSectionBlock<Content: View, Accessory: View>: View {
+    let title: String
+    var spacing: CGFloat = 12
+    @ViewBuilder let content: Content
+    @ViewBuilder let accessory: Accessory
+
+    init(
+        title: String, spacing: CGFloat = 12, @ViewBuilder content: () -> Content,
+        @ViewBuilder accessory: () -> Accessory = { EmptyView() }
+    ) {
+        self.title = title
+        self.spacing = spacing
+        self.content = content()
+        self.accessory = accessory()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(DS.text)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
+                accessory
+            }
+            .frame(minHeight: 28)
+            .padding(.bottom, 12)
+            VStack(alignment: .leading, spacing: spacing) { content }
+        }
+    }
+}
+
+private struct RecordingLinksSection: View {
+    @Environment(AppModel.self) private var model
+    let session: RecordingSessionState
+    @State private var adding = false
+    @State private var editing: ContextLink?
+
+    var body: some View {
+        RecordingSectionBlock(title: "Links", spacing: 2) {
+            if session.contextLinks.isEmpty {
+                Text("No links yet. Add any you want to keep with this meeting.")
+                    .font(.system(size: 14))
+                    .lineSpacing(3)
+                    .foregroundStyle(DS.text2)
+            }
+            ForEach(session.contextLinks) { link in
+                RecordingLinkRow(
+                    link: link,
+                    edit: { editing = link },
+                    remove: { model.removeRecordingContextLink(link.url) }
+                )
+            }
+        } accessory: {
+            Button { adding = true } label: {
+                Icon(.plus, size: 16, lineWidth: 2)
+                    .foregroundStyle(DS.accentInk)
+                    .frame(width: 24, height: 24)
+                    .hoverFill(Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(session.contextLinks.count >= Validation.maxContextLinks)
+            .help("Add link")
+            .accessibilityLabel("Add link")
+        }
+        .sheet(isPresented: $adding) { RecordingLinkEditor(session: session, existing: nil) }
+        .sheet(item: $editing) { link in RecordingLinkEditor(session: session, existing: link) }
+    }
+}
+
+private struct RecordingLinkRow: View {
+    let link: ContextLink
+    let edit: () -> Void
+    let remove: () -> Void
+
+    var body: some View {
+        let url = URL(string: link.url)
+        let host = url?.host()?.replacingOccurrences(of: "www.", with: "") ?? link.url
+        Button {
+            if let url { NSWorkspace.shared.open(url) }
+        } label: {
+            HStack(spacing: 12) {
+                Icon(.link, size: 16, lineWidth: 1.8)
+                    .foregroundStyle(DS.accentInk)
+                    .frame(width: 32, height: 32)
+                    .background(DS.hover, in: .rect(cornerRadius: 9))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(link.title.isEmpty ? host : link.title)
+                        .font(.system(size: 15))
+                        .foregroundStyle(DS.text)
+                        .lineLimit(1)
+                    Text(host)
+                        .font(.system(size: 13))
+                        .foregroundStyle(DS.text2)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .contentShape(.rect(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, -8)
+        .help(link.url)
+        .contextMenu {
+            Button("Open in Browser") { if let url { NSWorkspace.shared.open(url) } }
+            Button("Copy Link") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(link.url, forType: .string)
+            }
+            Button("Edit…", action: edit)
+            Divider()
+            Button("Remove", role: .destructive, action: remove)
+        }
+    }
+}
+
+private struct RecordingNotesSection: View {
+    @Environment(AppModel.self) private var model
+    let session: RecordingSessionState
+    @State private var draft = NotesDraft()
+    @State private var saveTask: Task<Void, Never>?
+
+    var body: some View {
+        RecordingSectionBlock(title: "Notes", spacing: 8) {
+            TextEditor(text: $draft.text)
+                .font(.system(size: 15))
+                .lineSpacing(4.5)
+                .foregroundStyle(DS.text)
+                .scrollContentBackground(.hidden)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 14)
+                .frame(height: 112)
+                .background(DS.field, in: .rect(cornerRadius: 14))
+                .accessibilityLabel("Meeting notes")
+                .onChange(of: draft.text) { scheduleSave() }
+            if let error = draft.error {
+                HStack(spacing: 8) {
+                    Text(error).foregroundStyle(.orange)
+                    Button("Retry") { Task { await save() } }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(DS.accentInk)
+                }
+                .font(.system(size: 12.5))
+            }
+        } accessory: {
+            if draft.isDirty && draft.error == nil {
+                Text("Saving…").font(.system(size: 12.5)).foregroundStyle(DS.text3)
+            }
+        }
+        .onAppear { draft.load(meetingID: session.id, savedText: session.notes) }
+        .onChange(of: session.id) { _, _ in
+            saveTask?.cancel()
+            draft.load(meetingID: session.id, savedText: session.notes)
+        }
+        .onDisappear {
+            saveTask?.cancel()
+            Task { await save() }
+        }
+    }
+
+    private func scheduleSave() {
+        saveTask?.cancel()
+        draft.recordEdit()
+        guard draft.isDirty else { return }
+        saveTask = Task {
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            await save()
+        }
+    }
+
+    private func save() async {
+        await draft.save { pending in
+            model.updateRecordingNotes(pending)
+        }
+    }
+}
+
+private struct RecordingLinkEditor: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    let session: RecordingSessionState
+    let existing: ContextLink?
+
+    @State private var address = ""
+    @State private var label = ""
+    @State private var error: String?
+    @State private var saving = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(existing == nil ? "Add link" : "Edit link").font(.headline)
+            Form {
+                TextField("URL", text: $address, prompt: Text("https://example.com"))
+                TextField("Label", text: $label, prompt: Text("Use the page title"))
+            }
+            .formStyle(.grouped)
+            .frame(height: 90)
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.callout)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                Button(saving ? "Saving…" : "Save") { Task { await save() } }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(saving)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+        .onAppear {
+            address = existing?.url ?? ""
+            label = existing?.title ?? ""
+        }
+    }
+
+    private func save() async {
+        let others = session.contextLinks.filter { $0.url != existing?.url }
+        do {
+            let url = try Validation.contextLinkURL(address, existing: others)
+            saving = true
+            var title = label.trimmingCharacters(in: .whitespacesAndNewlines)
+            if title.isEmpty { title = await LinkMetadata.pageTitle(url) }
+            let link = ContextLink(url: url, title: String(title.prefix(Validation.maxLinkTitleLength)))
+            _ = try model.saveRecordingContextLink(link, replacing: existing?.url)
+            dismiss()
+        } catch {
+            saving = false
+            self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
     }
 }
