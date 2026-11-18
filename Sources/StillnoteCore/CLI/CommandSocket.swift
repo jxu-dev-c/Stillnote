@@ -47,6 +47,13 @@ public enum CommandSocket {
         setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &value, socklen_t(MemoryLayout<timeval>.size))
     }
 
+    /// A client that disconnects before reading the reply must make `write` fail with `EPIPE`
+    /// rather than raising `SIGPIPE` and terminating the app.
+    static func disableSigPipe(_ descriptor: Int32) {
+        var enabled: Int32 = 1
+        setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &enabled, socklen_t(MemoryLayout<Int32>.size))
+    }
+
     /// True when something is accepting connections at `path`. Used to tell a socket left behind
     /// by a crash from one a second app instance is still serving.
     public static func isListening(at path: String) -> Bool {
@@ -54,6 +61,7 @@ public enum CommandSocket {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { return false }
         defer { close(descriptor) }
+        disableSigPipe(descriptor)
         setTimeout(descriptor, 1)
         return (try? withAddress(path) { pointer, length in
             Darwin.connect(descriptor, pointer, length) == 0
@@ -68,6 +76,7 @@ public final class CommandConnection: @unchecked Sendable {
 
     init(descriptor: Int32, timeout: Double) {
         self.descriptor = descriptor
+        CommandSocket.disableSigPipe(descriptor)
         CommandSocket.setTimeout(descriptor, timeout)
     }
 
@@ -140,6 +149,7 @@ public final class CommandListener: @unchecked Sendable {
         guard descriptor >= 0 else {
             throw CLIError.failed("A command socket could not be created: \(String(cString: strerror(errno))).")
         }
+        CommandSocket.disableSigPipe(descriptor)
         do {
             try CommandSocket.withAddress(path) { pointer, length in
                 guard Darwin.bind(descriptor, pointer, length) == 0 else {

@@ -145,4 +145,52 @@ private func serve(
         listener.close()
         #expect(done.wait(timeout: .now() + 5) == .success)
     }
+
+    /// A CLI client that disconnects before reading a large reply must cause `write` to throw
+    /// `CLIError.failed` rather than raising `SIGPIPE` and killing the server process.
+    @Test func disconnectedClientDoesNotRaiseSigPipeOnWrite() throws {
+        let path = socketPath()
+        let listener = try CommandListener(path: path)
+        defer { listener.close() }
+
+        let clientClosed = DispatchSemaphore(value: 0)
+        let writeFinished = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var writeError: CLIError?
+
+        Thread.detachNewThread {
+            guard let connection = listener.accept() else {
+                writeFinished.signal()
+                return
+            }
+            defer {
+                connection.close()
+                writeFinished.signal()
+            }
+            _ = try? connection.readLine()
+            _ = clientClosed.wait(timeout: .now() + 5)
+            do {
+                try connection.write(line: String(repeating: "x", count: 512 * 1024))
+            } catch let error as CLIError {
+                writeError = error
+            } catch {}
+        }
+
+        let client = socket(AF_UNIX, SOCK_STREAM, 0)
+        #expect(client >= 0)
+        try CommandSocket.withAddress(path) { pointer, length in
+            #expect(Darwin.connect(client, pointer, length) == 0)
+        }
+        let request = #"{"command":["show"],"flags":["segments"],"positionals":["big"],"values":{}}"# + "\n"
+        _ = request.withCString { Darwin.write(client, $0, request.utf8.count) }
+        Darwin.close(client)
+        clientClosed.signal()
+
+        #expect(writeFinished.wait(timeout: .now() + 5) == .success)
+        #expect(writeError?.code == .failed)
+
+        serve(listener) { _ in CLIResponse(code: .ok, message: "still alive") }
+        let reply = try CommandClient.send(CLIRequest(command: ["status"]), to: path, timeout: 5)
+        #expect(reply.code == .ok)
+        #expect(reply.message == "still alive")
+    }
 }
