@@ -96,13 +96,14 @@ public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate, @
     private var videoInput: AVAssetWriterInput?
     private var timer: DispatchSourceTimer?
     private var stopping = false
+    private var stopped = false
     private var failure: String?
     private var lastMic = 0.0
     private var lastSystem = 0.0
     private var microphoneLevel: CaptureLevel?
     private var systemLevel: CaptureLevel?
     private var lastVideoPTS = CMTime.invalid
-    private var finished: CheckedContinuation<Void, Never>?
+    private var finished: [CheckedContinuation<Void, Never>] = []
 
     public init(options: CaptureOptions, directory: URL) {
         self.options = options
@@ -235,11 +236,11 @@ public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate, @
     public func stop() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             queue.async {
-                if self.stopping {
+                if self.stopped {
                     continuation.resume()
                     return
                 }
-                self.finished = continuation
+                self.finished.append(continuation)
                 self.finish()
             }
         }
@@ -366,10 +367,12 @@ public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate, @
                 failure = "Screen video could not be finalized: "
                     + "\(video.error?.localizedDescription ?? "Unknown error"). Your audio can still be saved."
             }
+            stopped = true
             emitState(.stopped)
             continuation.finish()
-            finished?.resume()
-            finished = nil
+            let waiters = finished
+            finished.removeAll()
+            for waiter in waiters { waiter.resume() }
             stream = nil
         }
         if let writer = video, writer.status == .writing {
@@ -382,6 +385,16 @@ public final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate, @
             writer.finishWriting { self.queue.async(execute: complete) }
         } else {
             complete()
+        }
+    }
+
+    func simulateInternalStopForTesting() throws {
+        try queue.sync {
+            timeline = CaptureTimeline(start: captureHostTime())
+            microphone = try PCMWriter(url: directory.appendingPathComponent("microphone.wav"))
+            if options.screenVideo { try startVideoWriter(width: 320, height: 240) }
+            failure = "Simulated internal stop"
+            finish()
         }
     }
 }
