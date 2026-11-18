@@ -16,16 +16,22 @@ final class LyricsState {
         following = false
         focus = index
     }
+
+    func activeSearchMatchSegmentID(in segments: [Segment]) -> String? {
+        TranscriptReader.activeSearchMatchSegmentID(in: segments, matches: matches, focus: focus)
+    }
 }
 
 struct TranscriptPage: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openSettings) private var openSettings
+    @AppStorage("stillnote.transcriptDisplayMode") private var displayMode: TranscriptDisplayMode = .lyrics
     let meeting: Meeting
     let player: PlayerModel?
     let lyrics: LyricsState
     @Binding var picker: PickerTarget?
     let retranscribe: () -> Void
+    @State private var copiedTranscript = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -34,7 +40,15 @@ struct TranscriptPage: View {
             } else if meeting.segments.isEmpty {
                 emptyStatus
             } else {
-                LyricsView(meeting: meeting, player: player, lyrics: lyrics, picker: $picker)
+                VStack(spacing: 0) {
+                    modeBar
+                    switch displayMode {
+                    case .lyrics:
+                        LyricsView(meeting: meeting, player: player, lyrics: lyrics, picker: $picker)
+                    case .reader:
+                        TranscriptReaderView(meeting: meeting, player: player, lyrics: lyrics, picker: $picker)
+                    }
+                }
             }
             if let player, meeting.status == .transcribing || !meeting.segments.isEmpty {
                 BottomFade()
@@ -52,6 +66,30 @@ struct TranscriptPage: View {
                 PlaybackFollower(segments: meeting.segments, player: player, lyrics: lyrics)
             }
         }
+        .onChange(of: displayMode) { _, _ in picker = nil }
+    }
+
+    private var modeBar: some View {
+        HStack(spacing: 10) {
+            TranscriptModeSwitcher(mode: $displayMode)
+            Spacer(minLength: 8)
+            if displayMode == .reader {
+                CapsuleButton(
+                    title: copiedTranscript ? "Copied" : "Copy Transcript",
+                    icon: copiedTranscript ? .check : .copy
+                ) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(TranscriptReader.formattedText(for: meeting), forType: .string)
+                    copiedTranscript = true
+                    Task {
+                        try? await Task.sleep(for: .seconds(2))
+                        copiedTranscript = false
+                    }
+                }
+                .help("Copy full transcript")
+            }
+        }
+        .padding(EdgeInsets(top: 6, leading: 28, bottom: 6, trailing: 28))
     }
 
     @ViewBuilder
@@ -351,6 +389,339 @@ private struct LyricsView: View {
         wheel += delta
         while wheel <= -40 { wheel += 40; step(1) }
         while wheel >= 40 { wheel -= 40; step(-1) }
+    }
+}
+
+// MARK: - Reader Mode
+
+private struct TranscriptModeSwitcher: View {
+    @Binding var mode: TranscriptDisplayMode
+
+    var body: some View {
+        HStack(spacing: 2) {
+            option(.lyrics, icon: .waveform)
+            option(.reader, icon: .transcript)
+        }
+        .padding(.horizontal, 3)
+        .frame(height: 30)
+        .designGlassCapsule()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Transcript view mode")
+    }
+
+    private func option(_ value: TranscriptDisplayMode, icon: DesignIcon) -> some View {
+        let selected = mode == value
+        return Button { mode = value } label: {
+            HStack(spacing: 6) {
+                Icon(icon, size: 14, lineWidth: 1.8)
+                Text(value.label)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(selected ? Color.white : DS.text2)
+            .padding(.leading, 9)
+            .padding(.trailing, 11)
+            .frame(height: 24)
+            .background(selected ? DS.selection : .clear, in: .capsule)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(value.label)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// Full-transcript scrollable document view with grouped speaker sections, clickable
+/// timestamps for seeking, native text selection across segments, search highlighting,
+/// and inline segment actions without auto-starting playback on text clicks.
+private struct TranscriptReaderView: View {
+    let meeting: Meeting
+    let player: PlayerModel?
+    let lyrics: LyricsState
+    @Binding var picker: PickerTarget?
+    @State private var editing: Segment?
+
+    var body: some View {
+        let groups = TranscriptReader.groups(for: meeting.segments)
+        let activeSearchMatchSegmentID = lyrics.activeSearchMatchSegmentID(in: meeting.segments)
+        let matchingSegmentIDs = TranscriptReader.matchingSegmentIDs(
+            in: meeting.segments, matches: lyrics.matches
+        )
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    ForEach(groups) { group in
+                        ReaderSpeakerGroupView(
+                            meeting: meeting,
+                            group: group,
+                            player: player,
+                            lyrics: lyrics,
+                            activeSearchMatchSegmentID: activeSearchMatchSegmentID,
+                            matchingSegmentIDs: matchingSegmentIDs,
+                            picker: $picker,
+                            onEdit: { editing = $0 }
+                        )
+                    }
+                }
+                .textSelection(.enabled)
+                .padding(EdgeInsets(top: 12, leading: 28, bottom: 112, trailing: 28))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.automatic)
+            .onChange(of: activeSearchMatchSegmentID) { _, id in
+                guard let id else { return }
+                withAnimation(.snappy(duration: 0.25)) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
+            .onChange(of: lyrics.focus) { _, focus in
+                guard meeting.segments.indices.contains(focus) else { return }
+                let targetID = meeting.segments[focus].id
+                if lyrics.following && player?.isPlaying == true || targetID == activeSearchMatchSegmentID {
+                    withAnimation(.snappy(duration: 0.25)) {
+                        proxy.scrollTo(targetID, anchor: .center)
+                    }
+                }
+            }
+        }
+        .sheet(item: $editing) { segment in
+            SegmentEditor(meeting: meeting, segment: segment)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Transcript document reader")
+    }
+}
+
+private struct ReaderSpeakerGroupView: View {
+    let meeting: Meeting
+    let group: TranscriptSpeakerGroup
+    let player: PlayerModel?
+    let lyrics: LyricsState
+    let activeSearchMatchSegmentID: String?
+    let matchingSegmentIDs: Set<String>
+    @Binding var picker: PickerTarget?
+    let onEdit: (Segment) -> Void
+
+    var body: some View {
+        let look = meeting.look(group.speaker)
+        let leadID = group.segments.first?.id ?? group.id
+        let open = picker == .line(leadID)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Button {
+                    picker = open ? nil : .line(leadID)
+                } label: {
+                    HStack(spacing: 8) {
+                        SpeakerPortrait(look: look, size: 22, fontSize: 11)
+                        Text(look.name).font(.system(size: 13, weight: .semibold))
+                        Icon(.chevronDown, size: 12, lineWidth: 2.6).opacity(0.7)
+                    }
+                    .foregroundStyle(look.unknown ? DS.accentInk : DS.text)
+                    .padding(.leading, 4)
+                    .padding(.trailing, 9)
+                    .frame(height: 30)
+                    .hoverFill(Capsule(), active: open, color: DS.hover)
+                    .background(look.unknown && !open ? DS.Accent.blue.tint : .clear, in: .capsule)
+                }
+                .buttonStyle(.plain)
+                .disabled(meeting.status.isBusy)
+                .help(meeting.status.isBusy ? "Available when processing finishes" : "Change the speaker for this line")
+                .accessibilityLabel("Speaker: \(look.name). Change speaker")
+                .anchorPreference(key: PickerAnchors.self, value: .bounds) { open ? [.line: $0] : [:] }
+                .padding(.leading, -4)
+
+                Button {
+                    seek(to: group.start, index: group.startIndex)
+                } label: {
+                    Text(LineSpeaker.clock(group.start))
+                        .font(.system(size: 12))
+                        .monospacedDigit()
+                        .foregroundStyle(DS.text2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .hoverFill(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("Seek to \(LineSpeaker.clock(group.start))")
+                .accessibilityLabel("Seek to \(LineSpeaker.clock(group.start))")
+
+                Spacer(minLength: 0)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(group.segments.enumerated()), id: \.element.id) { offset, segment in
+                    let segmentIndex = group.segmentIndex(at: offset)
+                    ReaderSegmentRow(
+                        meeting: meeting,
+                        segment: segment,
+                        segmentIndex: segmentIndex,
+                        isGroupLead: offset == 0,
+                        isFocused: lyrics.focus == segmentIndex,
+                        isActiveSearchMatch: segment.id == activeSearchMatchSegmentID,
+                        isSearchMatch: matchingSegmentIDs.contains(segment.id),
+                        player: player,
+                        lyrics: lyrics,
+                        picker: $picker,
+                        onSeek: { seek(to: segment.start, index: segmentIndex) },
+                        onPlay: { play(from: segment.start, index: segmentIndex) },
+                        onEdit: { onEdit(segment) }
+                    )
+                    .id(segment.id)
+                }
+            }
+        }
+    }
+
+    private func seek(to time: Double, index: Int) {
+        picker = nil
+        lyrics.browse(to: index)
+        player?.seek(to: time)
+    }
+
+    private func play(from time: Double, index: Int) {
+        picker = nil
+        lyrics.focus = index
+        lyrics.following = true
+        player?.play(from: time)
+    }
+}
+
+private struct ReaderSegmentRow: View {
+    let meeting: Meeting
+    let segment: Segment
+    let segmentIndex: Int
+    let isGroupLead: Bool
+    let isFocused: Bool
+    let isActiveSearchMatch: Bool
+    let isSearchMatch: Bool
+    let player: PlayerModel?
+    let lyrics: LyricsState
+    @Binding var picker: PickerTarget?
+    let onSeek: () -> Void
+    let onPlay: () -> Void
+    let onEdit: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let pickerOpenForRow = !isGroupLead && picker == .line(segment.id)
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Button(action: onSeek) {
+                Text(LineSpeaker.clock(segment.start))
+                    .font(.system(size: 12, weight: isFocused || isActiveSearchMatch ? .semibold : .regular))
+                    .monospacedDigit()
+                    .foregroundStyle(isActiveSearchMatch ? DS.accentInk : (isFocused ? DS.text : DS.text3))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .hoverFill(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Seek to \(LineSpeaker.clock(segment.start))")
+            .accessibilityLabel("Seek to \(LineSpeaker.clock(segment.start))")
+
+            Text(segment.text)
+                .font(.system(size: 16, weight: isActiveSearchMatch ? .medium : .regular))
+                .lineSpacing(4.5)
+                .foregroundStyle(DS.text)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 760, alignment: .leading)
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 2) {
+                Button(action: onPlay) {
+                    Icon(.play, size: 13, filled: true)
+                        .foregroundStyle(DS.text2)
+                        .frame(width: 24, height: 24)
+                        .hoverFill(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Play from here")
+                .accessibilityLabel("Play from here")
+
+                Button(action: onEdit) {
+                    Icon(.nameMeeting, size: 14)
+                        .foregroundStyle(DS.text2)
+                        .frame(width: 24, height: 24)
+                        .hoverFill(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(meeting.status.isBusy)
+                .help("Edit line")
+                .accessibilityLabel("Edit line")
+
+                Button {
+                    picker = (picker == .line(segment.id)) ? nil : .line(segment.id)
+                } label: {
+                    Icon(.people, size: 14)
+                        .foregroundStyle(DS.text2)
+                        .frame(width: 24, height: 24)
+                        .hoverFill(Circle(), active: picker == .line(segment.id))
+                }
+                .buttonStyle(.plain)
+                .disabled(meeting.status.isBusy)
+                .help("Change speaker for this line")
+                .accessibilityLabel("Change speaker for this line")
+                .anchorPreference(key: PickerAnchors.self, value: .bounds) {
+                    pickerOpenForRow ? [.line: $0] : [:]
+                }
+
+                Button {
+                    copy(segment.text)
+                } label: {
+                    Icon(.copy, size: 14)
+                        .foregroundStyle(DS.text2)
+                        .frame(width: 24, height: 24)
+                        .hoverFill(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Copy line")
+                .accessibilityLabel("Copy line")
+            }
+            .opacity(hovering || isActiveSearchMatch || picker == .line(segment.id) ? 1 : 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(rowBackground, in: .rect(cornerRadius: 12))
+        .overlay {
+            if isActiveSearchMatch {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(DS.accentInk.opacity(0.55), lineWidth: 1)
+            }
+        }
+        .onHover { hovering = $0 }
+        .contextMenu {
+            Button("Seek to \(LineSpeaker.clock(segment.start))", action: onSeek)
+            Button("Play from Here", action: onPlay)
+            Button("Edit Line…", action: onEdit)
+                .disabled(meeting.status.isBusy)
+            Button("Change Speaker…") {
+                picker = .line(segment.id)
+            }
+            .disabled(meeting.status.isBusy)
+            Divider()
+            Button("Copy Line") { copy(segment.text) }
+            Button("Copy Transcript") {
+                copy(TranscriptReader.formattedText(for: meeting))
+            }
+        }
+    }
+
+    private var rowBackground: Color {
+        if isActiveSearchMatch {
+            return DS.Accent.orange.tint
+        }
+        if isSearchMatch {
+            return DS.Accent.orange.tint.opacity(0.45)
+        }
+        if isFocused {
+            return DS.hover.opacity(0.65)
+        }
+        return .clear
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
 
