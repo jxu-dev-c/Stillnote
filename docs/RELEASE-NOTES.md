@@ -2,6 +2,18 @@
 
 Local meeting recording and transcription for **Apple silicon Macs running macOS 15 or newer**.
 
+## What's new in 0.16.1
+
+- **One transcript view for every meeting:** Choose **Lyrics** or **Reader** once in
+  **Settings → Transcribe → Transcript view** instead of with a toggle above each transcript.
+  Your current choice carries over.
+- **Reader no longer freezes:** Long transcripts open and switch views instantly. Reader now
+  builds lines as they scroll into view, so a 3,000-line transcript that took about 9 seconds
+  now shows in under 30 ms.
+- **Deleted meetings stay deleted:** Deleting a meeting while its title was still being
+  suggested after a summary no longer makes it vanish and reappear; it moves to **Recently
+  Deleted**. A meeting whose speakers are being auto-tagged says why it can't be deleted yet.
+
 ## What's new in 0.16.0
 
 - **Delete or discard an active recording:** The toolbar trash button, **Delete** in the meeting
