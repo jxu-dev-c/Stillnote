@@ -338,13 +338,16 @@ The meeting list groups meetings as Mail does (Today, Yesterday, Previous 7 and 
 months and years) and shows each one's time, length, people, and a `snippet`: the summary
 overview, or the first transcript line. Swiping a row right stars it and left deletes it, by
 two-finger trackpad swipe or by dragging; a short swipe reveals the action and a long one performs
-it. The open meeting swipes like any other; only meetings still being processed can't be deleted.
+it. The open meeting swipes like any other; only meetings still being processed (transcribing,
+summarizing, splitting, or auto-tagging speakers, per `AppModel.deletionBlocker`) can't be deleted.
+A meeting deleted while it is being named or tagged stays deleted; those jobs drop their result.
 The list's title is hidden while the sidebar is folded, where the window's controls sit. Deletion moves the document and voiceprints into `deleted_meetings` in one transaction; media stays in place. The five-second Undo toast restores it immediately. **Recently Deleted**, pinned above Settings, also restores meetings for five days (120 hours). Expired records and media are purged at launch and every minute while the app runs; cleanup retries file failures. Archived meetings are absent from normal lists, search, calendar, and CLI reads. Restore retains notes, summaries, and speaker assignments, but drops tags that no longer exist. **New
 Meeting** starts a recording with the saved defaults; ⌘R opens the recording options first.
 Recordings show in the window as their own page, from whichever entry point started them.
 
 A meeting opens on its Summary page when it has one, and otherwise on its Transcript. The
-transcript reads like lyrics: the focused line is large in the middle and fills in as it plays,
+transcript shows as **Lyrics** or **Reader**, one app-wide choice in Settings → Transcribe
+(`TranscriptDisplayMode`, kept in `UserDefaults`). Lyrics reads like lyrics: the focused line is large in the middle and fills in as it plays,
 with the lines around it fading. Focus follows playback; scrolling browses lines without seeking,
 and choosing a line plays from it. The dock below has 15-second skips and a timeline of the
 recording's loudness (`AudioEnvelope`, read once per meeting at 8 kHz off the main actor and

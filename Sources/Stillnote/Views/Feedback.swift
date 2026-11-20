@@ -46,11 +46,13 @@ final class Feedback {
 
     /// Hide while the archive write completes, then offer a quick restore.
     func delete(_ meeting: MeetingListItem, model: AppModel) {
-        guard !meeting.status.isBusy else {
-            model.alertMessage = "This meeting is processing. Wait for it to finish."
+        let id = meeting.id
+        // Check before hiding the row: a refused delete must not make the meeting blink out.
+        if let blocker = meeting.status.isBusy
+            ? "This meeting is processing. Wait for it to finish." : model.deletionBlocker(id) {
+            model.alertMessage = blocker
             return
         }
-        let id = meeting.id
         guard pendingDeletes.insert(id).inserted else { return }
         Task {
             await model.delete(id)

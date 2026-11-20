@@ -1,14 +1,25 @@
 import Foundation
 
-/// Presentation mode for a meeting's transcript page.
+/// How every meeting's transcript page is presented. One app-wide preference, chosen in
+/// Settings → Transcribe.
 public enum TranscriptDisplayMode: String, Codable, CaseIterable, Sendable {
     case lyrics
     case reader
+
+    /// The `UserDefaults` key holding the preference.
+    public static let defaultsKey = "stillnote.transcriptDisplayMode"
 
     public var label: String {
         switch self {
         case .lyrics: "Lyrics"
         case .reader: "Reader"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .lyrics: "One line at a time, following playback."
+        case .reader: "The full transcript as a document, grouped by speaker."
         }
     }
 }

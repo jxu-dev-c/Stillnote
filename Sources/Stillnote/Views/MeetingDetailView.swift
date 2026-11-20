@@ -42,14 +42,16 @@ struct MeetingDetailView: View {
     private var naming: Bool { model.namingMeetings.contains(meeting.id) }
     private var splitting: Bool { model.splittingMeetings.contains(meeting.id) }
     private var busy: Bool { meeting.status.isBusy || splitting }
+    /// Naming doesn't block deletion; auto-tagging speakers does (see `AppModel.deletionBlocker`).
+    private var canDelete: Bool { !busy && model.deletionBlocker(meeting.id) == nil }
 
     var body: some View {
         VStack(spacing: 0) {
             DetailToolbar(
-                actions: actions, actionsEnabled: !busy, deleteEnabled: !busy, page: $page, query: $query,
+                actions: actions, actionsEnabled: !busy, deleteEnabled: canDelete, page: $page, query: $query,
                 onSearch: searchTranscript(advance:)
             ) {
-                ToolbarIconButton(icon: .trash, label: "Delete Meeting", help: busy ? "Available when processing finishes" : nil, tint: DS.danger, enabled: !busy) {
+                ToolbarIconButton(icon: .trash, label: "Delete Meeting", help: canDelete ? nil : "Available when processing finishes", tint: DS.danger, enabled: canDelete) {
                     selection = nil
                     feedback.delete(MeetingListItem(meeting), model: model)
                 }

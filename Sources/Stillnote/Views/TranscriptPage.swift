@@ -25,7 +25,7 @@ final class LyricsState {
 struct TranscriptPage: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openSettings) private var openSettings
-    @AppStorage("stillnote.transcriptDisplayMode") private var displayMode: TranscriptDisplayMode = .lyrics
+    @AppStorage(TranscriptDisplayMode.defaultsKey) private var displayMode: TranscriptDisplayMode = .lyrics
     let meeting: Meeting
     let player: PlayerModel?
     let lyrics: LyricsState
@@ -40,12 +40,12 @@ struct TranscriptPage: View {
             } else if meeting.segments.isEmpty {
                 emptyStatus
             } else {
-                VStack(spacing: 0) {
-                    modeBar
-                    switch displayMode {
-                    case .lyrics:
-                        LyricsView(meeting: meeting, player: player, lyrics: lyrics, picker: $picker)
-                    case .reader:
+                switch displayMode {
+                case .lyrics:
+                    LyricsView(meeting: meeting, player: player, lyrics: lyrics, picker: $picker)
+                case .reader:
+                    VStack(spacing: 0) {
+                        readerBar
                         TranscriptReaderView(meeting: meeting, player: player, lyrics: lyrics, picker: $picker)
                     }
                 }
@@ -69,25 +69,23 @@ struct TranscriptPage: View {
         .onChange(of: displayMode) { _, _ in picker = nil }
     }
 
-    private var modeBar: some View {
+    /// The view itself is chosen once for every meeting, in Settings → Transcribe.
+    private var readerBar: some View {
         HStack(spacing: 10) {
-            TranscriptModeSwitcher(mode: $displayMode)
             Spacer(minLength: 8)
-            if displayMode == .reader {
-                CapsuleButton(
-                    title: copiedTranscript ? "Copied" : "Copy Transcript",
-                    icon: copiedTranscript ? .check : .copy
-                ) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(TranscriptReader.formattedText(for: meeting), forType: .string)
-                    copiedTranscript = true
-                    Task {
-                        try? await Task.sleep(for: .seconds(2))
-                        copiedTranscript = false
-                    }
+            CapsuleButton(
+                title: copiedTranscript ? "Copied" : "Copy Transcript",
+                icon: copiedTranscript ? .check : .copy
+            ) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(TranscriptReader.formattedText(for: meeting), forType: .string)
+                copiedTranscript = true
+                Task {
+                    try? await Task.sleep(for: .seconds(2))
+                    copiedTranscript = false
                 }
-                .help("Copy full transcript")
             }
+            .help("Copy full transcript")
         }
         .padding(EdgeInsets(top: 6, leading: 28, bottom: 6, trailing: 28))
     }
@@ -393,42 +391,6 @@ private struct LyricsView: View {
 }
 
 // MARK: - Reader Mode
-
-private struct TranscriptModeSwitcher: View {
-    @Binding var mode: TranscriptDisplayMode
-
-    var body: some View {
-        HStack(spacing: 2) {
-            option(.lyrics, icon: .waveform)
-            option(.reader, icon: .transcript)
-        }
-        .padding(.horizontal, 3)
-        .frame(height: 30)
-        .designGlassCapsule()
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Transcript view mode")
-    }
-
-    private func option(_ value: TranscriptDisplayMode, icon: DesignIcon) -> some View {
-        let selected = mode == value
-        return Button { mode = value } label: {
-            HStack(spacing: 6) {
-                Icon(icon, size: 14, lineWidth: 1.8)
-                Text(value.label)
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(selected ? Color.white : DS.text2)
-            .padding(.leading, 9)
-            .padding(.trailing, 11)
-            .frame(height: 24)
-            .background(selected ? DS.selection : .clear, in: .capsule)
-            .contentShape(.capsule)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(value.label)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-}
 
 /// Full-transcript scrollable document view with grouped speaker sections, clickable
 /// timestamps for seeking, native text selection across segments, search highlighting,

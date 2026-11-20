@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Choose **Lyrics** or **Reader** once for every meeting in **Settings → Transcribe → Transcript
+  view**, instead of with a toggle above each transcript. Your current choice carries over.
+- Keep a deleted meeting deleted. Deleting one whose title was still being suggested after its
+  summary silently did nothing, so the meeting vanished and then reappeared; it now moves to
+  **Recently Deleted** and the suggested title is discarded. A meeting whose speakers are being
+  auto-tagged can't be deleted until that finishes, and says so instead of reappearing.
+
 ## 0.16.0
 
 - Delete or discard a recording in progress. The trash button, the list's **Delete**, and a swipe
