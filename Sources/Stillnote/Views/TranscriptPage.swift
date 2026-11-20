@@ -10,7 +10,11 @@ final class LyricsState {
     /// While true, the focused line is the one playing. Browsing turns it off; choosing a
     /// line or pressing play turns it back on.
     var following = true
-    var matches: [Int] = []
+    var matches: [Int] = [] {
+        didSet { matchSet = Set(matches) }
+    }
+    /// `matches` for constant-time lookups from each transcript row.
+    private(set) var matchSet: Set<Int> = []
 
     func browse(to index: Int) {
         following = false
@@ -18,7 +22,15 @@ final class LyricsState {
     }
 
     func activeSearchMatchSegmentID(in segments: [Segment]) -> String? {
-        TranscriptReader.activeSearchMatchSegmentID(in: segments, matches: matches, focus: focus)
+        activeSearchMatchIndex(count: segments.count).map { segments[$0].id }
+    }
+
+    /// The line index `TranscriptReader.activeSearchMatchSegmentID` picks: the focused line
+    /// when it matches, otherwise the first match in range.
+    func activeSearchMatchIndex(count: Int) -> Int? {
+        guard !matches.isEmpty else { return nil }
+        if matchSet.contains(focus), focus >= 0, focus < count { return focus }
+        return matches.first { $0 >= 0 && $0 < count }
     }
 }
 
@@ -392,9 +404,13 @@ private struct LyricsView: View {
 
 // MARK: - Reader Mode
 
-/// Full-transcript scrollable document view with grouped speaker sections, clickable
-/// timestamps for seeking, native text selection across segments, search highlighting,
-/// and inline segment actions without auto-starting playback on text clicks.
+/// Full-transcript scrollable document view with speaker headers at each change of speaker,
+/// clickable timestamps for seeking, text selection, search highlighting, and inline segment
+/// actions without auto-starting playback on text clicks.
+///
+/// A transcript can run to thousands of lines, so rows are built lazily as they scroll into
+/// view, and this list reads only the meeting: playback focus and search state are read by the
+/// rows that show them and by `ReaderScrollFollower`, so a focus change never rebuilds the list.
 private struct TranscriptReaderView: View {
     let meeting: Meeting
     let player: PlayerModel?
@@ -403,25 +419,25 @@ private struct TranscriptReaderView: View {
     @State private var editing: Segment?
 
     var body: some View {
-        let groups = TranscriptReader.groups(for: meeting.segments)
-        let activeSearchMatchSegmentID = lyrics.activeSearchMatchSegmentID(in: meeting.segments)
-        let matchingSegmentIDs = TranscriptReader.matchingSegmentIDs(
-            in: meeting.segments, matches: lyrics.matches
-        )
+        let segments = meeting.segments
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    ForEach(groups) { group in
-                        ReaderSpeakerGroupView(
+                LazyVStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
+                        let leadsTurn = index == 0 || segments[index - 1].speaker != segment.speaker
+                        ReaderSegmentRow(
                             meeting: meeting,
-                            group: group,
+                            segment: segment,
+                            segmentIndex: index,
+                            leadsTurn: leadsTurn,
                             player: player,
                             lyrics: lyrics,
-                            activeSearchMatchSegmentID: activeSearchMatchSegmentID,
-                            matchingSegmentIDs: matchingSegmentIDs,
                             picker: $picker,
-                            onEdit: { editing = $0 }
+                            onEdit: { editing = segment }
                         )
+                        // A new speaker's turn opens with space above its header.
+                        .padding(.top, leadsTurn && index > 0 ? 16 : 0)
+                        .id(segment.id)
                     }
                 }
                 .textSelection(.enabled)
@@ -429,20 +445,8 @@ private struct TranscriptReaderView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollIndicators(.automatic)
-            .onChange(of: activeSearchMatchSegmentID) { _, id in
-                guard let id else { return }
-                withAnimation(.snappy(duration: 0.25)) {
-                    proxy.scrollTo(id, anchor: .center)
-                }
-            }
-            .onChange(of: lyrics.focus) { _, focus in
-                guard meeting.segments.indices.contains(focus) else { return }
-                let targetID = meeting.segments[focus].id
-                if lyrics.following && player?.isPlaying == true || targetID == activeSearchMatchSegmentID {
-                    withAnimation(.snappy(duration: 0.25)) {
-                        proxy.scrollTo(targetID, anchor: .center)
-                    }
-                }
+            .background {
+                ReaderScrollFollower(segments: segments, player: player, lyrics: lyrics, proxy: proxy)
             }
         }
         .sheet(item: $editing) { segment in
@@ -453,97 +457,83 @@ private struct TranscriptReaderView: View {
     }
 }
 
-private struct ReaderSpeakerGroupView: View {
-    let meeting: Meeting
-    let group: TranscriptSpeakerGroup
+/// Scrolls the reader to the active search match, and to the playing line while focus follows
+/// playback. Kept apart so that reading focus here re-evaluates only this empty view.
+private struct ReaderScrollFollower: View {
+    let segments: [Segment]
     let player: PlayerModel?
     let lyrics: LyricsState
-    let activeSearchMatchSegmentID: String?
-    let matchingSegmentIDs: Set<String>
-    @Binding var picker: PickerTarget?
-    let onEdit: (Segment) -> Void
+    let proxy: ScrollViewProxy
 
     var body: some View {
-        let look = meeting.look(group.speaker)
-        let leadID = group.segments.first?.id ?? group.id
-        let open = picker == .line(leadID)
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Button {
-                    picker = open ? nil : .line(leadID)
-                } label: {
-                    HStack(spacing: 8) {
-                        SpeakerPortrait(look: look, size: 22, fontSize: 11)
-                        Text(look.name).font(.system(size: 13, weight: .semibold))
-                        Icon(.chevronDown, size: 12, lineWidth: 2.6).opacity(0.7)
+        let activeMatchID = lyrics.activeSearchMatchSegmentID(in: segments)
+        Color.clear
+            .onChange(of: activeMatchID) { _, id in
+                guard let id else { return }
+                withAnimation(.snappy(duration: 0.25)) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
+            .onChange(of: lyrics.focus) { _, focus in
+                guard segments.indices.contains(focus) else { return }
+                let targetID = segments[focus].id
+                if lyrics.following && player?.isPlaying == true || targetID == activeMatchID {
+                    withAnimation(.snappy(duration: 0.25)) {
+                        proxy.scrollTo(targetID, anchor: .center)
                     }
-                    .foregroundStyle(look.unknown ? DS.accentInk : DS.text)
-                    .padding(.leading, 4)
-                    .padding(.trailing, 9)
-                    .frame(height: 30)
-                    .hoverFill(Capsule(), active: open, color: DS.hover)
-                    .background(look.unknown && !open ? DS.Accent.blue.tint : .clear, in: .capsule)
-                }
-                .buttonStyle(.plain)
-                .disabled(meeting.status.isBusy)
-                .help(meeting.status.isBusy ? "Available when processing finishes" : "Change the speaker for this line")
-                .accessibilityLabel("Speaker: \(look.name). Change speaker")
-                .anchorPreference(key: PickerAnchors.self, value: .bounds) { open ? [.line: $0] : [:] }
-                .padding(.leading, -4)
-
-                Button {
-                    seek(to: group.start, index: group.startIndex)
-                } label: {
-                    Text(LineSpeaker.clock(group.start))
-                        .font(.system(size: 12))
-                        .monospacedDigit()
-                        .foregroundStyle(DS.text2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .hoverFill(Capsule())
-                }
-                .buttonStyle(.plain)
-                .help("Seek to \(LineSpeaker.clock(group.start))")
-                .accessibilityLabel("Seek to \(LineSpeaker.clock(group.start))")
-
-                Spacer(minLength: 0)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(group.segments.enumerated()), id: \.element.id) { offset, segment in
-                    let segmentIndex = group.segmentIndex(at: offset)
-                    ReaderSegmentRow(
-                        meeting: meeting,
-                        segment: segment,
-                        segmentIndex: segmentIndex,
-                        isGroupLead: offset == 0,
-                        isFocused: lyrics.focus == segmentIndex,
-                        isActiveSearchMatch: segment.id == activeSearchMatchSegmentID,
-                        isSearchMatch: matchingSegmentIDs.contains(segment.id),
-                        player: player,
-                        lyrics: lyrics,
-                        picker: $picker,
-                        onSeek: { seek(to: segment.start, index: segmentIndex) },
-                        onPlay: { play(from: segment.start, index: segmentIndex) },
-                        onEdit: { onEdit(segment) }
-                    )
-                    .id(segment.id)
                 }
             }
+    }
+}
+
+/// The speaker chip and start time that open a speaker's turn in the reader.
+private struct ReaderTurnHeader: View {
+    let meeting: Meeting
+    let segment: Segment
+    @Binding var picker: PickerTarget?
+    let onSeek: () -> Void
+
+    var body: some View {
+        let look = meeting.look(segment.speaker)
+        let open = picker == .line(segment.id)
+        HStack(spacing: 8) {
+            Button {
+                picker = open ? nil : .line(segment.id)
+            } label: {
+                HStack(spacing: 8) {
+                    SpeakerPortrait(look: look, size: 22, fontSize: 11)
+                    Text(look.name).font(.system(size: 13, weight: .semibold))
+                    Icon(.chevronDown, size: 12, lineWidth: 2.6).opacity(0.7)
+                }
+                .foregroundStyle(look.unknown ? DS.accentInk : DS.text)
+                .padding(.leading, 4)
+                .padding(.trailing, 9)
+                .frame(height: 30)
+                .hoverFill(Capsule(), active: open, color: DS.hover)
+                .background(look.unknown && !open ? DS.Accent.blue.tint : .clear, in: .capsule)
+            }
+            .buttonStyle(.plain)
+            .disabled(meeting.status.isBusy)
+            .help(meeting.status.isBusy ? "Available when processing finishes" : "Change the speaker for this line")
+            .accessibilityLabel("Speaker: \(look.name). Change speaker")
+            .anchorPreference(key: PickerAnchors.self, value: .bounds) { open ? [.line: $0] : [:] }
+            .padding(.leading, -4)
+
+            Button(action: onSeek) {
+                Text(LineSpeaker.clock(segment.start))
+                    .font(.system(size: 12))
+                    .monospacedDigit()
+                    .foregroundStyle(DS.text2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .hoverFill(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Seek to \(LineSpeaker.clock(segment.start))")
+            .accessibilityLabel("Seek to \(LineSpeaker.clock(segment.start))")
+
+            Spacer(minLength: 0)
         }
-    }
-
-    private func seek(to time: Double, index: Int) {
-        picker = nil
-        lyrics.browse(to: index)
-        player?.seek(to: time)
-    }
-
-    private func play(from time: Double, index: Int) {
-        picker = nil
-        lyrics.focus = index
-        lyrics.following = true
-        player?.play(from: time)
     }
 }
 
@@ -551,22 +541,35 @@ private struct ReaderSegmentRow: View {
     let meeting: Meeting
     let segment: Segment
     let segmentIndex: Int
-    let isGroupLead: Bool
-    let isFocused: Bool
-    let isActiveSearchMatch: Bool
-    let isSearchMatch: Bool
+    /// Whether this line starts a speaker's turn, and so shows the turn's header above it.
+    let leadsTurn: Bool
     let player: PlayerModel?
     let lyrics: LyricsState
     @Binding var picker: PickerTarget?
-    let onSeek: () -> Void
-    let onPlay: () -> Void
     let onEdit: () -> Void
     @State private var hovering = false
 
     var body: some View {
-        let pickerOpenForRow = !isGroupLead && picker == .line(segment.id)
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Button(action: onSeek) {
+        if leadsTurn {
+            VStack(alignment: .leading, spacing: 8) {
+                ReaderTurnHeader(meeting: meeting, segment: segment, picker: $picker, onSeek: seek)
+                line
+            }
+        } else {
+            line
+        }
+    }
+
+    private var line: some View {
+        // Read here rather than passed in, so a focus or search change re-evaluates only the rows
+        // on screen instead of the whole transcript.
+        let isFocused = lyrics.focus == segmentIndex
+        let isActiveSearchMatch = lyrics.activeSearchMatchIndex(count: meeting.segments.count) == segmentIndex
+        let isSearchMatch = lyrics.matchSet.contains(segmentIndex)
+        // A turn's first line shares its picker anchor with the header's speaker chip.
+        let pickerOpenForRow = !leadsTurn && picker == .line(segment.id)
+        return HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Button(action: seek) {
                 Text(LineSpeaker.clock(segment.start))
                     .font(.system(size: 12, weight: isFocused || isActiveSearchMatch ? .semibold : .regular))
                     .monospacedDigit()
@@ -590,7 +593,7 @@ private struct ReaderSegmentRow: View {
             Spacer(minLength: 8)
 
             HStack(spacing: 2) {
-                Button(action: onPlay) {
+                Button(action: play) {
                     Icon(.play, size: 13, filled: true)
                         .foregroundStyle(DS.text2)
                         .frame(width: 24, height: 24)
@@ -643,7 +646,10 @@ private struct ReaderSegmentRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(rowBackground, in: .rect(cornerRadius: 12))
+        .background(
+            Self.background(active: isActiveSearchMatch, match: isSearchMatch, focused: isFocused),
+            in: .rect(cornerRadius: 12)
+        )
         .overlay {
             if isActiveSearchMatch {
                 RoundedRectangle(cornerRadius: 12)
@@ -652,8 +658,8 @@ private struct ReaderSegmentRow: View {
         }
         .onHover { hovering = $0 }
         .contextMenu {
-            Button("Seek to \(LineSpeaker.clock(segment.start))", action: onSeek)
-            Button("Play from Here", action: onPlay)
+            Button("Seek to \(LineSpeaker.clock(segment.start))", action: seek)
+            Button("Play from Here", action: play)
             Button("Edit Line…", action: onEdit)
                 .disabled(meeting.status.isBusy)
             Button("Change Speaker…") {
@@ -668,17 +674,24 @@ private struct ReaderSegmentRow: View {
         }
     }
 
-    private var rowBackground: Color {
-        if isActiveSearchMatch {
-            return DS.Accent.orange.tint
-        }
-        if isSearchMatch {
-            return DS.Accent.orange.tint.opacity(0.45)
-        }
-        if isFocused {
-            return DS.hover.opacity(0.65)
-        }
+    private static func background(active: Bool, match: Bool, focused: Bool) -> Color {
+        if active { return DS.Accent.orange.tint }
+        if match { return DS.Accent.orange.tint.opacity(0.45) }
+        if focused { return DS.hover.opacity(0.65) }
         return .clear
+    }
+
+    private func seek() {
+        picker = nil
+        lyrics.browse(to: segmentIndex)
+        player?.seek(to: segment.start)
+    }
+
+    private func play() {
+        picker = nil
+        lyrics.focus = segmentIndex
+        lyrics.following = true
+        player?.play(from: segment.start)
     }
 
     private func copy(_ text: String) {
