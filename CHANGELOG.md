@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.16.1
 
 - Choose **Lyrics** or **Reader** once for every meeting in **Settings → Transcribe → Transcript
   view**, instead of with a toggle above each transcript. Your current choice carries over.
