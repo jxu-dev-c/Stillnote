@@ -1,14 +1,25 @@
 import Foundation
 
-/// Presentation mode for a meeting's transcript page.
+/// How every meeting's transcript page is presented. One app-wide preference, chosen in
+/// Settings → Transcribe.
 public enum TranscriptDisplayMode: String, Codable, CaseIterable, Sendable {
     case lyrics
     case reader
+
+    /// The `UserDefaults` key holding the preference.
+    public static let defaultsKey = "stillnote.transcriptDisplayMode"
 
     public var label: String {
         switch self {
         case .lyrics: "Lyrics"
         case .reader: "Reader"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .lyrics: "One line at a time, following playback."
+        case .reader: "The full transcript as a document, grouped by speaker."
         }
     }
 }
@@ -39,25 +50,20 @@ public enum TranscriptReader {
     /// Groups consecutive segments with the same `speaker` into speaker turns, preserving
     /// each segment's original index in the meeting transcript.
     public static func groups(for segments: [Segment]) -> [TranscriptSpeakerGroup] {
+        // Collect each turn's lines before building its group: rebuilding the group per line
+        // copied the turn's lines every time, quadratic in a long monologue.
         var result: [TranscriptSpeakerGroup] = []
-        for (index, segment) in segments.enumerated() {
-            if let last = result.last, last.speaker == segment.speaker {
-                result[result.count - 1] = TranscriptSpeakerGroup(
-                    id: last.id,
-                    speaker: last.speaker,
-                    startIndex: last.startIndex,
-                    segments: last.segments + [segment]
-                )
-            } else {
-                result.append(
-                    TranscriptSpeakerGroup(
-                        id: segment.id,
-                        speaker: segment.speaker,
-                        startIndex: index,
-                        segments: [segment]
-                    )
-                )
-            }
+        var start = 0
+        while start < segments.count {
+            var end = start + 1
+            while end < segments.count, segments[end].speaker == segments[start].speaker { end += 1 }
+            result.append(TranscriptSpeakerGroup(
+                id: segments[start].id,
+                speaker: segments[start].speaker,
+                startIndex: start,
+                segments: Array(segments[start..<end])
+            ))
+            start = end
         }
         return result
     }

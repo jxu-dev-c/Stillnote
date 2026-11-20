@@ -319,7 +319,7 @@ struct MeetingListPane: View {
         }
         Divider()
         Button("Delete", role: .destructive) { delete(meeting) }
-            .disabled(meeting.status.isBusy)
+            .disabled(model.deletionBlocker(meeting.id) != nil)
     }
 
     // MARK: Actions
@@ -363,7 +363,7 @@ struct MeetingListPane: View {
     /// pointer arrived over it.
     private func canDelete(_ id: String) -> Bool {
         if id == RecordingSelection.id { return model.canDeleteRecording }
-        return model.libraryItem(id).map(SwipeState.canDelete) ?? false
+        return model.deletionBlocker(id) == nil
     }
 
     private func toggleStar(_ meeting: MeetingListItem) {
@@ -589,12 +589,6 @@ final class SwipeState {
     @ObservationIgnored var dragBase: CGFloat = 0
     @ObservationIgnored var justDragged = false
 
-    /// A meeting still being processed can't be deleted. The open meeting can; deleting it
-    /// closes it, as the detail's own Delete does.
-    static func canDelete(_ meeting: MeetingListItem) -> Bool {
-        !meeting.status.isBusy
-    }
-
     func offset(for id: String) -> CGFloat { self.id == id ? dx : 0 }
 
     func open(_ id: String, dx: CGFloat) {
@@ -632,7 +626,9 @@ private struct SwipeableMeetingRow: View {
 
     var body: some View {
         let dx = swipe.offset(for: meeting.id)
-        let canDelete = SwipeState.canDelete(meeting)
+        // A meeting still being processed can't be deleted (see `AppModel.deletionBlocker`). The
+        // open meeting can; deleting it closes it, as the detail's own Delete does.
+        let canDelete = model.deletionBlocker(meeting.id) == nil
         ZStack {
             if dx != 0 { underlay(dx) }
             Button(action: tap) {

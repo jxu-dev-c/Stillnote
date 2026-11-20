@@ -4,6 +4,7 @@ import SwiftUI
 /// The speech model, transcription defaults, and hot words.
 struct TranscribeSettingsPage: View {
     @Environment(AppModel.self) private var model
+    @AppStorage(TranscriptDisplayMode.defaultsKey) private var transcriptView: TranscriptDisplayMode = .lyrics
 
     var body: some View {
         SettingsSection("Speech model") {
@@ -33,6 +34,19 @@ struct TranscribeSettingsPage: View {
 
         SettingsSection("Hot words") {
             HotWordsCard()
+        }
+
+        SettingsSection("Transcript view") {
+            SettingsCard {
+                SettingsRow("View", caption: transcriptView.detail + " Applies to every meeting.") {
+                    Picker("Transcript view", selection: $transcriptView) {
+                        ForEach(TranscriptDisplayMode.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                }
+            }
         }
     }
 

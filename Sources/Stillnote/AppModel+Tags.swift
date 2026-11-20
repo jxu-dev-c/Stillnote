@@ -213,6 +213,7 @@ extension AppModel {
         }
         guard libraryItem(id) != nil else { return nil }
         guard let saved = await edit(id, { $0.addTags(live) }) else {
+            guard libraryItem(id) != nil else { return nil }
             throw ValidationError("The tags could not be saved.")
         }
         let added = live.filter { !meeting.tagIDs.contains($0) && saved.tagIDs.contains($0) }

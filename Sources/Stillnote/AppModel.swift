@@ -294,6 +294,9 @@ final class AppModel {
             let updated = try await store.update(id, mutate)
             await apply(updated)
             return updated
+        } catch StoreError.notFound where removedMeetingIDs.contains(id) {
+            // Deleted while a job was working on it; its result is dropped, not reported.
+            return nil
         } catch {
             report(error)
             return nil
@@ -322,11 +325,20 @@ final class AppModel {
         UserDefaults.standard.removeObject(forKey: NotesDraft.key(id))
     }
 
+    /// Why the meeting `id` can't be deleted right now, or nil when it can. Naming and tag
+    /// suggestions don't block deletion: both discard their result when the meeting is gone.
+    func deletionBlocker(_ id: String) -> String? {
+        if splittingMeetings.contains(id) { return "Wait for recording splitting to finish." }
+        if autoTaggingMeetings.contains(id) { return "Wait for speaker auto-tagging to finish." }
+        if libraryItem(id)?.status.isBusy ?? true { return "This meeting is processing. Wait for it to finish." }
+        return nil
+    }
+
     func delete(_ id: String) async {
-        guard !splittingMeetings.contains(id), !namingMeetings.contains(id),
-              !autoTaggingMeetings.contains(id) else { return }
-        guard let meeting = libraryItem(id), !meeting.status.isBusy else {
-            alertMessage = "This meeting is processing. Wait for it to finish."
+        // Callers hide the row while this runs, so a refusal must be explained, never silent:
+        // a silent one makes the meeting vanish and then reappear.
+        if let blocker = deletionBlocker(id) {
+            alertMessage = blocker
             return
         }
         do {
@@ -808,13 +820,14 @@ final class AppModel {
                     meeting: meeting, settings: settings, allowRemote: allowRemote, videoPath: videoPath
                 )
             }.value
-            await edit(id) {
+            // A meeting deleted meanwhile stays deleted, and nothing follows its summary.
+            guard await edit(id, {
                 $0.summary = summary
                 $0.status = .complete
                 $0.progress = 100
                 $0.stage = "Summary ready"
                 $0.error = nil
-            }
+            }) != nil else { return }
             // Naming takes its own agent slot; a new task frees this one for the next job first.
             if let suffix {
                 Task { [weak self] in
@@ -876,6 +889,7 @@ final class AppModel {
         // The meeting may have been deleted while the provider was working.
         guard self.libraryItem(id) != nil else { return nil }
         guard let named = await edit(id, { $0.applySuggestedTitle(title, suffix: suffix) }) else {
+            guard libraryItem(id) != nil else { return nil }
             throw ValidationError("The new title could not be saved.")
         }
         return named
